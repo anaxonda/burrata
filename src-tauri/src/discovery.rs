@@ -27,6 +27,8 @@ pub struct DiscoveryRequest {
     pub limit: Option<usize>,
     #[serde(default)]
     pub isrc: Option<String>,
+    #[serde(default)]
+    pub exact_video_url: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +119,19 @@ struct AudioPageCursor {
     progress: Option<String>,
     #[serde(default)]
     warnings: Vec<String>,
+}
+
+fn is_single_youtube_video_search(request: &DiscoveryRequest, source_id: &str) -> bool {
+    request.exact_video_url
+        && source_id == "youtube"
+        && request.source_ids.as_slice() == ["youtube"]
+        && request.cursor.is_none()
+        && request.isrc.is_none()
+        && request.kinds.iter().any(|kind| kind == "video")
+        && request
+            .kinds
+            .iter()
+            .all(|kind| matches!(kind.as_str(), "video" | "set"))
 }
 
 fn should_search_youtube_music(
@@ -334,7 +349,7 @@ pub async fn source_registry_with_remote(
     if let Some(remote) = remote {
         if let Some(youtube) = sources
             .iter_mut()
-            .find(|source| source.id == "youtube" && remote.browser_connected())
+            .find(|source| source.id == "youtube" && remote.provider_operations_ready("youtube"))
         {
             youtube.kinds.push("playlist".into());
             youtube.kinds.push("channel".into());
@@ -693,7 +708,8 @@ fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
         artwork_url: artwork.first().cloned(),
         genre: genre.clone(),
         normalized_genre: genre,
-        provenance: json!({"releaseGroupId":release.and_then(|release| release["release-group"]["id"].as_str()),
+        provenance: json!({"releaseId":release.and_then(|release| release["id"].as_str()).filter(|id| crate::spotify_mb_crosswalk::valid_mbid(id)),
+            "releaseGroupId":release.and_then(|release| release["release-group"]["id"].as_str()),
             "artworkAlternates":artwork,"catalog":{
             "provider":"musicbrainz","recordingId":rid,"artistCredit":credit_names,
             "artists":artist_refs,"isrcs":recording["isrcs"],"verified":true,
@@ -779,20 +795,11 @@ impl DiscoveryService {
         };
         let remote = self.remote_service();
         // A search for another provider must not wait on Spotify's browser session.
-        let mut sources = if registered_id == "spotify" {
+        let sources = if registered_id == "spotify" {
             source_registry_with_remote(&self.connections, remote.as_deref()).await?
         } else {
             source_registry(&self.connections)?
         };
-        if registered_id == "youtube"
-            && remote
-                .as_ref()
-                .is_some_and(|service| service.browser_connected())
-        {
-            if let Some(youtube) = sources.iter_mut().find(|source| source.id == "youtube") {
-                youtube.kinds.extend(["playlist".into(), "channel".into()]);
-            }
-        }
         let capability = sources.into_iter().find(|source| source.id == registered_id)
             .ok_or_else(|| format!("{source_id} is not a searchable catalog. Use My library to search saved/imported tracks."))?;
         if !capability.enabled {
@@ -1183,13 +1190,16 @@ impl DiscoveryService {
                         .filter(|kind| matches!(kind.as_str(), "playlist" | "channel"))
                         .cloned()
                         .collect();
-                    let catalog_result = match remote.as_ref() {
+                    let catalog_result = match remote
+                        .as_ref()
+                        .filter(|service| service.provider_operations_ready("youtube"))
+                    {
                         Some(service) => {
                             service
                                 .search_catalog("youtube", q, kinds, request.cursor.as_deref())
                                 .await
                         }
-                        None => Err("YouTube playlist and channel discovery is unavailable".into()),
+                        None => Err("YouTube playlist and channel search needs an active YouTube session or browser companion".into()),
                     };
                     match catalog_result {
                         Ok(page) => append_remote_catalog_results(&mut out, "youtube", &page),
@@ -1213,6 +1223,22 @@ impl DiscoveryService {
                     }
                 }
                 let settings = self.store.settings().map_err(|e| e.to_string())?;
+                // Only the initial video-only YouTube request can return
+                // a single, confirmed URL row ahead of ordinary search.
+                // The exact lookup shares the existing cancellable provider
+                // read future, and all misses fall through to current search.
+                if is_single_youtube_video_search(&request, source_id) {
+                    if let Some(track) = self
+                        .acquisition
+                        .search_exact_youtube_url(q, &settings)
+                        .await
+                    {
+                        let mut row = track_result(source_id, track);
+                        row.kind = "video".into();
+                        out.results.push(row);
+                        return Ok(out);
+                    }
+                }
                 let wants_track = kind_ok(&request, "track");
                 let wants_video = kind_ok(&request, "video") || kind_ok(&request, "set");
                 let remote_page_continuation = request
@@ -1863,6 +1889,7 @@ pub async fn search_source(
     limit: Option<usize>,
     isrc: Option<String>,
     search_id: Option<String>,
+    exact_video_url: bool,
 ) -> Result<DiscoveryPage, String> {
     if let Some(id) = search_id {
         return service.poll_slskd(&id).await;
@@ -1877,6 +1904,7 @@ pub async fn search_source(
                 cursor,
                 limit,
                 isrc,
+                exact_video_url,
             },
             &source,
         )
@@ -1905,6 +1933,49 @@ pub async fn enrich_search_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_youtube_search_does_not_replace_grouped_or_paginated_discovery() {
+        let request = DiscoveryRequest {
+            query: "https://youtu.be/UT4KozFa7KY".into(),
+            source_ids: vec!["youtube".into()],
+            kinds: vec!["video".into(), "set".into()],
+            cursor: None,
+            limit: Some(30),
+            isrc: None,
+            exact_video_url: true,
+        };
+        assert!(is_single_youtube_video_search(&request, "youtube"));
+        assert!(!is_single_youtube_video_search(&request, "soundcloud"));
+        for changed in [
+            DiscoveryRequest {
+                exact_video_url: false,
+                ..request.clone()
+            },
+            DiscoveryRequest {
+                kinds: vec!["set".into()],
+                ..request.clone()
+            },
+            DiscoveryRequest {
+                cursor: Some("2".into()),
+                ..request.clone()
+            },
+            DiscoveryRequest {
+                source_ids: vec!["youtube".into(), "soundcloud".into()],
+                ..request.clone()
+            },
+            DiscoveryRequest {
+                kinds: vec!["video".into(), "track".into()],
+                ..request.clone()
+            },
+            DiscoveryRequest {
+                kinds: vec![],
+                ..request
+            },
+        ] {
+            assert!(!is_single_youtube_video_search(&changed, "youtube"));
+        }
+    }
 
     #[test]
     fn monochrome_search_reports_unknown_coverage_without_fabricating_a_cursor() {
@@ -1986,6 +2057,7 @@ mod tests {
                     cursor: None,
                     limit: Some(10),
                     isrc: None,
+                    exact_video_url: false,
                 },
                 "monochrome",
             )
@@ -2030,6 +2102,136 @@ mod tests {
     use crate::browser_bridge::ProviderTransport;
     use serde_json::json;
     use std::sync::Arc;
+
+    struct CatalogTransportFixture {
+        active_provider: Option<&'static str>,
+        youtube_searches: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderTransport for CatalogTransportFixture {
+        fn provider_operations_supported(&self) -> bool {
+            self.active_provider.is_some()
+        }
+
+        fn provider_operations_supported_for(&self, provider: &str) -> bool {
+            self.active_provider == Some(provider)
+        }
+
+        async fn provider_operation(
+            &self,
+            provider: &str,
+            operation: &str,
+            args: Value,
+        ) -> Result<Value, String> {
+            assert_eq!(self.active_provider, Some(provider));
+            match (provider, operation) {
+                ("spotify", "status") => Ok(json!({})),
+                ("youtube", "search") => {
+                    self.youtube_searches
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let kind = args["kind"].as_str().unwrap();
+                    let (id, url) = match kind {
+                        "channel" => (
+                            "UC8TZwtZ17WKFJSmwTZQpBTA",
+                            "https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA",
+                        ),
+                        "playlist" => (
+                            "PLfixture",
+                            "https://www.youtube.com/playlist?list=PLfixture",
+                        ),
+                        _ => panic!("unexpected catalog kind"),
+                    };
+                    Ok(
+                        json!({"items":[{"id":id,"kind":kind,"url":url,"title":"Fixture"}],"nextCursor":null}),
+                    )
+                }
+                _ => panic!("unexpected provider operation"),
+            }
+        }
+
+        async fn provider_operation_cancellable(
+            &self,
+            provider: &str,
+            operation: &str,
+            args: Value,
+            _cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+        ) -> Result<Value, String> {
+            self.provider_operation(provider, operation, args).await
+        }
+    }
+
+    #[tokio::test]
+    async fn youtube_playlist_and_channel_kinds_follow_youtube_transport_readiness() {
+        for active_provider in [None, Some("spotify"), Some("youtube")] {
+            let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+            let connections = Arc::new(ConnectionManager::new(store.clone()));
+            let acquisition = Arc::new(AcquisitionManager::new_for_playback_test(
+                store.clone(),
+                connections.clone(),
+            ));
+            let service = DiscoveryService::new(
+                Arc::new(ArtistService::new(store.clone()).unwrap()),
+                acquisition,
+                store.clone(),
+                connections.clone(),
+            );
+            let transport = Arc::new(CatalogTransportFixture {
+                active_provider,
+                youtube_searches: Default::default(),
+            });
+            let remote = Arc::new(crate::remote_playlists::RemotePlaylistService::new(
+                store,
+                transport.clone(),
+            ));
+            let sources = source_registry_with_remote(&connections, Some(&remote))
+                .await
+                .unwrap();
+            let youtube = sources
+                .iter()
+                .find(|source| source.id == "youtube")
+                .unwrap();
+            assert!(
+                youtube.enabled
+                    && youtube.kinds.contains(&"track".into())
+                    && youtube.kinds.contains(&"video".into())
+            );
+            let youtube_ready = active_provider == Some("youtube");
+            assert_eq!(youtube.kinds.contains(&"playlist".into()), youtube_ready);
+            assert_eq!(youtube.kinds.contains(&"channel".into()), youtube_ready);
+            service.set_remote_service(remote);
+
+            for kind in ["channel", "playlist"] {
+                let page = service
+                    .search_source(
+                        serde_json::from_value(json!({
+                            "query": "Fixture",
+                            "sourceIds": ["youtube"],
+                            "kinds": [kind],
+                            "limit": 25
+                        }))
+                        .unwrap(),
+                        "youtube",
+                    )
+                    .await;
+                if youtube_ready {
+                    let page = page.unwrap();
+                    assert_eq!(page.results.len(), 1);
+                    assert_eq!(page.results[0].kind, kind);
+                } else {
+                    assert!(page
+                        .unwrap_err()
+                        .contains("active YouTube session or browser companion"));
+                }
+            }
+            assert_eq!(
+                transport
+                    .youtube_searches
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                if youtube_ready { 2 } else { 0 }
+            );
+        }
+    }
 
     struct FailingYoutubeCatalogTransport;
 
@@ -2112,6 +2314,7 @@ mod tests {
                     cursor: None,
                     limit: Some(25),
                     isrc: None,
+                    exact_video_url: false,
                 },
                 "youtube",
             )
@@ -2164,6 +2367,7 @@ mod tests {
                     cursor: None,
                     limit: Some(25),
                     isrc: None,
+                    exact_video_url: false,
                 },
                 "youtube",
             )

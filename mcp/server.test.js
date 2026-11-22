@@ -21,6 +21,7 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
   const directory = await mkdtemp(join(tmpdir(), 'burrata-mcp-'));
   const discoveryPath = join(directory, 'automation.json');
   const requests = [];
+  const libraryTool = { name: 'library_search', description: 'Search the local music library.', inputSchema: schema, scope: 'read' };
   let mode = 'ok';
   const app = createHttpServer(async (request, response) => {
     const chunks = [];
@@ -33,7 +34,7 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
       return;
     }
     if (request.url === '/automation/tools' && request.method === 'GET') {
-      response.end(JSON.stringify({ tools: [{ name: 'library_search', description: 'Search the local music library.', inputSchema: schema, scope: 'read' }] }));
+      response.end(JSON.stringify({ tools: [mode === 'registry_changed' ? { ...libraryTool, description: 'Updated registry.' } : libraryTool] }));
       return;
     }
     if (request.url === '/automation/call' && request.method === 'POST') {
@@ -78,8 +79,7 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
   try {
     await client.connect(transport);
     const listing = await client.listTools();
-    assert.equal(listing.tools.length, 1);
-    assert.equal(listing.tools[0].name, 'library_search');
+    assert.deepEqual(listing.tools.map((tool) => tool.name), ['library_search', 'get_bridge_status']);
     assert.deepEqual(listing.tools[0].inputSchema.required, ['query']);
     assert.equal(listing.tools[0].annotations.readOnlyHint, true);
 
@@ -95,6 +95,11 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
     assert.equal(result.content[0].text, 'Found results for ambient');
     assert.ok(requests.every((request) => request.authorization === `Bearer ${token}`));
     assert.deepEqual(requests[1].body, { name: 'library_search', arguments: { query: 'ambient' } });
+
+    const bridgeStatus = () => client.callTool({ name: 'get_bridge_status', arguments: {} });
+    assert.deepEqual((await bridgeStatus()).structuredContent, { bridge: 'running', appConnection: 'connected', registry: 'current' });
+    mode = 'registry_changed';
+    assert.deepEqual((await bridgeStatus()).structuredContent, { bridge: 'running', appConnection: 'connected', registry: 'restart_required' });
 
     const redacted = await client.callTool({ name: 'library_search', arguments: { query: 'leaky' } });
     assert.ok(!JSON.stringify(redacted).includes(token));
@@ -113,10 +118,67 @@ test('stdio proxy registers app tools and forwards authenticated calls using the
     assert.equal(unauthorized.isError, true);
     assert.equal(unauthorized.structuredContent.code, 'NETWORK_UNAVAILABLE');
     assert.ok(!JSON.stringify(unauthorized).includes(token));
+    assert.deepEqual((await bridgeStatus()).structuredContent, { bridge: 'running', appConnection: 'unauthorized', registry: 'unverified' });
     assert.ok(!Buffer.concat(stderrChunks).toString().includes(token));
   } finally {
     await client.close().catch(() => {});
     await new Promise((resolveClose) => app.close(resolveClose));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('bridge-local status stays available with absent and stale discovery and detects a later app connection', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'burrata-mcp-offline-'));
+  const discoveryPath = join(directory, 'automation.json');
+  const { NODE_TEST_CONTEXT: _testContext, ...serverEnvironment } = process.env;
+  const transport = new StdioClientTransport({
+    command: process.execPath, args: [resolve('mcp/server.js')], cwd: process.cwd(),
+    env: { ...serverEnvironment, BURRATA_AUTOMATION_FILE: discoveryPath }, stderr: 'pipe',
+  });
+  const client = new Client({ name: 'burrata-bridge-status-test', version: '1.0.0' });
+  const requests = [];
+  const privateRegistryDetail = 'registry-fixture-detail';
+  const app = createHttpServer((request, response) => {
+    requests.push({ path: request.url, method: request.method, authorization: request.headers.authorization });
+    response.setHeader('content-type', 'application/json');
+    response.setHeader('connection', 'close');
+    if (request.headers.authorization !== `Bearer ${token}` || request.url !== '/automation/tools') {
+      response.writeHead(401).end(JSON.stringify({ token, path: discoveryPath }));
+      return;
+    }
+    response.end(JSON.stringify({ tools: [{ name: 'get_app_status', description: privateRegistryDetail }] }));
+  });
+  const discoveryUrl = () => `http://127.0.0.1:${app.address().port}/automation`;
+  const bridgeStatus = () => client.callTool({ name: 'get_bridge_status', arguments: {} });
+  try {
+    await client.connect(transport);
+    const listing = await client.listTools();
+    assert.deepEqual(listing.tools.map((tool) => tool.name), ['get_bridge_status']);
+    assert.equal(listing.tools[0].annotations.readOnlyHint, true);
+    assert.deepEqual(await client.ping(), {});
+    assert.deepEqual((await bridgeStatus()).structuredContent, { bridge: 'running', appConnection: 'discovery_unavailable', registry: 'unverified' });
+
+    app.listen(0, '127.0.0.1');
+    await once(app, 'listening');
+    const stale = discoveryUrl();
+    await new Promise((done) => app.close(done));
+    await writeFile(discoveryPath, JSON.stringify({ url: stale, token }));
+    assert.deepEqual((await bridgeStatus()).structuredContent, { bridge: 'running', appConnection: 'connection_refused', registry: 'unverified' });
+
+    app.listen(0, '127.0.0.1');
+    await once(app, 'listening');
+    const current = discoveryUrl();
+    await writeFile(discoveryPath, JSON.stringify({ url: current, token }));
+    const connected = await bridgeStatus();
+    assert.deepEqual(connected.structuredContent, { bridge: 'running', appConnection: 'connected', registry: 'restart_required' });
+    for (const value of [current, discoveryPath, token, privateRegistryDetail, 'get_app_status']) {
+      assert.ok(!JSON.stringify(connected).includes(value));
+    }
+    assert.deepEqual(requests, [{ path: '/automation/tools', method: 'GET', authorization: `Bearer ${token}` }]);
+    assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name), ['get_bridge_status']);
+  } finally {
+    await client.close().catch(() => {});
+    if (app.listening) await new Promise((done) => app.close(done));
     await rm(directory, { recursive: true, force: true });
   }
 });
@@ -165,7 +227,7 @@ test('identify/cancel MCP tools preserve no-argument compatibility and forward o
     await client.connect(transport);
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
     const listing = await client.listTools();
-    assert.deepEqual(listing.tools.map((tool) => tool.name), ['identify_playing_track', 'cancel_playing_track_identification']);
+    assert.deepEqual(listing.tools.map((tool) => tool.name), ['identify_playing_track', 'cancel_playing_track_identification', 'get_bridge_status']);
     assert.deepEqual(listing.tools[0].inputSchema.required, []);
     assert.deepEqual(listing.tools[1].inputSchema.required, ['captureId']);
     await client.callTool({ name: 'identify_playing_track', arguments: {} });
@@ -313,7 +375,7 @@ test('reviewed playlist MCP tools forward explicit tokens and reject raw candida
     await client.connect(transport);
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
     const listing=await client.listTools();
-    assert.deepEqual(listing.tools.map(tool=>tool.name),['search_remote_playlist_writeback_candidates','get_playlist_sync_preview']);
+    assert.deepEqual(listing.tools.map(tool=>tool.name),['search_remote_playlist_writeback_candidates','get_playlist_sync_preview','get_bridge_status']);
     const candidateArgs={bindingId:'binding',localTrackId:'local'};
     const reviewedArgs={bindingId:'binding',reviewedMatches:[{localTrackId:'local',candidateToken:uuid}]};
     await client.callTool({name:'search_remote_playlist_writeback_candidates',arguments:candidateArgs});
@@ -366,7 +428,7 @@ test('verification intent tools enforce approval schemas through the authenticat
   try {
     await client.connect(transport);
     await t.test('registry retains strict schemas and mutating scopes do not become read-only hints',async()=>{
-      const listing=await client.listTools();assert.deepEqual(listing.tools.map(tool=>tool.name),tools.map(tool=>tool.name));
+      const listing=await client.listTools();assert.deepEqual(listing.tools.map(tool=>tool.name),[...tools.map(tool=>tool.name),'get_bridge_status']);
       for(let i=0;i<tools.length;i++){assert.deepEqual(listing.tools[i].inputSchema,tools[i].inputSchema);assert.notEqual(listing.tools[i].annotations?.readOnlyHint,true);}
       assert.equal(tools[0].scope,'control');assert.equal(tools[1].scope,'manage');
     });

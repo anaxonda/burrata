@@ -13,6 +13,10 @@ use std::{
 use tokio::sync::Mutex;
 use url::Url;
 
+#[path = "traxsource_release.rs"]
+mod release;
+pub(crate) use release::{TraxsourceReleaseEvidence, TraxsourceReleaseTrackEvidence};
+
 static REQUEST_GATE: OnceLock<Mutex<Instant>> = OnceLock::new();
 const BASE: &str = "https://www.traxsource.com";
 const MAX_PAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -34,7 +38,20 @@ impl Traxsource {
     }
 
     async fn page(&self, input: &str, detail: bool) -> Result<(String, String), String> {
-        let mut url = validate_page_url(input, detail)?;
+        self.scoped_page(input, detail, None).await
+    }
+
+    async fn scoped_page(
+        &self,
+        input: &str,
+        detail: bool,
+        scope: Option<&release::ExactPage>,
+    ) -> Result<(String, String), String> {
+        let validate = |input: &str| match scope {
+            Some(scope) => scope.validate(input),
+            None => validate_page_url(input, detail),
+        };
+        let mut url = validate(input)?;
         // Shared by every adapter instance, including instances created by commands.
         let gate = REQUEST_GATE.get_or_init(|| Mutex::new(Instant::now() - Duration::from_secs(1)));
         let mut previous = gate.lock().await;
@@ -60,7 +77,7 @@ impl Traxsource {
                 let target = url
                     .join(location)
                     .map_err(|_| "Invalid Traxsource redirect")?;
-                url = validate_page_url(target.as_str(), detail)?;
+                url = validate(target.as_str())?;
                 continue;
             }
             if !response.status().is_success() {

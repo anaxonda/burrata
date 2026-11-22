@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { observeArtwork } from "./lib/visible-artwork";
   import type { ArtworkUpgradeCandidate } from "./lib/fullscreen-artwork";
-  let { urls = [], upgradeCandidates = [], ambient = false }: { urls?: (string | null | undefined)[]; upgradeCandidates?: ArtworkUpgradeCandidate[]; ambient?: boolean } = $props();
-  const sources = $derived([...new Set(urls.filter((url): url is string => Boolean(url)))]);
+  let { urls = [], upgradeCandidates = [], ambient = false, artworkLookup }: { artworkLookup?: { key: string; load: () => Promise<string | null> }; urls?: (string | null | undefined)[]; upgradeCandidates?: ArtworkUpgradeCandidate[]; ambient?: boolean } = $props();
+  let loadedArtwork = $state<{ key: string; url: string } | null>(null);
+  const sources = $derived([...new Set([...urls, loadedArtwork?.key === artworkLookup?.key ? loadedArtwork?.url : null].filter((url): url is string => Boolean(url)))]);
   const signature = $derived(`${sources.join("\n")}\n--upgrade--\n${upgradeCandidates.map(candidate => candidate.url).join("\n")}`);
   let index = $state(0);
   let upgradedSource = $state<string | null>(null);
@@ -78,12 +80,17 @@
 </script>
 
 <span class="image-frame" aria-hidden="true">
+  {#if artworkLookup && !urls.some(Boolean)}
+    {@const lookup = artworkLookup}
+    {#key lookup.key}<span class="artwork-sentinel" use:observeArtwork={{ ...lookup, apply: url => loadedArtwork = { key: lookup.key, url } }}></span>{/key}
+  {/if}
   {#if source}<img src={source} alt="" loading="lazy" onload={onImageLoad} onerror={onImageError} />
     {#if ambient}<img class="artwork-ambient" src={source} alt="" loading="lazy" decoding="async" />{/if}
   {:else}<span class="placeholder">♫</span>{/if}
 </span>
 
 <style>
-  .image-frame{display:grid;place-items:center;width:100%;height:100%;overflow:hidden;border-radius:inherit;background:var(--raised)}
+  .artwork-sentinel{position:absolute;inset:0;pointer-events:none}
+  .image-frame{position:relative;display:grid;place-items:center;width:100%;height:100%;overflow:hidden;border-radius:inherit;background:var(--raised)}
   img:not(.artwork-ambient){width:100%;height:100%;object-fit:cover}.placeholder{color:var(--muted)}
 </style>

@@ -30,15 +30,37 @@ const ready=Promise.all([api.storage.local.get(['enabled','spotifyHashes','provi
   for(const [id,record] of providerOperations){if(record?.state==='running'&&!record.mutation){providerOperations.delete(id);recoveredRead=true;}}
   if(recoveredRead)await persistProviderOperations();
 });
-async function installTrackContextMenu(){
+const spotifyOpenPatterns=['track','artist','album','playlist'].flatMap(kind=>[
+  `https://open.spotify.com/${kind}/*`,
+  `https://open.spotify.com/intl-*/${kind}/*`,
+]);
+
+function canonicalSpotifyOpenLink(value) {
+  if (typeof value !== 'string' || value.length > 2048) return null;
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (url.origin !== 'https://open.spotify.com' || url.username || url.password || url.hash) return null;
+  const match = /^\/(?:intl-[a-z]{2}(?:-[A-Z]{2})?\/)?(track|artist|album|playlist)\/([a-zA-Z0-9]{22})$/.exec(url.pathname);
+  return match ? `https://open.spotify.com/${match[1]}/${match[2]}` : null;
+}
+
+async function installContextMenus(){
   if(!api.contextMenus?.removeAll||!api.contextMenus?.create)return;
   try{
     await api.contextMenus.removeAll();
     api.contextMenus.create({id:'burrata-add-track-to-playlist',title:'Add track to Burrata playlist',contexts:['link','page'],documentUrlPatterns:sites});
+    api.contextMenus.create({
+      id:'burrata-open-spotify-page', title:'Open in Burrata',
+      contexts:['page'], documentUrlPatterns:spotifyOpenPatterns,
+    });
+    api.contextMenus.create({
+      id:'burrata-open-spotify-link', title:'Open in Burrata',
+      contexts:['link'], targetUrlPatterns:spotifyOpenPatterns,
+    });
   }catch{/* The import popup remains available if this browser does not expose context menus. */}
 }
-void ready.then(installTrackContextMenu);
-api.runtime.onInstalled?.addListener(()=>{void installTrackContextMenu();});
+void ready.then(installContextMenus);
+api.runtime.onInstalled?.addListener(()=>{void installContextMenus();});
 async function addContextMenuTrack(info,tab){
   try{
     await ready;
@@ -66,8 +88,26 @@ async function addContextMenuTrack(info,tab){
     badge('!');
   }
 }
+async function openSpotifyContextLink(value) {
+  try {
+    await ready;
+    const url = canonicalSpotifyOpenLink(value);
+    if (!url) throw new Error('Choose a Spotify track, artist, album or playlist link.');
+    await native({type:'openSpotifyLink',url});
+    lastError = '';
+    lastContextAction = 'Sent Spotify link to Burrata.';
+    badge('✓');
+  } catch (error) {
+    lastError = error?.message || String(error);
+    lastContextAction = lastError;
+    badge('!');
+  }
+  try { await api.storage.local.set({lastContextAction}); } catch { /* The badge still reports the outcome. */ }
+}
 api.contextMenus?.onClicked?.addListener((info,tab)=>{
   if(info.menuItemId==='burrata-add-track-to-playlist')void addContextMenuTrack(info,tab);
+  if(info.menuItemId==='burrata-open-spotify-page')void openSpotifyContextLink(info.pageUrl || tab?.url);
+  if(info.menuItemId==='burrata-open-spotify-link')void openSpotifyContextLink(info.linkUrl);
 });
 const managedSessionReady=(async()=>{await ready;try{const response=await fetch(api.runtime.getURL('managed-session.json'));if(response.ok){const value=await response.json();if(typeof value.sessionId==='string'&&/^[A-Za-z0-9-]{16,128}$/.test(value.sessionId)){managedSessionId=value.sessionId;enabled=true;await api.storage.local.set({enabled:true});}}}catch{/* absent in the user-installed companion */}})();
 const errorResult=(code,message)=>{const error=new Error(message);error.code=code;return error;};
@@ -189,7 +229,7 @@ async function runProviderPageOperation(provider,operation,args,hashes){
     };
     const parseInitialData=html=>{for(const match of String(html).matchAll(/ytInitialData\s*=\s*/g)){let start=match.index+match[0].length;while(/\s/.test(html[start]||''))start++;if(html[start]!=='{')continue;let depth=0,inString=false,escaped=false;for(let i=start;i<html.length;i++){const ch=html[i];if(inString){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')inString=false;continue;}if(ch==='"'){inString=true;continue;}if(ch==='{')depth++;else if(ch==='}'&&!--depth){try{return JSON.parse(html.slice(start,i+1));}catch{break;}}}}return null;};
     const durationOf=value=>{const n=String(value||'').split(':').reduce((total,part)=>total*60+(Number(part)||0),0);return n||null;};
-    const decode=(root)=>{const out=[];const lockupText=value=>typeof value==='string'?value:first(value?.content,value?.text,value?.simpleText,value?.runs?.map(run=>run.text).join(''))||'';const walk=(v)=>{if(!v||typeof v!=='object')return;if(v.lockupViewModel){const x=v.lockupViewModel,metadata=x.metadata?.lockupMetadataViewModel||x.lockupMetadataViewModel||{},rows=metadata.metadata?.contentMetadataViewModel?.metadataRows||metadata.metadataRows||[],subtitle=rows.map(row=>(row.metadataParts||[]).map(part=>lockupText(part.text||part)).filter(Boolean).join('')).filter(Boolean).join(' • '),command=x.rendererContext?.commandContext?.onTap?.innertubeCommand||{},endpoint=command.browseEndpoint||command.watchEndpoint||{},rawId=first(x.contentId,endpoint.browseId,endpoint.playlistId),contentType=String(x.contentType||'').toLowerCase(),isChannel=contentType.includes('channel')||String(rawId||'').startsWith('UC'),isPlaylist=contentType.includes('playlist')||String(rawId||'').startsWith('PL')||String(rawId||'').startsWith('VL'),title=lockupText(metadata.title)||lockupText(x.title),artworkUrl=images(x.contentImage||x.thumbnail)||null;if(rawId&&title&&isChannel)out.push({id:rawId,kind:'channel',title,subtitle,url:`https://www.youtube.com/channel/${rawId}`,artworkUrl,data:{provider:'youtube',channelId:rawId}});else if(rawId&&title&&isPlaylist){const id=String(rawId).replace(/^VL/,'');out.push({id,kind:'playlist',title,subtitle,url:`https://www.youtube.com/playlist?list=${id}`,artworkUrl,data:{provider:'youtube',playlistId:id,total:null}});}}if(v.videoRenderer){const x=v.videoRenderer,id=x.videoId,title=textOf(x.title),channelName=textOf(x.ownerText||x.shortBylineText),durationSeconds=durationOf(x.lengthText?.simpleText),url=`https://www.youtube.com/watch?v=${id}`,artworkUrl=x.thumbnail?.thumbnails?.slice(-1)[0]?.url||null;if(id)out.push({id,kind:'track',title,subtitle:channelName,url,artworkUrl,data:{id,provider:'youtube',trackId:id,title,artist:'',...(channelName?{channelName}:{}),album:'',durationSeconds,url,artworkUrl,available:true}});}if(v.channelRenderer){const x=v.channelRenderer,id=x.channelId;if(id)out.push({id,kind:'channel',title:textOf(x.title),subtitle:textOf(x.subscriberCountText),url:`https://www.youtube.com/channel/${id}`,artworkUrl:x.thumbnail?.thumbnails?.slice(-1)[0]?.url||null,data:{provider:'youtube',channelId:id}});}if(v.musicResponsiveListItemRenderer){const x=v.musicResponsiveListItemRenderer,id=x.playlistItemData?.videoId||x.navigationEndpoint?.watchEndpoint?.videoId||x.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint?.videoId;const browseId=x.navigationEndpoint?.browseEndpoint?.browseId||x.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId;const columns=(x.flexColumns||[]).map(c=>textOf(c.musicResponsiveListItemFlexColumnRenderer?.text));const title=columns[0]||'';const recording=musicRecordingMetadata(x.flexColumns);const artist=recording.artistCredits.map(credit=>credit.name).join(', ');const channelName=musicChannelContext(x.flexColumns.slice(1));const durationSeconds=durationOf(viewText(x.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text));const url=id?`https://www.youtube.com/watch?v=${id}`:null;const artworkUrl=images(x.thumbnail);if(id)out.push({id,kind:'track',title,subtitle:channelName,url,artworkUrl,data:{id,provider:'youtube',trackId:id,title,artist,...recording,...(channelName?{channelName}:{}),durationSeconds,url,artworkUrl,available:true}});else if(browseId?.startsWith('UC'))out.push({id:browseId,kind:'channel',title:textOf(x.title),subtitle:artist,url:`https://www.youtube.com/channel/${browseId}`,artworkUrl:images(x.thumbnail),data:{provider:'youtube',channelId:browseId}});}if(v.playlistRenderer||v.gridPlaylistRenderer){const x=v.playlistRenderer||v.gridPlaylistRenderer,id=x.playlistId||x.navigationEndpoint?.watchEndpoint?.playlistId;if(id)out.push({id,kind:'playlist',title:textOf(x.title),subtitle:textOf(x.shortBylineText),url:`https://www.youtube.com/playlist?list=${id}`,artworkUrl:x.thumbnails?.[0]?.thumbnails?.slice(-1)[0]?.url||null,data:{provider:'youtube',playlistId:id,total:Number(x.videoCount)||null}});}if(v.musicTwoRowItemRenderer){const x=v.musicTwoRowItemRenderer,nav=x.navigationEndpoint||x.title?.runs?.[0]?.navigationEndpoint,id=nav?.browseEndpoint?.browseId||nav?.watchEndpoint?.playlistId;if(id&&String(id).startsWith('UC'))out.push({id,kind:'channel',title:textOf(x.title),subtitle:textOf(x.subtitle),url:`https://www.youtube.com/channel/${id}`,artworkUrl:images(x.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail),data:{provider:'youtube',channelId:id}});else if(id&&(String(id).startsWith('VL')||String(id).startsWith('PL'))){const playlistId=String(id).replace(/^VL/,'');out.push({id:playlistId,kind:'playlist',title:textOf(x.title),subtitle:textOf(x.subtitle),url:`https://www.youtube.com/playlist?list=${playlistId}`,artworkUrl:images(x.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail),data:{provider:'youtube',playlistId,total:null}});}}for(const k of Object.keys(v))walk(v[k]);};walk(root);const seen=new Set();return out.filter(x=>!seen.has(`${x.kind}:${x.id}`)&&(seen.add(`${x.kind}:${x.id}`),true));};
+    const decode=(root)=>{const out=[];const lockupText=value=>typeof value==='string'?value:first(value?.content,value?.text,value?.simpleText,value?.runs?.map(run=>run.text).join(''))||'';const walk=(v)=>{if(!v||typeof v!=='object')return;if(v.lockupViewModel){const x=v.lockupViewModel,metadata=x.metadata?.lockupMetadataViewModel||x.lockupMetadataViewModel||{},rows=metadata.metadata?.contentMetadataViewModel?.metadataRows||metadata.metadataRows||[],subtitles=rows.map(row=>(row.metadataParts||[]).map(part=>lockupText(part.text||part).trim()).filter(Boolean).join(' • ')).filter(Boolean),command=x.rendererContext?.commandContext?.onTap?.innertubeCommand||{},endpoint=command.browseEndpoint||command.watchEndpoint||{},rawId=first(x.contentId,endpoint.browseId,endpoint.playlistId),contentType=String(x.contentType||'').toLowerCase(),isChannel=contentType.includes('channel')||String(rawId||'').startsWith('UC'),isPlaylist=contentType.includes('playlist')||String(rawId||'').startsWith('PL')||String(rawId||'').startsWith('VL'),title=lockupText(metadata.title)||lockupText(x.title),artworkUrl=images(x.contentImage||x.thumbnail)||null;if(rawId&&title&&isChannel)out.push({id:rawId,kind:'channel',title,subtitle:subtitles.join(' • '),url:`https://www.youtube.com/channel/${rawId}`,artworkUrl,data:{provider:'youtube',channelId:rawId}});else if(rawId&&title&&isPlaylist){const id=String(rawId).replace(/^VL/,'');out.push({id,kind:'playlist',title,subtitle:subtitles[0]||'',url:`https://www.youtube.com/playlist?list=${id}`,artworkUrl,data:{provider:'youtube',playlistId:id,total:null}});}}if(v.videoRenderer){const x=v.videoRenderer,id=x.videoId,title=textOf(x.title),channelName=textOf(x.ownerText||x.shortBylineText),durationSeconds=durationOf(x.lengthText?.simpleText),url=`https://www.youtube.com/watch?v=${id}`,artworkUrl=x.thumbnail?.thumbnails?.slice(-1)[0]?.url||null;if(id)out.push({id,kind:'track',title,subtitle:channelName,url,artworkUrl,data:{id,provider:'youtube',trackId:id,title,artist:'',...(channelName?{channelName}:{}),album:'',durationSeconds,url,artworkUrl,available:true}});}if(v.channelRenderer){const x=v.channelRenderer,id=x.channelId;if(id)out.push({id,kind:'channel',title:textOf(x.title),subtitle:textOf(x.subscriberCountText),url:`https://www.youtube.com/channel/${id}`,artworkUrl:x.thumbnail?.thumbnails?.slice(-1)[0]?.url||null,data:{provider:'youtube',channelId:id}});}if(v.musicResponsiveListItemRenderer){const x=v.musicResponsiveListItemRenderer,id=x.playlistItemData?.videoId||x.navigationEndpoint?.watchEndpoint?.videoId||x.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint?.videoId;const browseId=x.navigationEndpoint?.browseEndpoint?.browseId||x.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId;const columns=(x.flexColumns||[]).map(c=>textOf(c.musicResponsiveListItemFlexColumnRenderer?.text));const title=columns[0]||'';const recording=musicRecordingMetadata(x.flexColumns);const artist=recording.artistCredits.map(credit=>credit.name).join(', ');const channelName=musicChannelContext(x.flexColumns.slice(1));const durationSeconds=durationOf(viewText(x.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text));const url=id?`https://www.youtube.com/watch?v=${id}`:null;const artworkUrl=images(x.thumbnail);if(id)out.push({id,kind:'track',title,subtitle:channelName,url,artworkUrl,data:{id,provider:'youtube',trackId:id,title,artist,...recording,...(channelName?{channelName}:{}),durationSeconds,url,artworkUrl,available:true}});else if(browseId?.startsWith('UC'))out.push({id:browseId,kind:'channel',title:textOf(x.title),subtitle:artist,url:`https://www.youtube.com/channel/${browseId}`,artworkUrl:images(x.thumbnail),data:{provider:'youtube',channelId:browseId}});}if(v.playlistRenderer||v.gridPlaylistRenderer){const x=v.playlistRenderer||v.gridPlaylistRenderer,id=x.playlistId||x.navigationEndpoint?.watchEndpoint?.playlistId;if(id)out.push({id,kind:'playlist',title:textOf(x.title),subtitle:textOf(x.shortBylineText),url:`https://www.youtube.com/playlist?list=${id}`,artworkUrl:x.thumbnails?.[0]?.thumbnails?.slice(-1)[0]?.url||null,data:{provider:'youtube',playlistId:id,total:Number(x.videoCount)||null}});}if(v.musicTwoRowItemRenderer){const x=v.musicTwoRowItemRenderer,nav=x.navigationEndpoint||x.title?.runs?.[0]?.navigationEndpoint,id=nav?.browseEndpoint?.browseId||nav?.watchEndpoint?.playlistId;if(id&&String(id).startsWith('UC'))out.push({id,kind:'channel',title:textOf(x.title),subtitle:textOf(x.subtitle),url:`https://www.youtube.com/channel/${id}`,artworkUrl:images(x.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail),data:{provider:'youtube',channelId:id}});else if(id&&(String(id).startsWith('VL')||String(id).startsWith('PL'))){const playlistId=String(id).replace(/^VL/,'');out.push({id:playlistId,kind:'playlist',title:textOf(x.title),subtitle:textOf(x.subtitle),url:`https://www.youtube.com/playlist?list=${playlistId}`,artworkUrl:images(x.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail),data:{provider:'youtube',playlistId,total:null}});}}for(const k of Object.keys(v))walk(v[k]);};walk(root);const seen=new Set();return out.filter(x=>!seen.has(`${x.kind}:${x.id}`)&&(seen.add(`${x.kind}:${x.id}`),true));};
     const nextToken=root=>{let token=null;const walk=(value,inContinuation=false)=>{if(!value||typeof value!=='object'||token)return;if(value.nextContinuationData?.continuation){token=value.nextContinuationData.continuation;return;}if(inContinuation&&value.continuationCommand?.token){token=value.continuationCommand.token;return;}if(value.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token){token=value.continuationItemRenderer.continuationEndpoint.continuationCommand.token;return;}if(value.continuationItemViewModel?.continuationCommand?.innertubeCommand?.continuationCommand?.token){token=value.continuationItemViewModel.continuationCommand.innertubeCommand.continuationCommand.token;return;}for(const [key,child] of Object.entries(value))walk(child,inContinuation||/continuationItem(?:Renderer|ViewModel)/i.test(key));};walk(root);return token;};
     if(operation==='connect'){const account=accountData();if(!account.isSignedIn)fail('SIGN_IN_REQUIRED','YouTube is open. Sign in here, then retry status.');return {accountId:account.accountId,displayName:account.displayName};}
     if(operation==='status'){const account=accountData();if(!account.isSignedIn)fail('SIGN_IN_REQUIRED','Sign in to YouTube in the browser, then retry.');return {accountId:account.accountId,displayName:account.displayName};}
@@ -507,7 +547,10 @@ api.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='enable'){
       enabled=message.enabled;await api.storage.local.set({enabled});
-      if(enabled)await poll();else{if(promptPollTimer!==null){clearTimeout(promptPollTimer);promptPollTimer=null;}port?.disconnect();}
+      if(enabled)await poll();else{
+        if(promptPollTimer!==null){clearTimeout(promptPollTimer);promptPollTimer=null;}
+        if(port)void native({type:'heartbeat'}).catch(()=>{}).finally(()=>{if(!enabled)port?.disconnect();});
+      }
       return {enabled};
     }
     if(message.type==='listTargetCollections'){

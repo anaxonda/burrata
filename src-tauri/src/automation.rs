@@ -128,6 +128,7 @@ impl PlayerPanel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum UiNavigationTarget {
     View(String),
+    LibraryTab(String),
     SettingsCategory(String),
     SettingsControl(String),
     SpotifyArtist(String),
@@ -141,7 +142,10 @@ enum UiNavigationTarget {
 impl UiNavigationTarget {
     fn kind(&self) -> &'static str {
         match self {
-            Self::View(_) | Self::SettingsCategory(_) | Self::SettingsControl(_) => "view",
+            Self::View(_)
+            | Self::LibraryTab(_)
+            | Self::SettingsCategory(_)
+            | Self::SettingsControl(_) => "view",
             Self::SpotifyArtist(_) => "spotify_artist",
             Self::CatalogArtist(_, _) => "catalog_artist",
             Self::CatalogRelease(_, _) => "catalog_release",
@@ -154,6 +158,7 @@ impl UiNavigationTarget {
     fn ack_key(&self) -> &str {
         match self {
             Self::View(view) => view,
+            Self::LibraryTab(_) => "library",
             Self::CatalogArtist(artist, _) => &artist.id,
             Self::CatalogRelease(_, release) => &release.id,
             Self::SettingsCategory(_) | Self::SettingsControl(_) => "settings",
@@ -167,6 +172,7 @@ impl UiNavigationTarget {
     fn payload(&self) -> Value {
         match self {
             Self::View(view) => json!({"kind":"view","view":view}),
+            Self::LibraryTab(tab) => json!({"kind":"view","view":"library","libraryTab":tab}),
             Self::SettingsCategory(category) => {
                 json!({"kind":"view","view":"settings","settingsCategory":category})
             }
@@ -314,6 +320,19 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
             "A supported settingsControl requires view=settings and settingsCategory=playback",
         ));
     }
+    if let Some(tab) = object.get("libraryTab") {
+        if object.len() == 2 && object.get("view").and_then(Value::as_str) == Some("library") {
+            if let Some(tab) = tab
+                .as_str()
+                .filter(|tab| matches!(*tab, "tracks" | "artists" | "albums"))
+            {
+                return Ok(UiNavigationTarget::LibraryTab(tab.to_owned()));
+            }
+        }
+        return Err(ToolError::bad(
+            "A supported libraryTab requires only view=library",
+        ));
+    }
     if object.len() != 1 {
         return Err(ToolError::bad("UI navigation accepts exactly one target"));
     }
@@ -377,6 +396,7 @@ fn sanitize_ui_navigation_completion(
     let mut result =
         json!({"status":status,"targetKind":expected.kind(),"destination":expected.ack_key()});
     match expected {
+        UiNavigationTarget::LibraryTab(tab) => result["libraryTab"] = json!(tab),
         UiNavigationTarget::CatalogArtist(artist, section) => {
             result["catalogArtist"] = json!(artist);
             result["catalogArtistSection"] = json!(section);
@@ -385,7 +405,14 @@ fn sanitize_ui_navigation_completion(
             result["catalogArtist"] = json!(artist);
             result["catalogRelease"] = json!(release);
         }
-        UiNavigationTarget::LocalPlaylist(id) => result["collectionId"] = json!(id),
+        UiNavigationTarget::LocalPlaylist(id) => {
+            result["collectionId"] = json!(id);
+            if status == "failed" {
+                result["reason"] = json!(
+                    "Could not open this ID as a saved local playlist. Use collectionId for saved local playlists."
+                );
+            }
+        }
         UiNavigationTarget::SettingsCategory(category) => {
             result["settingsCategory"] = json!(category)
         }
@@ -398,6 +425,7 @@ fn sanitize_ui_navigation_completion(
     if matches!(
         expected,
         UiNavigationTarget::SpotifyPlaylist(_)
+            | UiNavigationTarget::LibraryTab(_)
             | UiNavigationTarget::HistoryDirection(_)
             | UiNavigationTarget::CatalogArtist(_, _)
             | UiNavigationTarget::CatalogRelease(_, _)
@@ -4252,12 +4280,12 @@ impl AutomationService {
                     }
                     Ok(result)
                 });
-            let _ = pending.tx.send(result);
-        }
-        if let Ok(mut active) = self.ui_navigation_active.lock() {
-            if active.as_deref() == Some(id) {
-                *active = None;
+            if let Ok(mut active) = self.ui_navigation_active.lock() {
+                if active.as_deref() == Some(id) {
+                    *active = None;
+                }
             }
+            let _ = pending.tx.send(result);
         }
     }
     async fn navigate_ui(&self, target: UiNavigationTarget) -> Result<Value, ToolError> {
@@ -5261,6 +5289,7 @@ impl AutomationService {
                     cursor: discovery_cursor_arg(&a)?,
                     limit: usize_arg(&a, "limit", 100)?.or(Some(25)),
                     isrc: a.get("isrc").and_then(Value::as_str).map(str::to_owned),
+                    exact_video_url: false,
                 };
                 let discovery = DiscoveryService::new(
                     self.artists.clone(),
@@ -5551,6 +5580,9 @@ impl AutomationService {
                         .await
                     })
                     .await
+                    .map_err(ToolError::failed)?;
+                self.store
+                    .cache_missing_tracks(&page.tracks)
                     .map_err(ToolError::failed)?;
                 serde_json::to_value(page)
                     .map_err(|_| ToolError::failed("YouTube channel page serialization failed"))?
@@ -6365,6 +6397,7 @@ impl AutomationService {
                         cursor: None,
                         limit: Some(50),
                         isrc: None,
+                        exact_video_url: false,
                     })
                     .await;
                 let mut found = Vec::new();
@@ -6884,10 +6917,7 @@ impl AutomationService {
             }
             "get_playback_diagnostics_status" => json!(crate::playback_diagnostics::status()),
             "get_playback_diagnostics_report" => {
-                require_no_arguments(&a, name)?;
-                let mut report = json!(crate::playback_diagnostics::export());
-
-                report
+                playback_diagnostics_report(&a, crate::playback_diagnostics::export)?
             }
             "clear_playback_diagnostics" => json!(crate::playback_diagnostics::clear()),
             "get_acquisition_preferences" => {
@@ -7283,6 +7313,84 @@ enum PlaybackHistoryTool {
     Search,
     Entry,
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PlaybackDiagnosticsPage {
+    operation_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    #[serde(default)]
+    include_details: bool,
+}
+
+fn playback_diagnostics_report(
+    arguments: &Value,
+    load: impl FnOnce() -> crate::playback_diagnostics::PlaybackDiagnosticsExport,
+) -> Result<Value, ToolError> {
+    let object = arguments
+        .as_object()
+        .ok_or_else(|| ToolError::bad("Playback diagnostics arguments must be an object"))?;
+    if object.is_empty() {
+        return Ok(json!(load()));
+    }
+    let page: PlaybackDiagnosticsPage = serde_json::from_value(arguments.clone())
+        .map_err(|_| ToolError::bad("Invalid playback diagnostics arguments"))?;
+    let limit = page.limit.unwrap_or(25);
+    let offset = page.offset.unwrap_or(0);
+    let operation = page.operation_id.as_deref();
+    if !(1..=100).contains(&limit)
+        || offset > crate::playback_diagnostics::MAX_EVENTS
+        || operation.is_some_and(|id| {
+            id.is_empty()
+                || id.len() > 128
+                || !id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+    {
+        return Err(ToolError::bad(
+            "Playback diagnostics filters are out of bounds",
+        ));
+    }
+
+    let mut report = load();
+    if let Some(id) = operation {
+        report.events.retain(|event| {
+            event.native_operation_id.as_deref() == Some(id)
+                || event.native_seek_operation_id.as_deref() == Some(id)
+                || event.resolution_id == id
+        });
+        report.native_playback.retain(|event| {
+            ["operationId", "seekOperationId"]
+                .iter()
+                .any(|field| event.playback[*field].as_str() == Some(id))
+        });
+    }
+    let event_total = report.events.len();
+    let native_total = report.native_playback.len();
+    // Offsets are counted from the newest event. Rows within a page remain
+    // chronological, as in the full report.
+    let range = |total: usize| {
+        let end = total.saturating_sub(offset);
+        end.saturating_sub(limit)..end
+    };
+    let mut events: Vec<_> = report.events.drain(range(event_total)).collect();
+    if !page.include_details {
+        for event in &mut events {
+            event.details.clear();
+        }
+    }
+    let native_playback: Vec<_> = report.native_playback.drain(range(native_total)).collect();
+    let next = offset + limit;
+    Ok(json!({
+        "schemaVersion":report.schema_version, "status":report.status,
+        "events":events, "nativePlayback":native_playback, "nativeCoverage":report.native_coverage,
+        "page":{"eventTotal":event_total,"nativeTotal":native_total,"limit":limit,"offset":offset,
+            "nextOffset":(next < event_total.max(native_total)).then_some(next)}
+    }))
+}
+
 fn require_no_arguments(arguments: &Value, tool_name: &str) -> Result<(), ToolError> {
     if arguments
         .as_object()
@@ -8773,8 +8881,8 @@ fn tool_definitions() -> Vec<Value> {
  ("identify_playing_track","Identify current audio on explicit request; returns a separate result without editing tags", "control"),
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
  ("play_tracks_queued","Accept an exact playback queue without waiting for sound; caller UUID permits receipt recovery", "control"),("get_playback_operation","Get queued playback operation status by caller UUID", "control"),("cancel_playback_operation","Cancel only the named playback operation; supports pre-cancel", "control"),
- ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
- ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("browse_soulseek_directory","List exact audio files in a Soulseek peer directory; source-reported metadata", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("get_acquisition_preferences","Read only the live BPM toggle and download folder layout", "read"),("set_live_bpm_enabled","Set whether live BPM analysis is enabled", "manage"),("set_download_layout","Set the download folder layout", "manage"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().filter(|(name,_,_)| *name != "capture_webview_stereo_diagnostic" || webview_stereo_diagnostic_environment_enabled()).map(|(name,description,_scope)|{
+ ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs and wait for playback to start. Use play_tracks_queued for an immediate queue acceptance receipt and operation ID.", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
+ ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("browse_soulseek_directory","List exact audio files in a Soulseek peer directory; source-reported metadata", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized playback diagnostics. Supply operationId or a limit for a bounded page of recent events. Empty arguments export the full report.", "read"),("get_acquisition_preferences","Read only the live BPM toggle and download folder layout", "read"),("set_live_bpm_enabled","Set whether live BPM analysis is enabled", "manage"),("set_download_layout","Set the download folder layout", "manage"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().filter(|(name,_,_)| *name != "capture_webview_stereo_diagnostic" || webview_stereo_diagnostic_environment_enabled()).map(|(name,description,_scope)|{
  let scope=tool_scope(name).unwrap_or("read");
  let (properties,required)=match name{
  "preview_verification_playlist_intent"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]}}),json!(["provider"])),
@@ -8844,6 +8952,7 @@ fn tool_definitions() -> Vec<Value> {
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),"get_release_editions"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema(),"cursor":{"type":"string"}}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
  "inspect_native_output"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
+ "get_playback_diagnostics_report"=>(json!({"operationId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"},"limit":{"type":"integer","minimum":1,"maximum":100},"offset":{"type":"integer","minimum":0,"maximum":2000,"description":"Offset from the newest event in the current buffer"},"includeDetails":{"type":"boolean"}}),json!([])),
  "set_live_bpm_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),
  "set_download_layout"=>(json!({"layout":{"type":"string","enum":["flat","artistAlbum","playlist"]}}),json!(["layout"])),
  "resize_app_window"=>(json!({"width":{"type":"integer","minimum":320,"maximum":7680},"height":{"type":"integer","minimum":240,"maximum":4320},"restoreMaximized":{"type":"boolean","description":"Whether to maximize the window after resizing; omitted preserves its prior maximized state."}}),json!(["width","height"])),
@@ -8861,6 +8970,10 @@ fn tool_definitions() -> Vec<Value> {
  {"type":"object","properties":{"action":{"const":"drag"},"from":index,"to":index},"required":["action","from","to"],"additionalProperties":false}]}); }
  if name=="navigate_ui" { input_schema["properties"]["collectionId"]=json!({"type":"string","minLength":1,"maxLength":300,"description":"Exact saved local playlist ID"}); input_schema["oneOf"]=json!([{"required":["view"]},{"required":["collectionId"]},{"required":["catalogArtist","catalogRelease"],"not":{"required":["catalogArtistSection"]}},{"required":["spotifyArtistId"]},{"required":["spotifyProfileId"]},{"required":["spotifyPlaylistId"]},{"required":["historyDirection"]},{"required":["catalogArtist"],"not":{"required":["catalogRelease"]}}]); input_schema["if"]=json!({"required":["settingsCategory"]}); input_schema["then"]=json!({"required":["view"],"properties":{"view":{"const":"settings"}}}); input_schema["allOf"]=json!([{"if":{"required":["settingsControl"]},"then":{"required":["view","settingsCategory"],"properties":{"view":{"const":"settings"},"settingsCategory":{"const":"playback"}}}},{"if":{"required":["catalogArtistSection"]},"then":{"required":["catalogArtist"]}}]); }
  if name=="navigate_ui" { input_schema["properties"]["catalogRelease"]=catalog_identity_schema(); }
+ if name=="navigate_ui" {
+    input_schema["properties"]["libraryTab"]=json!({"type":"string","enum":["tracks","artists","albums"],"description":"Open a Library tab; requires view=library"});
+    input_schema["allOf"].as_array_mut().unwrap().push(json!({"if":{"required":["libraryTab"]},"then":{"required":["view"],"properties":{"view":{"const":"library"}}}}));
+ }
  if name=="download_loaded_catalog_release_album" { input_schema["properties"]["catalogArtist"]=catalog_identity_schema();input_schema["properties"]["catalogRelease"]=catalog_identity_schema(); }
  json!({"name":name,"description":description,"scope":scope,"inputSchema":input_schema})
  }).collect()
@@ -8869,6 +8982,64 @@ fn tool_definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_diagnostics_pages_filter_exact_operation_ids_and_keep_full_exports() {
+        let fixture = || {
+            serde_json::from_value(json!({
+                "schemaVersion":1,
+                "status":{"enabled":true,"eventCount":3,"maxEvents":2000,"droppedEvents":0},
+                "events":[
+                    {"resolutionId":"resolution-a","nativeOperationId":"play-a","atUnixMs":1,"elapsedMs":10,
+                        "phase":"resolution_start","provider":"youtube","details":{"eligible":1}},
+                    {"resolutionId":"resolution-b","nativeOperationId":"play-b","atUnixMs":2,"elapsedMs":20,
+                        "phase":"resolution_start","provider":"youtube","details":{}},
+                    {"resolutionId":"resolution-a","nativeSeekOperationId":"play-a","atUnixMs":3,"elapsedMs":30,
+                        "phase":"decoder_end","provider":"youtube","details":{"durationMs":30}}
+                ],
+                "nativePlayback":[
+                    {"sequence":1,"atUnixMs":1,"elapsedMs":1,"moment":"snapshot","playback":{"operationId":"play-b"}},
+                    {"sequence":2,"atUnixMs":3,"elapsedMs":3,"moment":"snapshot","playback":{"seekOperationId":"play-a"}}
+                ]
+            }))
+            .unwrap()
+        };
+        let full = playback_diagnostics_report(&json!({}), fixture).unwrap();
+        assert_eq!(full["events"].as_array().unwrap().len(), 3);
+        assert_eq!(full["events"][0]["details"]["eligible"], 1);
+        assert!(full.get("page").is_none());
+
+        let recent =
+            playback_diagnostics_report(&json!({"operationId":"play-a","limit":1}), fixture)
+                .unwrap();
+        assert_eq!(recent["events"][0]["phase"], "decoder_end");
+        assert_eq!(recent["events"][0]["details"], json!({}));
+        assert_eq!(recent["nativePlayback"][0]["sequence"], 2);
+        assert_eq!(recent["page"]["nextOffset"], 1);
+        assert_eq!(recent["page"]["eventTotal"], 2);
+
+        let older = playback_diagnostics_report(
+            &json!({"operationId":"play-a","limit":1,"offset":1,"includeDetails":true}),
+            fixture,
+        )
+        .unwrap();
+        assert_eq!(older["events"][0]["details"]["eligible"], 1);
+        assert_eq!(older["nativePlayback"], json!([]));
+        assert!(older["page"]["nextOffset"].is_null());
+        for input in [
+            json!({"limit":101}),
+            json!({"offset":2001}),
+            json!({"operationId":"play a"}),
+            json!({"unknown":true}),
+            json!([]),
+        ] {
+            assert!(playback_diagnostics_report(&input, || panic!(
+                "invalid inputs must not read the buffer"
+            ))
+            .is_err());
+        }
+    }
+
     fn release_download_arguments() -> Value {
         json!({
             "operationId":"123e4567-e89b-42d3-a456-426614174000",
@@ -10043,6 +10214,20 @@ mod tests {
     }
 
     #[test]
+    fn failed_local_playlist_navigation_explains_the_route_scope() {
+        let target = UiNavigationTarget::LocalPlaylist("playlist-id".into());
+        let failed = sanitize_ui_navigation_completion(&target, "playlist-id", "failed").unwrap();
+        assert_eq!(failed["status"], "failed");
+        assert!(failed["reason"]
+            .as_str()
+            .unwrap()
+            .contains("saved local playlist"));
+        let complete =
+            sanitize_ui_navigation_completion(&target, "playlist-id", "complete").unwrap();
+        assert!(complete.get("reason").is_none());
+    }
+
+    #[test]
     fn ui_navigation_settings_categories_are_finite_and_settings_only() {
         for category in UI_SETTINGS_CATEGORIES {
             let target = parse_ui_navigation_request(
@@ -10296,6 +10481,31 @@ mod tests {
     }
 
     #[test]
+    fn navigation_can_open_only_known_library_tabs() {
+        let target =
+            parse_ui_navigation_request(&json!({"view":"library","libraryTab":"artists"})).unwrap();
+        assert_eq!(
+            target.payload(),
+            json!({"kind":"view","view":"library","libraryTab":"artists"})
+        );
+        let receipt = sanitize_ui_navigation_completion(&target, "library", "complete").unwrap();
+        assert_eq!(receipt["libraryTab"], "artists");
+        assert_eq!(receipt["completionScope"], "route_transition");
+        assert!(
+            parse_ui_navigation_request(&json!({"view":"downloads","libraryTab":"artists"}))
+                .is_err()
+        );
+        assert!(
+            parse_ui_navigation_request(&json!({"view":"library","libraryTab":"playlists"}))
+                .is_err()
+        );
+        assert!(parse_ui_navigation_request(
+            &json!({"view":"library","libraryTab":"artists","collectionId":"another"})
+        )
+        .is_err());
+    }
+
+    #[test]
     fn navigate_ui_tool_is_control_scoped_and_bounded() {
         let tool = tool_definitions()
             .into_iter()
@@ -10320,6 +10530,7 @@ mod tests {
                 "catalogRelease",
                 "collectionId",
                 "historyDirection",
+                "libraryTab",
                 "settingsCategory",
                 "settingsControl",
                 "spotifyArtistId",

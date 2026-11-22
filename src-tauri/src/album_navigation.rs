@@ -44,7 +44,9 @@ pub enum AlbumResolution {
 fn key(value: &str) -> String {
     crate::recording_identity::search_fold(value)
 }
-const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v4";
+const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v5";
+const MEMBERSHIP_CHOICES_CACHE: &str = "navigation.album-choices.v1";
+const MEMBERSHIP_TTL: u64 = 30 * 24 * 60 * 60;
 fn cache_key(track: &Track) -> String {
     format!(
         "{:x}",
@@ -53,7 +55,14 @@ fn cache_key(track: &Track) -> String {
                 "id":track.id,"provider":track.provider,"providerId":track.provider_id,
                 "title":track.title,"artist":track.artist,"album":track.album,
                 "albumArtist":track.album_artist,"duration":track.duration_seconds,
-                "version":track.version,"isrc":track.isrc,"provenance":track.provenance
+                "version":track.version,"isrc":track.isrc,"sourceUrl":track.source_url,
+                "playbackRange":track.playback_range,
+                "sourceKind":track.provenance["sourceKind"],
+                "albumBrowseId":track.provenance["albumBrowseId"],
+                "artistCredits":crate::recording_identity::declared_credit_names(track),
+                "identity":crate::recording_identity::RecordingIdentity::from_track(track),
+                "recordingContext":track.provenance["recordingContext"],
+                "manualFields":track.provenance["manualFields"]
             })
             .to_string()
             .as_bytes()
@@ -114,20 +123,29 @@ pub fn recording_member(request: &Track, tracks: &[Track]) -> bool {
 
 // Radio song metadata often has no duration. For album navigation, require
 // the station's album, artist and song to agree with the catalog tracklist.
-fn radio_album_member(request: &Track, release: &ArtistReleaseRef, tracks: &[Track]) -> bool {
+fn radio_without_duration(track: &Track) -> bool {
+    track.provider == "radio_song"
+        && track.provenance["sourceKind"] == "radioSong"
+        && track.duration_seconds.is_none()
+}
+
+pub(crate) fn radio_album_member(
+    request: &Track,
+    album_title: &str,
+    edition_artist: Option<&ArtistRef>,
+    tracks: &[Track],
+) -> bool {
     let title = key(&request.title);
     let artist = key(&request.artist);
     let identity = crate::recording_identity::RecordingIdentity::from_track(request);
-    if request.provider != "radio_song"
-        || request.provenance["sourceKind"] != "radioSong"
-        || request.duration_seconds.is_some()
+    if !radio_without_duration(request)
         || title.is_empty()
         || artist.is_empty()
         || identity.identifier_conflict
         || request
             .album
             .as_deref()
-            .is_none_or(|album| key(album) != key(&release.title))
+            .is_none_or(|album| key(album) != key(album_title))
     {
         return false;
     }
@@ -135,7 +153,20 @@ fn radio_album_member(request: &Track, release: &ArtistReleaseRef, tracks: &[Tra
         .iter()
         .filter(|member| {
             key(&member.title) == title
-                && key(&member.artist) == artist
+                && (key(&member.artist) == artist
+                    || edition_artist.is_some_and(|edition_artist| {
+                        // MusicBrainz can credit the same performer differently on
+                        // the recording and its edition. Require the exact artist
+                        // ID on the song and the station's credit on the edition.
+                        edition_artist.provider == "musicbrainz"
+                            && member.provenance["catalogProvider"] == "musicbrainz"
+                            && member.album_artist.as_deref().is_some_and(|name| key(name) == artist)
+                            && member.provenance["artistCredits"].as_array().is_some_and(|credits| {
+                                matches!(credits.as_slice(), [credit]
+                                    if credit["artist"]["provider"] == "musicbrainz"
+                                        && credit["artist"]["id"].as_str() == Some(edition_artist.id.as_str()))
+                            })
+                    }))
                 && member.version.as_deref().map(key) == request.version.as_deref().map(key)
                 && match (request.isrc.as_deref(), member.isrc.as_deref()) {
                     (Some(a), Some(b)) => crate::recording_identity::normalize_isrc(a)
@@ -146,6 +177,297 @@ fn radio_album_member(request: &Track, release: &ArtistReleaseRef, tracks: &[Tra
         })
         .count()
         == 1
+}
+
+async fn resolve_credited_radio_edition(
+    artists: &crate::artists::ArtistService,
+    credentials: &crate::artists::ArtistCredentials,
+    track: &Track,
+    album: &str,
+) -> Option<AlbumResolution> {
+    if !radio_without_duration(track) {
+        return None;
+    }
+    let editions = artists
+        .find_musicbrainz_credited_editions(album, &track.artist)
+        .await?;
+    let mut verified_groups = std::collections::HashSet::new();
+    let mut choices = Vec::new();
+    let group_count = editions
+        .iter()
+        .map(|(_, _, group)| group)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    for (release, artist, group) in editions.into_iter().take(6) {
+        if verified_groups.contains(&group) {
+            continue;
+        }
+        let Ok(tracks) = artists
+            .get_release_tracks(&release, &artist, credentials)
+            .await
+        else {
+            continue;
+        };
+        if !verified_edition_tracks(&release, &group, &tracks) {
+            continue;
+        }
+        let Some(release) = fetched_edition(release, &tracks) else {
+            continue;
+        };
+        if radio_album_member(track, &release.title, Some(&artist), &tracks) {
+            verified_groups.insert(group);
+            choices.push(AlbumChoice {
+                release,
+                artist,
+                reason: "Station metadata matches a single song on this album".into(),
+                evidence: AlbumMembershipEvidence::RadioTracklistMatch,
+            });
+        }
+    }
+    select_verified_albums(choices, group_count == 1)
+}
+
+fn select_verified_albums(
+    mut choices: Vec<AlbumChoice>,
+    complete: bool,
+) -> Option<AlbumResolution> {
+    match choices.len() {
+        0 => None,
+        1 if complete => Some(AlbumResolution::Resolved {
+            destination: choices.remove(0),
+        }),
+        _ => Some(AlbumResolution::Ambiguous { choices }),
+    }
+}
+
+fn verified_edition_tracks(release: &ArtistReleaseRef, group: &str, tracks: &[Track]) -> bool {
+    complete_catalog_timeline(tracks)
+        && tracks[0].provenance["releaseId"] == release.release.id
+        && (group == release.release.id || tracks[0].provenance["releaseGroupId"] == group)
+}
+
+struct RecordingAlbumHint {
+    recording_id: String,
+    release: ArtistReleaseRef,
+    artist: ArtistRef,
+    group: String,
+    priority: u8,
+}
+
+fn recording_album_releases(
+    track: &Track,
+    title: &crate::recording_identity::ParsedRecordingTitle,
+    performers: &[String],
+    isrc: Option<&str>,
+    response: &serde_json::Value,
+) -> Option<Vec<RecordingAlbumHint>> {
+    use crate::recording_identity::{normalize_isrc, parse_title};
+    use crate::spotify_mb_crosswalk::valid_mbid;
+    let recordings = response["recordings"].as_array()?;
+    if response["offset"].as_u64() != Some(0)
+        || response["count"].as_u64() != Some(recordings.len() as u64)
+        || recordings.len() > 12
+    {
+        return None;
+    }
+    let expected_version = track
+        .version
+        .as_deref()
+        .or(title.version.as_deref())
+        .map(key);
+    let names = |row: &serde_json::Value| -> Option<Vec<String>> {
+        row["artist-credit"]
+            .as_array()?
+            .iter()
+            .map(|credit| credit["name"].as_str().map(key))
+            .collect()
+    };
+    let expected_names = performers
+        .iter()
+        .map(|artist| key(artist))
+        .collect::<Vec<_>>();
+    let album = track.album.as_deref().map(key);
+    let mut hints = Vec::new();
+    for recording in recordings {
+        let Some(recording_id) = recording["id"].as_str().filter(|id| valid_mbid(id)) else {
+            continue;
+        };
+        let Some(credited_title) = recording["title"].as_str().map(parse_title) else {
+            continue;
+        };
+        if key(&credited_title.title) != key(&title.title)
+            || credited_title.version.as_deref().map(key) != expected_version
+            || credited_title.soundtrack.as_deref().map(key) != title.soundtrack.as_deref().map(key)
+            || credited_title
+                .featured_credit
+                .as_deref()
+                .is_some_and(|guest| performers.get(1).is_none_or(|name| key(guest) != key(name)))
+            || names(recording).as_ref() != Some(&expected_names)
+            || isrc.is_some_and(|expected| {
+                !recording["isrcs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|item| item.as_str().and_then(normalize_isrc).as_deref() == Some(expected))
+            })
+            || track.duration_seconds.is_some_and(|seconds| {
+                !recording["length"]
+                    .as_u64()
+                    .is_some_and(|ms| (seconds - ms as f64 / 1000.0).abs() <= 2.0)
+            })
+        {
+            continue;
+        }
+        let Some(artist_id) = recording["artist-credit"][0]["artist"]["id"]
+            .as_str()
+            .filter(|id| valid_mbid(id))
+        else {
+            continue;
+        };
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: artist_id.to_owned(),
+        };
+        for release in recording["releases"].as_array().into_iter().flatten() {
+            let Some(id) = release["id"].as_str().filter(|id| valid_mbid(id)) else {
+                continue;
+            };
+            let group = &release["release-group"];
+            let group_id = group["id"]
+                .as_str()
+                .filter(|id| valid_mbid(id))
+                .unwrap_or(id);
+            let original = release["status"] == "Official"
+                && group["primary-type"] == "Album"
+                && group["secondary-types"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+                && names(release).as_ref() == Some(&expected_names);
+            let Some(release) = crate::artists::parse_musicbrainz_release(release, &artist) else {
+                continue;
+            };
+            let priority = if album.as_ref() == Some(&key(&release.title)) {
+                0
+            } else if original {
+                1
+            } else {
+                2
+            };
+            hints.push(RecordingAlbumHint {
+                recording_id: recording_id.to_owned(),
+                release,
+                artist: artist.clone(),
+                group: group_id.to_owned(),
+                priority,
+            });
+        }
+    }
+    hints.sort_by_key(|hint| {
+        (
+            hint.priority,
+            hint.group.clone(),
+            hint.release
+                .release_date
+                .as_deref()
+                .filter(|date| !date.is_empty())
+                .unwrap_or("9999")
+                .to_owned(),
+            hint.release.release.id.clone(),
+        )
+    });
+    hints.dedup_by(|a, b| {
+        a.release.release == b.release.release && a.recording_id == b.recording_id
+    });
+    Some(hints)
+}
+
+async fn resolve_recording_albums(
+    artists: &crate::artists::ArtistService,
+    credentials: &crate::artists::ArtistCredentials,
+    track: &Track,
+) -> Option<AlbumResolution> {
+    use crate::recording_identity::{
+        declared_credit_names, normalize_isrc, parse_title, RecordingIdentity,
+    };
+    let title = parse_title(&track.title);
+    let isrc = track.isrc.as_deref().and_then(normalize_isrc);
+    if track.playback_range.is_some()
+        || title.title.trim().is_empty()
+        || title.title.chars().count() > 120
+        || track.isrc.is_some() && isrc.is_none()
+        || RecordingIdentity::from_track(track).identifier_conflict
+        || !radio_without_duration(track)
+            && isrc.is_none()
+            && !track
+                .duration_seconds
+                .is_some_and(|seconds| seconds.is_finite() && seconds > 0.0)
+    {
+        return None;
+    }
+    let mut performers =
+        declared_credit_names(track).unwrap_or_else(|| vec![track.artist.trim().to_owned()]);
+    if let Some(guest) = &title.featured_credit {
+        if !performers.iter().any(|name| key(name) == key(guest)) {
+            performers.push(guest.clone());
+        }
+    }
+    if performers.len() > 4
+        || performers
+            .iter()
+            .any(|artist| artist.trim().is_empty() || artist.chars().count() > 120)
+    {
+        return None;
+    }
+    let response = artists
+        .album_recording_search(&title.title, &performers, isrc.as_deref())
+        .await
+        .ok()?;
+    let hints = recording_album_releases(track, &title, &performers, isrc.as_deref(), &response)?;
+    let best = hints.first()?.priority;
+    let candidates = hints
+        .into_iter()
+        .take_while(|hint| hint.priority == best)
+        .collect::<Vec<_>>();
+    let group_count = candidates
+        .iter()
+        .map(|hint| &hint.group)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    let mut verified = std::collections::HashSet::new();
+    let mut choices = Vec::new();
+    for hint in candidates.into_iter().take(6) {
+        if verified.contains(&hint.group) {
+            continue;
+        }
+        let Ok(tracks) = artists
+            .get_release_tracks(&hint.release, &hint.artist, credentials)
+            .await
+        else {
+            continue;
+        };
+        if !verified_edition_tracks(&hint.release, &hint.group, &tracks)
+            || tracks
+                .iter()
+                .filter(|track| track.provenance["recordingId"] == hint.recording_id)
+                .count()
+                != 1
+        {
+            continue;
+        }
+        let Some(release) = fetched_edition(hint.release, &tracks) else {
+            continue;
+        };
+        verified.insert(hint.group);
+        choices.push(AlbumChoice {
+            release,
+            artist: hint.artist,
+            reason: "The catalog recording appears in the verified tracklist".into(),
+            evidence: AlbumMembershipEvidence::RecordingOccurrence,
+        });
+    }
+    // A recording match confirms membership, but a compilation alone does not
+    // establish which album the listener intended.
+    select_verified_albums(choices, group_count == 1 && best < 2)
 }
 
 fn same_album_timeline(
@@ -359,11 +681,7 @@ mod tests {
     }
     #[test]
     fn radio_song_can_open_its_album_without_a_duration() {
-        let release: ArtistReleaseRef = serde_json::from_value(serde_json::json!({
-            "release":{"provider":"musicbrainz","id":"group"},"title":"Favourite Worst Nightmare",
-            "sourceUrl":"https://musicbrainz.org/release-group/group","credits":[]
-        }))
-        .unwrap();
+        let album = "Favourite Worst Nightmare";
         let member = Track {
             title: "505".into(),
             artist: "Arctic Monkeys".into(),
@@ -373,20 +691,22 @@ mod tests {
         };
         let request = Track {
             provider: "radio_song".into(),
-            album: Some(release.title.clone()),
+            album: Some(album.into()),
             duration_seconds: None,
             provenance: serde_json::json!({"sourceKind":"radioSong"}),
             ..member.clone()
         };
         assert!(radio_album_member(
             &request,
-            &release,
+            album,
+            None,
             std::slice::from_ref(&member)
         ));
         assert!(!recording_member(&request, std::slice::from_ref(&member)));
         assert!(!radio_album_member(
             &request,
-            &release,
+            album,
+            None,
             &[member.clone(), member.clone()]
         ));
         for unmatched in [
@@ -413,10 +733,184 @@ mod tests {
         ] {
             assert!(!radio_album_member(
                 &unmatched,
-                &release,
+                album,
+                None,
                 std::slice::from_ref(&member)
             ));
         }
+    }
+    #[tokio::test]
+    async fn radio_credit_finds_the_kalimankou_edition_and_verifies_the_recording_credit() {
+        use serde_json::json;
+        let temp = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            crate::storage::Store::open(&temp.path().join("album.sqlite")).unwrap(),
+        );
+        let artists = crate::artists::ArtistService::new(store.clone()).unwrap();
+        let credentials = crate::artists::ArtistCredentials::default();
+        let release_id = "7da26152-ccc7-4e0c-9f75-28b5edbcaea5";
+        let choir_id = "80fb9c75-af15-4a6b-9528-715f9ef4ebea";
+        let song = "Kalimankou Denkou (The Evening Gathering)";
+        let album = "Le Mystère des voix bulgares";
+        let station_album = "Le Mystere Des voix Bulgares";
+        let station_artist = "Bulgarian State Television Female Choir";
+        let request = Track {
+            provider: "radio_song".into(),
+            title: song.into(),
+            artist: station_artist.into(),
+            album: Some(station_album.into()),
+            provenance: json!({"sourceKind":"radioSong"}),
+            ..Track::default()
+        };
+        let edition_credit = json!([{"name":station_artist,"artist":{"id":choir_id}}]);
+        let group_id = "ac5b8d06-08ed-3060-8c6b-0880f16dff5b";
+        let search = json!({"count":3,"offset":0,"releases":[
+            {"id":release_id,"title":album,"artist-credit":edition_credit,"release-group":{"id":group_id},"date":"1987"},
+            {"id":"00000000-0000-4000-8000-000000000013","title":album,"artist-credit":edition_credit,"release-group":{"id":group_id},"date":"1990"},
+            {"id":"00000000-0000-4000-8000-000000000014","title":"Le Mystère des voix bulgares Live","artist-credit":edition_credit}
+        ]});
+        let query = format!("release:\"{station_album}\" AND creditname:\"{station_artist}\"");
+        store
+            .set_provider_cache(
+                "navigation.credited-edition.musicbrainz.v2",
+                &query,
+                &search,
+                60,
+            )
+            .unwrap();
+        let recording = json!({
+            "id":"df27ce01-abf3-4c10-afa2-fdfe2bfc5abf",
+            "length":310000,
+            "artist-credit":[{"name":"The Bulgarian State Radio and Television Female Vocal Choir","artist":{"id":choir_id}}]
+        });
+        let mut edition = json!({
+            "id":release_id,"title":album,"artist-credit":edition_credit,"release-group":{"id":group_id},
+            "media":[{"position":1,"track-count":1,"tracks":[
+                {"position":1,"title":song,"recording":recording}
+            ]}]
+        });
+        let cache = "artists.release-tracks.musicbrainz";
+        store
+            .set_provider_cache(cache, release_id, &edition, 60)
+            .unwrap();
+        let AlbumResolution::Resolved {
+            destination: matched,
+        } = resolve_credited_radio_edition(&artists, &credentials, &request, station_album)
+            .await
+            .unwrap()
+        else {
+            panic!("expected an exact verified edition")
+        };
+        assert_eq!(matched.release.release.id, release_id);
+        assert_eq!(matched.artist.id, choir_id);
+        assert!(matched.evidence == AlbumMembershipEvidence::RadioTracklistMatch);
+
+        edition["media"][0]["tracks"][0]["recording"]["artist-credit"][0]["artist"]["id"] =
+            json!("00000000-0000-4000-8000-000000000002");
+        store
+            .set_provider_cache(cache, release_id, &edition, 60)
+            .unwrap();
+        store
+            .set_provider_cache(
+                cache,
+                "00000000-0000-4000-8000-000000000013",
+                &json!({}),
+                60,
+            )
+            .unwrap();
+        assert!(
+            resolve_credited_radio_edition(&artists, &credentials, &request, station_album)
+                .await
+                .is_none()
+        );
+    }
+    #[tokio::test]
+    async fn recording_fallback_verifies_diaraby_on_the_original_album() {
+        use serde_json::json;
+        let temp = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            crate::storage::Store::open(&temp.path().join("fallback.sqlite")).unwrap(),
+        );
+        let artists = crate::artists::ArtistService::new(store.clone()).unwrap();
+        let credentials = crate::artists::ArtistCredentials::default();
+        let track = Track {
+            provider: "radio_song".into(),
+            title: "Diaraby  (w/ Ry Cooder)".into(),
+            artist: "Ali Farka Touré".into(),
+            album: Some("Ali Farka Touré".into()),
+            provenance: json!({"sourceKind":"radioSong"}),
+            ..Track::default()
+        };
+        let ali = "9be2a5ac-8201-489b-b5f6-91f958bf9060";
+        let ry = "a4e2650b-938b-4b72-95bc-6e229cd34601";
+        let recording = "b09bf481-3621-4c02-93d0-bf56a3eb3286";
+        let other_recording = "f81e2bf5-4cc3-4476-bad4-f3dceadd146c";
+        let release_id = "c1fb68f6-0183-49b0-beff-4f1c8b6b0b4a";
+        let group = "a5a7a716-a039-3815-aee3-88ac135721c5";
+        let credits = json!([
+            {"name":"Ali Farka Touré","joinphrase":" with ","artist":{"id":ali}},
+            {"name":"Ry Cooder","artist":{"id":ry}}
+        ]);
+        let album = json!({"id":release_id,"title":"Talking Timbuktu","status":"Official","artist-credit":credits,
+            "release-group":{"primary-type":"Album","id":group}});
+        let compilation = json!({"id":"c231d73d-655c-4765-b162-17cebd81e3b4","title":"Music for the New World",
+            "status":"Official","release-group":{"primary-type":"Album","secondary-types":["Compilation"]}});
+        let soundtrack = json!({"id":"192dcad3-7142-4cf8-b4b3-a754b25a7350","title":"Besieged","status":"Official",
+            "release-group":{"primary-type":"Album","secondary-types":["Soundtrack"]}});
+        let search = json!({"count":2,"offset":0,"recordings":[
+            {"id":other_recording,"title":"Diaraby","artist-credit":credits,"releases":[soundtrack]},
+            {"id":recording,"title":"Diaraby","artist-credit":credits,"releases":[compilation,album]}
+        ]});
+        store
+            .set_provider_cache(
+                "navigation.recording-search.musicbrainz.v1",
+                "recording:\"Diaraby\" AND artist:\"Ali Farka Touré\" AND artist:\"Ry Cooder\"",
+                &search,
+                60,
+            )
+            .unwrap();
+        let mut detail = album.clone();
+        detail["media"] = json!([{"position":1,"track-count":1,"tracks":[
+            {"position":1,"title":"Diaraby","recording":{"id":recording,"artist-credit":credits}}
+        ]}]);
+        let tracks_cache = "artists.release-tracks.musicbrainz";
+        store
+            .set_provider_cache(tracks_cache, release_id, &detail, 60)
+            .unwrap();
+        let Some(AlbumResolution::Resolved { destination }) =
+            resolve_recording_albums(&artists, &credentials, &track).await
+        else {
+            panic!("expected the original verified album")
+        };
+        assert_eq!(destination.release.title, "Talking Timbuktu");
+        // Only a verified option recorded for this track can become the saved destination.
+        let fingerprint = cache_key(&track);
+        assert!(cached_resolution(&store, &track).unwrap().is_none());
+        cache_resolution(
+            &store,
+            &fingerprint,
+            AlbumResolution::Ambiguous {
+                choices: vec![destination.clone()],
+            },
+        )
+        .unwrap();
+        let mut with_art = track.clone();
+        with_art.provenance["artworkAlternates"] = json!(["https://example.com/album.jpg"]);
+        assert_eq!(cache_key(&with_art), fingerprint);
+        let mut other = destination.release.release.clone();
+        other.id = group.into();
+        remember_choice(&store, &with_art, &other).unwrap();
+        assert!(cached_resolution(&store, &track).unwrap().is_none());
+        remember_choice(&store, &with_art, &destination.release.release).unwrap();
+        assert!(cached_resolution(&store, &track).unwrap().is_some());
+
+        detail["media"][0]["tracks"][0]["recording"]["id"] = json!(other_recording);
+        store
+            .set_provider_cache(tracks_cache, release_id, &detail, 60)
+            .unwrap();
+        assert!(resolve_recording_albums(&artists, &credentials, &track)
+            .await
+            .is_none());
     }
     #[test]
     fn invalid_identifiers_do_not_prove_membership() {
@@ -749,15 +1243,41 @@ pub async fn resolve_exact_spotify(
     })
 }
 
+pub(crate) fn cached_resolution(
+    store: &crate::storage::Store,
+    track: &Track,
+) -> Result<Option<AlbumResolution>, String> {
+    let value = store.get_provider_cache(MEMBERSHIP_CACHE, &cache_key(track))?;
+    Ok(value.and_then(|value| match serde_json::from_value(value) {
+        Ok(result @ AlbumResolution::Resolved { .. }) => Some(result),
+        _ => None,
+    }))
+}
+
+pub(crate) fn remember_choice(
+    store: &crate::storage::Store,
+    track: &Track,
+    release: &ArtistRef,
+) -> Result<(), String> {
+    let key = cache_key(track);
+    let Some(value) = store.get_provider_cache(MEMBERSHIP_CHOICES_CACHE, &key)? else {
+        return Ok(());
+    };
+    if let Ok(AlbumResolution::Ambiguous { choices }) = serde_json::from_value(value) {
+        if let Some(destination) = choices
+            .into_iter()
+            .find(|choice| choice.release.release == *release)
+        {
+            cache_resolution(store, &key, AlbumResolution::Resolved { destination })?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
     let membership_key = cache_key(track);
-    if let Some(value) = state
-        .store
-        .get_provider_cache(MEMBERSHIP_CACHE, &membership_key)?
-    {
-        if let Ok(result @ AlbumResolution::Resolved { .. }) = serde_json::from_value(value) {
-            return Ok(result);
-        }
+    if let Some(result) = cached_resolution(&state.store, track)? {
+        return Ok(result);
     }
     let source_album_url = track.provenance["albumBrowseId"]
         .as_str()
@@ -771,6 +1291,25 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         })
         .map(|id| format!("https://music.youtube.com/browse/{id}"));
     let album = track.album.as_deref().unwrap_or("").trim();
+    let credentials = crate::artist_credentials(state.connections.clone()).await?;
+    let mut recording_searched = false;
+    let mut recording_fallback = None;
+    if radio_without_duration(track) || album.is_empty() {
+        if !album.is_empty() {
+            if let Some(result) =
+                resolve_credited_radio_edition(&state.artists, &credentials, track, album).await
+            {
+                return cache_resolution(&state.store, &membership_key, result);
+            }
+        }
+        recording_searched = true;
+        if let Some(result) = resolve_recording_albums(&state.artists, &credentials, track).await {
+            if album.is_empty() || matches!(result, AlbumResolution::Resolved { .. }) {
+                return cache_resolution(&state.store, &membership_key, result);
+            }
+            recording_fallback = Some(result);
+        }
+    }
     if album.is_empty() {
         return Ok(AlbumResolution::Unavailable {
             reason: "Album metadata is unavailable for this track".into(),
@@ -778,7 +1317,6 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         });
     }
     let artist = album_artist(track);
-    let credentials = crate::artist_credentials(state.connections.clone()).await?;
     let source_timeline = if track.provider == "youtube" {
         if let Some(browse_id) = track.provenance["albumBrowseId"].as_str() {
             crate::youtube_music::album_tracks(browse_id)
@@ -800,10 +1338,20 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
     let page = match state.artists.search_albums(album, 1, &credentials).await {
         Ok(page) => page,
         Err(_) => {
+            if let Some(result) = recording_fallback {
+                return cache_resolution(&state.store, &membership_key, result);
+            }
+            if !recording_searched {
+                if let Some(result) =
+                    resolve_recording_albums(&state.artists, &credentials, track).await
+                {
+                    return cache_resolution(&state.store, &membership_key, result);
+                }
+            }
             return Ok(AlbumResolution::Unavailable {
                 reason: "Album catalogs are temporarily unavailable".into(),
                 source_album_url,
-            })
+            });
         }
     };
     // Preserve catalog ambiguity; do not silently pick an edition from page one.
@@ -945,7 +1493,7 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
                 AlbumMembershipEvidence::RecordingOccurrence,
                 "Matching recording in the independently fetched release tracklist",
             )
-        } else if radio_album_member(track, &release, &tracks) {
+        } else if radio_album_member(track, &release.title, Some(&artist_ref), &tracks) {
             (
                 AlbumMembershipEvidence::RadioTracklistMatch,
                 "Station metadata matches a single song on this album",
@@ -974,6 +1522,16 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         )
     });
     choices.dedup_by(|a, b| a.release.release == b.release.release);
+    if choices.is_empty() {
+        if let Some(result) = recording_fallback {
+            return cache_resolution(&state.store, &membership_key, result);
+        }
+    }
+    if choices.is_empty() && !recording_searched {
+        if let Some(result) = resolve_recording_albums(&state.artists, &credentials, track).await {
+            return cache_resolution(&state.store, &membership_key, result);
+        }
+    }
     let result = if let Some(index) = preferred_choice(
         &choices,
         album,
@@ -990,13 +1548,24 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
             source_album_url,
         }
     };
-    if matches!(&result, AlbumResolution::Resolved { .. }) {
-        state.store.set_provider_cache(
-            MEMBERSHIP_CACHE,
-            &membership_key,
-            &serde_json::to_value(&result).map_err(|e| e.to_string())?,
-            24 * 60 * 60,
-        )?;
-    }
+    cache_resolution(&state.store, &membership_key, result)
+}
+
+fn cache_resolution(
+    store: &crate::storage::Store,
+    membership_key: &str,
+    result: AlbumResolution,
+) -> Result<AlbumResolution, String> {
+    let (namespace, ttl) = match &result {
+        AlbumResolution::Resolved { .. } => (MEMBERSHIP_CACHE, MEMBERSHIP_TTL),
+        AlbumResolution::Ambiguous { .. } => (MEMBERSHIP_CHOICES_CACHE, 30 * 60),
+        _ => return Ok(result),
+    };
+    store.set_provider_cache(
+        namespace,
+        membership_key,
+        &serde_json::to_value(&result).map_err(|e| e.to_string())?,
+        ttl,
+    )?;
     Ok(result)
 }

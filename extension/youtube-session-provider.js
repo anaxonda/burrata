@@ -183,12 +183,16 @@
         const type = String(x.contentType || '').toLowerCase();
         const title = viewText(metadata.title) || viewText(x.title);
         const metadataRows = metadata.metadata?.contentMetadataViewModel?.metadataRows || metadata.metadataRows || [];
-        const subtitle = metadataRows.map(row => (row.metadataParts || []).map(part => viewText(part.text || part)).filter(Boolean).join('')).filter(Boolean).join(' • ');
+        const subtitles = metadataRows.map(row => (row.metadataParts || [])
+          .map(part => viewText(part.text || part).trim())
+          .filter(Boolean).join(' • ')).filter(Boolean);
         if (id && title && (type.includes('playlist') || String(id).startsWith('PL') || String(id).startsWith('VL'))) {
           const playlistId = String(id).replace(/^VL/, '');
-          rows.push({ id: playlistId, kind: 'playlist', title, subtitle, url: `https://www.youtube.com/playlist?list=${playlistId}`, artworkUrl: image(x.contentImage || x.thumbnail), data: { provider: 'youtube', playlistId, total: null } });
+          // The first metadata row is the byline. Subsequent rows can include
+          // preview tracks, buttons and description text containing raw markup.
+          rows.push({ id: playlistId, kind: 'playlist', title, subtitle: subtitles[0] || '', url: `https://www.youtube.com/playlist?list=${playlistId}`, artworkUrl: image(x.contentImage || x.thumbnail), data: { provider: 'youtube', playlistId, total: null } });
         } else if (id && title && (type.includes('channel') || String(id).startsWith('UC'))) {
-          rows.push({ id, kind: 'channel', title, subtitle, url: `https://www.youtube.com/channel/${id}`, artworkUrl: image(x.contentImage || x.thumbnail), data: { provider: 'youtube', channelId: id } });
+          rows.push({ id, kind: 'channel', title, subtitle: subtitles.join(' • '), url: `https://www.youtube.com/channel/${id}`, artworkUrl: image(x.contentImage || x.thumbnail), data: { provider: 'youtube', channelId: id } });
         }
       }
       if (value.videoRenderer) {

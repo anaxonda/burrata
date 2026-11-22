@@ -1,6 +1,8 @@
 <script lang="ts">
   import InfoPopover from "./InfoPopover.svelte";
   import { call, desktop } from "./lib/api";
+  import { browserCompanionStatus } from "./lib/browser-companion-status";
+  import type { BrowserStatus } from "./lib/types";
 
   type BrowserInfo = { browser: string; installed: boolean };
   type InstallStatus = { browsers: BrowserInfo[] };
@@ -19,8 +21,9 @@
     advancedUpdate: string; provider: { version: string; available: boolean; helperRunning: boolean; message: string };
   };
   type Diagnosis = { ok: boolean; category: string; ytDlpVersion: string | null; providerAvailable: boolean; audioAccessible: boolean; message: string };
-  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all" }: {
+  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all", browserStatus = null }: {
     category?: string;
+    browserStatus?: BrowserStatus | null;
     onSettingsChanged?: () => void; onComplete?: () => void; onboarding?: boolean;
   } = $props();
 
@@ -79,7 +82,7 @@
     try {
       await call<InstallStatus>(remove ? "unregister_browser_host" : "register_browser_host");
       setup = await call<Setup>("get_release_setup");
-      message = remove ? "Disconnected the browser companion." : "Connected the browser companion.";
+      message = remove ? "Browser host registration removed." : "Browser host registered. Open the extension popup to connect.";
       onSettingsChanged();
     } catch (cause) { error = `Could not update browser companion: ${String(cause)}`; }
     finally { browserBusy.all = false; }
@@ -148,9 +151,10 @@
     {#if category === "all" || category === "connections"}<section class="tool-section" aria-label="Browser companion">
       {#if category === "all"}<h3 id="browser-title">Browser companion</h3>{/if}
       <p>Connect a browser to import charts and playlists. Burrata reads pages only when you use the extension; it does not read cookies or logins.</p>
+      <p role="status">{browserCompanionStatus(browserStatus)}</p>
       {#if setup?.browser.browsers.length}
         <div class="browser-list">{#each setup.browser.browsers as item (item.browser)}
-          <div class="browser-row"><div><strong>{browserLabel(item.browser)}</strong><small>{item.installed ? "Browser host registered" : "Not connected"}</small></div></div>
+          <div class="browser-row"><div><strong>{browserLabel(item.browser)}</strong><small>{item.installed ? "Browser host registered" : "Browser host not registered"}</small></div></div>
         {/each}</div>
       {:else}<p class="muted">No supported browsers were detected.</p>{/if}
       <div class="browser-actions"><button disabled={!!browserBusy.all} onclick={() => void updateBrowserHost(false)}>{browserBusy.all ? "Working…" : "Connect browser companion"}</button><button class="quiet" disabled={!!browserBusy.all || !setup?.browser.browsers.some((item) => item.installed)} onclick={() => void updateBrowserHost(true)}>Disconnect browser companion</button></div>

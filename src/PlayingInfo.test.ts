@@ -28,6 +28,69 @@ function render(track: Track, extra: Record<string, unknown> = {}) {
 }
 async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve(); await tick(); }
 
+it.each([
+  ["Jingo (Extended Version)", "(4:58)", 298, undefined],
+  ["Plastico (Bugz In The Attic Remix)", "(6:90)", 450, undefined],
+  ["(I'm Sick) I've Been Infected Wit House Musick (Remix)",
+    "I'm Sick I've Been Infected Wit House Musick [DJ Tai Vocal Remix] (8:14)", 494, "DJ Tai Vocal Remix"],
+])("displays the canonical title for %s and a separate mix label when needed", async (title, version, durationSeconds, expected) => {
+  const target = render({ ...radioTrack, provider: "traxsource", sourceUrl: "", provenance: {}, title, version, durationSeconds });
+  await settle();
+  expect(target.querySelector("h2")?.textContent).toBe(title);
+  expect(target.querySelector(".track-version")?.textContent).toBe(expected);
+});
+
+describe("PlayingInfo metadata source", () => {
+  const listing = "https://www.traxsource.com/track/15124845/pasilda-essed-extended-remix";
+  const track: Track = {
+    ...radioTrack, id: "traxsource:15124845", provider: "traxsource", providerId: "15124845",
+    title: "Pasilda", artist: "Afro Medusa, Essed", sourceUrl: listing,
+    provenance: { importMetadata: { artistUrls: ["https://www.traxsource.com/artist/1920/afro-medusa"] } },
+  };
+  const recording = {
+    provider: "musicbrainz", id: "recording-1", title: "Pasilda", artist: "Afro Medusa", version: null,
+    firstReleaseDate: null, durationSeconds: null, isrcs: [], genres: [], sourceUrl: "", releases: [], recordingArtist: null,
+  };
+  const loadRecording = async () => ({
+    resolution: "unresolved", recording: null, candidates: [{ recording, identity: "text_suggestion" }],
+  });
+  const summaries = (target: HTMLElement) => Array.from(target.querySelectorAll("summary"), node => node.textContent);
+  const metadataRow = (target: HTMLElement) => Array.from(target.querySelectorAll("dl > div"))
+    .find(row => row.querySelector("dt")?.textContent === "Metadata source")!.querySelector("dd")!;
+
+  it("opens the original listing from the docked panel and omits the two expandable sections", async () => {
+    const audioUrl = "https://www.youtube.com/watch?v=AbCdEf123_-";
+    const target = render(track, {
+      docked: true, loadRecording, contextLookupConfigured: true,
+      candidate: { id: "youtube:video123", provider: "youtube", url: audioUrl, title: "Resolved audio", formats: [] },
+    });
+    await settle();
+    const link = metadataRow(target).querySelector("a")!;
+    expect(link.textContent).toBe("Traxsource ↗");
+    expect(link.getAttribute("href")).toBe(listing);
+    expect(target.querySelector(`a[href="${audioUrl}"]`)?.textContent).toBe("Resolved audio ↗");
+    expect(summaries(target)).not.toContain("Imported source information");
+    expect(summaries(target)).not.toContain("Possible catalog recordings (1)");
+    expect(target.querySelector('button[aria-label^="Ask AI"]')).not.toBeNull();
+    callMock.mockClear();
+    link.click();
+    expect(callMock).toHaveBeenCalledExactlyOnceWith("open_external_url", { url: listing });
+  });
+
+  it("keeps the attribution as text when the original URL belongs to another provider", async () => {
+    const target = render({ ...track, sourceUrl: "https://www.youtube.com/watch?v=AbCdEf123_-" }, { docked: true });
+    await settle();
+    expect(metadataRow(target).textContent?.trim()).toBe("Traxsource");
+    expect(metadataRow(target).querySelector("a")).toBeNull();
+  });
+
+  it("retains source details and catalog suggestions in the expanded view", async () => {
+    const target = render(track, { loadRecording });
+    await settle();
+    expect(summaries(target)).toEqual(expect.arrayContaining(["Imported source information", "Possible catalog recordings (1)"]));
+  });
+});
+
 describe("PlayingInfo internet-radio links", () => {
   it("shows the station name as the Source row link without a separate station line", async () => {
     const target = render(radioTrack); await settle();

@@ -360,7 +360,7 @@
       <button disabled={!visibleTracks.length} onclick={() => queueAll("append")}><MenuIcon name="queue" /><span>Queue {actionScope}</span></button>
     </ActionMenu>
   {/if}
-  <div class="remote-detail-tools">
+  <div class="remote-detail-tools sticky-toolbar">
     <input aria-label="Filter playlist tracks" bind:value={filter} oninput={cancelRestore} placeholder="Filter tracks by title, artist, or album" />
     <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />
     <label>Sort

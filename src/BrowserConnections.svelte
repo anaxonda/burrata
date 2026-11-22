@@ -49,6 +49,7 @@
     try {
       const session = await call<ManagedSession>(command, provider ? { provider } : {});
       setManaged(session);
+      if (command === "stop_managed_provider_session") onChanged?.();
       if (command === "start_managed_provider_background" && session.transport === "native-webview-http") {
         await Promise.all([refresh("spotify"), refresh("youtube")]);
       }

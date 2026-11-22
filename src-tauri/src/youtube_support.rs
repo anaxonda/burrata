@@ -32,7 +32,10 @@ const NIGHTLY_REPO: &str = "yt-dlp/yt-dlp-nightly-builds";
 const RECOMMENDED_REPO_API: &str =
     "https://api.github.com/repos/anaxonda/burrata/releases?per_page=10";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const BGUTIL_VERSION: &str = "2.0.2";
+const HELPER_HOST: &str = "127.0.0.1";
 const HELPER_PORT: u16 = 4416;
+const HELPER_PROBE_ATTEMPTS: usize = 20;
 const MAX_UPSTREAM_ASSET_BYTES: usize = 120 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,6 +136,7 @@ pub struct YouTubeSupportManager {
     uses: Arc<std::sync::Mutex<provider_broker::Uses>>,
     exiting: Arc<AtomicBool>,
     helper_port: Arc<AtomicU64>,
+    helper_generation: Arc<AtomicU64>,
     last_used: Arc<AtomicU64>,
     update_lock: Arc<Mutex<()>>,
     provider_verified: Arc<AtomicBool>,
@@ -158,6 +162,7 @@ impl YouTubeSupportManager {
             uses: Arc::new(std::sync::Mutex::new(provider_broker::Uses::default())),
             exiting: Arc::new(AtomicBool::new(false)),
             helper_port: Arc::new(AtomicU64::new(HELPER_PORT.into())),
+            helper_generation: Arc::new(AtomicU64::new(0)),
             last_used: Arc::new(AtomicU64::new(now_secs())),
             update_lock: Arc::new(Mutex::new(())),
             provider_verified: Arc::new(AtomicBool::new(false)),
@@ -211,7 +216,7 @@ impl YouTubeSupportManager {
                 "Check the recommended update feed from Burrata's configured trusted GitHub release.".into(),
             advanced_update: "Check GitHub for the official yt-dlp nightly build.".into(),
             provider: ProviderStatus {
-                version: "2.0.2".into(),
+                version: BGUTIL_VERSION.into(),
                 available: provider_ok && self.provider_verified.load(Ordering::Relaxed),
                 helper_running: running,
                 message: if provider_ok && self.provider_verified.load(Ordering::Relaxed) {
@@ -567,6 +572,73 @@ impl YouTubeSupportManager {
             return Err("BgUtils provider is unavailable. Install/package the matching 2.0.2 plugin, server build and bundled Node runtime.".into());
         }
         let _ = self.stop_helper_if_idle().await;
+        let mut helper = self.start_or_reuse_helper().await?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let mut retried = false;
+        for attempt in 1..=HELPER_PROBE_ATTEMPTS {
+            let (port, generation) = helper;
+            let url = format!("http://{HELPER_HOST}:{port}");
+            let ready = match client.get(format!("{url}/ping")).send().await {
+                Ok(response) if response.status().is_success() => response
+                    .json::<Value>()
+                    .await
+                    .is_ok_and(|body| body["version"].as_str() == Some(BGUTIL_VERSION)),
+                _ => false,
+            };
+            let mut lock = self.helper.lock().await;
+            self.ensure_helper_admission()?;
+            let current_generation = self.helper_generation.load(Ordering::Relaxed);
+            if generation != current_generation && lock.is_some() {
+                retried = true;
+                helper = (
+                    self.helper_port.load(Ordering::Relaxed) as u16,
+                    current_generation,
+                );
+                continue;
+            }
+            let Some(child) = lock.as_mut() else {
+                return Err("BgUtils helper was unavailable before readiness".into());
+            };
+            if ready {
+                return Ok(url);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    *lock = None;
+                    self.provider_verified.store(false, Ordering::Relaxed);
+                    // The bundled server uses exit 1 when its only bind fails.
+                    // A terminated child can be replaced without killing an
+                    // in-use worker. Reuse the remaining probe attempts.
+                    if status.code() != Some(1) || retried || attempt == HELPER_PROBE_ATTEMPTS {
+                        return Err("BgUtils helper exited before readiness".into());
+                    }
+                    retried = true;
+                    helper = self.spawn_helper(&mut lock).await?;
+                }
+                Ok(None) => {
+                    drop(lock);
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                Err(_) => {
+                    self.provider_verified.store(false, Ordering::Relaxed);
+                    return Err("Could not inspect BgUtils helper readiness state".into());
+                }
+            }
+        }
+        // Invocation leases own cleanup. A failed readiness probe must not
+        // terminate a worker still in use by another independent invocation.
+        let lock = self.helper.lock().await;
+        if lock.is_some() && self.helper_generation.load(Ordering::Relaxed) == helper.1 {
+            self.provider_verified.store(false, Ordering::Relaxed);
+        }
+        Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
+    }
+
+    async fn start_or_reuse_helper(&self) -> Result<(u16, u64), String> {
         let mut lock = self.helper.lock().await;
         self.ensure_helper_admission()?;
         if let Some(child) = lock.as_mut() {
@@ -579,71 +651,39 @@ impl YouTubeSupportManager {
             }
         }
         if lock.is_none() {
-            let port = pick_port().await?;
-            let node = self.node_executable.as_ref().expect("checked assets");
-            let script = self.helper_script.as_ref().expect("checked assets");
-            let mut command = Command::new(node);
-            crate::tools::configure_no_console_tokio(&mut command);
-            let child = command
-                .arg(script)
-                .args(["--port", &port.to_string()])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|e| {
-                    format!("Could not start bundled BgUtils helper with bundled Node: {e}")
-                })?;
-            *lock = Some(child);
-            self.helper_port.store(port.into(), Ordering::Relaxed);
-            self.start_idle_monitor();
+            return self.spawn_helper(&mut lock).await;
         }
         self.last_used.store(now_secs(), Ordering::Relaxed);
-        let port = self.helper_port.load(Ordering::Relaxed) as u16;
-        drop(lock);
-        let url = format!("http://127.0.0.1:{port}");
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(2))
-            .build()
-            .map_err(|e| e.to_string())?;
-        for _ in 0..20 {
-            // A successful ping remains authoritative even if a test wrapper
-            // exits immediately after serving it. On failed probes, detect an
-            // exited child rather than spending the remaining attempts waiting.
-            if let Ok(r) = client.get(format!("{url}/ping")).send().await {
-                if r.status().is_success() {
-                    return Ok(url);
-                }
-            }
-            {
-                let mut helper = self.helper.lock().await;
-                match helper.as_mut() {
-                    Some(child) => match child.try_wait() {
-                        Ok(Some(_)) => {
-                            *helper = None;
-                            self.provider_verified.store(false, Ordering::Relaxed);
-                            return Err("BgUtils helper exited before readiness".into());
-                        }
-                        Ok(None) => {}
-                        Err(_) => {
-                            self.provider_verified.store(false, Ordering::Relaxed);
-                            return Err("Could not inspect BgUtils helper readiness state".into());
-                        }
-                    },
-                    None => {
-                        self.provider_verified.store(false, Ordering::Relaxed);
-                        return Err("BgUtils helper was unavailable before readiness".into());
-                    }
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-        self.provider_verified.store(false, Ordering::Relaxed);
-        // Invocation leases own cleanup. A failed readiness probe must not
-        // terminate a worker still in use by another independent invocation.
-        Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
+        Ok((
+            self.helper_port.load(Ordering::Relaxed) as u16,
+            self.helper_generation.load(Ordering::Relaxed),
+        ))
+    }
+
+    async fn spawn_helper(&self, helper: &mut Option<Child>) -> Result<(u16, u64), String> {
+        let port = pick_port().await?;
+        self.ensure_helper_admission()?;
+        let node = self.node_executable.as_ref().expect("checked assets");
+        let script = self.helper_script.as_ref().expect("checked assets");
+        let mut command = Command::new(node);
+        crate::tools::configure_no_console_tokio(&mut command);
+        let child = command
+            .arg(script)
+            .args(["--port", &port.to_string(), "--host", HELPER_HOST])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                format!("Could not start bundled BgUtils helper with bundled Node: {e}")
+            })?;
+        *helper = Some(child);
+        self.helper_port.store(port.into(), Ordering::Relaxed);
+        let generation = self.helper_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.last_used.store(now_secs(), Ordering::Relaxed);
+        self.start_idle_monitor();
+        Ok((port, generation))
     }
 
     /// Reduce readiness failures to stable, non-sensitive diagnostic labels.
@@ -1579,7 +1619,7 @@ fn validate_version(version: &str) -> Result<(), String> {
     Ok(())
 }
 async fn pick_port() -> Result<u16, String> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+    let listener = tokio::net::TcpListener::bind((HELPER_HOST, 0))
         .await
         .map_err(|e| format!("Could not reserve local BgUtils port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -2420,11 +2460,53 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manager = helper_test_manager(
             dir.path(),
-            "import http.server, sys\nport = int(sys.argv[2])\nclass Handler(http.server.BaseHTTPRequestHandler):\n def do_GET(self):\n  if self.path != '/ping':\n   self.send_error(404); return\n  self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n def log_message(self, *args):\n  pass\nhttp.server.HTTPServer(('127.0.0.1', port), Handler).handle_request()\n",
+            "import http.server, sys\nport = int(sys.argv[2])\nclass Handler(http.server.BaseHTTPRequestHandler):\n def do_GET(self):\n  if self.path != '/ping':\n   self.send_error(404); return\n  self.send_response(200); self.end_headers(); self.wfile.write(b'{\"version\":\"2.0.2\"}')\n def log_message(self, *args):\n  pass\nhttp.server.HTTPServer(('127.0.0.1', port), Handler).handle_request()\n",
         );
         let ready = manager.ensure_provider().await.unwrap();
         assert!(ready.starts_with("http://127.0.0.1:"));
         assert!(!ready.contains('?'));
+        manager.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn readiness_uses_ipv4_and_retries_one_failed_bind() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = helper_test_manager(
+            dir.path(),
+            r#"
+import http.server, json, pathlib, sys
+
+assert sys.argv[1] == '--port'
+assert sys.argv[3:] == ['--host', '127.0.0.1']
+address = (sys.argv[4], int(sys.argv[2]))
+launch_log = pathlib.Path(__file__).with_name('launches')
+first_launch = not launch_log.exists()
+with launch_log.open('a') as output:
+    print(address[1], file=output)
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != '/ping':
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.end_headers()
+        # On the first launch, model an unrelated HTTP listener that took the
+        # port before the helper could bind. The actual helper exits with 1.
+        version = 'unrelated' if first_launch else '2.0.2'
+        self.wfile.write(json.dumps({'version': version}).encode())
+
+with http.server.HTTPServer(address, Handler) as server:
+    server.handle_request()
+sys.exit(1 if first_launch else 0)
+"#,
+        );
+        let ready = manager.ensure_provider().await.unwrap();
+        let launches = fs::read_to_string(dir.path().join("launches")).unwrap();
+        let ports: Vec<_> = launches.lines().collect();
+        assert_eq!(ports.len(), 2);
+        assert_eq!(ready, format!("http://127.0.0.1:{}", ports[1]));
         manager.shutdown().await.unwrap();
     }
 }

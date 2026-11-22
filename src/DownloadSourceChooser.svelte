@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { Candidate, LocalAsset } from "./lib/types";
-  import { candidateFormatsLabel, formatSourceSize, groupDownloadCandidates, type CandidateSort } from "./lib/download-source-chooser";
+  import { candidateFormatsLabel, candidateSizeLabel, groupDownloadCandidates, type CandidateSort } from "./lib/download-source-chooser";
   import { parseDurationBound, type SortDirection } from "./lib/track-sort";
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import TrackFiles from "./TrackFiles.svelte";
 
   let {
     candidates = [], selected = null, loading = false, onSelect,
-    preferredProvider = "", providerOrder = [], existingFiles = [], preferredAssetId = null, onPreferred, onReplace,
+    preferredProvider = "", providerOrder = [], selectedFormatId, soulseekStatus = "", existingFiles = [], preferredAssetId = null, onPreferred, onReplace,
   }: {
     candidates?: Candidate[];
     selected?: Candidate | null;
@@ -15,6 +15,8 @@
     onSelect: (candidate: Candidate) => void;
     preferredProvider?: string;
     providerOrder?: string[];
+    selectedFormatId?: string;
+    soulseekStatus?: string;
     existingFiles?: LocalAsset[];
     preferredAssetId?: string | null;
     onPreferred?: (assetId: string) => void;
@@ -35,6 +37,7 @@
     });
   });
   const groups = $derived(groupDownloadCandidates(visibleCandidates, { preferredProvider, providerOrder, sort, direction }));
+  const soulseekCount = $derived(groups.find(group => group.provider === "slskd")?.candidates.length ?? 0);
   function isSelected(candidate: Candidate) {
     return selected === candidate || (selected?.provider === candidate.provider && selected.id === candidate.id);
   }
@@ -65,13 +68,15 @@
   </div>
   <div class="source-duration-tools" aria-label="Download source duration controls">
     {#if sort === "duration"}<label>Direction<select aria-label="Sort direction" bind:value={direction}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>{/if}
-    <TrackDurationFilter bind:minDuration={minimumDuration} bind:maxDuration={maximumDuration} minLabel="Minimum source duration" maxLabel="Maximum source duration" />
+    <TrackDurationFilter inline bind:minDuration={minimumDuration} bind:maxDuration={maximumDuration} minLabel="Minimum source duration" maxLabel="Maximum source duration" />
+    {#if soulseekCount}<button type="button" onclick={(event) => event.currentTarget.closest(".source-chooser")?.querySelector('[aria-label="slskd sources"]')?.scrollIntoView({ block: "start" })}>Soulseek · {soulseekCount}</button>{/if}
   </div>
 
+  {#if soulseekStatus}<p class="source-status" role="status">{soulseekStatus}</p>{/if}
   {#if candidates.length === 0 && !loading}<p class="empty">No sources found yet.</p>{:else if !visibleCandidates.length && !loading}<p class="empty">No sources match these duration bounds.</p>{/if}
   {#each groups as group (group.provider)}
     <section class="provider-group" aria-label={`${group.provider} sources`}>
-      <h4>{group.provider}{#if group.provider === preferredProvider}<span>Preferred</span>{/if}</h4>
+      <h4>{group.provider === "slskd" ? "Soulseek" : group.provider}{#if group.provider === preferredProvider}<span>Preferred</span>{/if}</h4>
       {#each group.candidates as candidate (`${candidate.provider}:${candidate.id}`)}
         {@const facts = qualityDetails(candidate)}
         <button class="candidate" class:selected={isSelected(candidate)} aria-pressed={isSelected(candidate)} onclick={() => onSelect(candidate)}>
@@ -87,7 +92,7 @@
               {#if candidate.reasons?.[0]}<span title={candidate.reasons.join(" · ")}>{candidate.reasons[0]}</span>{/if}
             </span>
           </span>
-          <span class="candidate-side"><strong>{formatSourceSize(candidate.source?.size_bytes)}</strong><span>{availabilityLabel(candidate)}</span><span class="confidence">{candidate.confidence || "Match unknown"} match</span></span>
+          <span class="candidate-side"><strong>{candidateSizeLabel(candidate, isSelected(candidate) ? selectedFormatId : undefined)}</strong><span>{availabilityLabel(candidate)}</span><span class="confidence">{candidate.confidence || "Match unknown"} match</span></span>
         </button>
       {/each}
     </section>
@@ -96,6 +101,7 @@
 </section>
 
 <style>
+  .source-status{margin:0;color:var(--muted);font-size:11px}
   .source-chooser{container-type:inline-size;min-width:0;display:grid;gap:10px;color:var(--text)}
   .chooser-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.chooser-heading>div{display:flex;align-items:baseline;gap:8px;min-width:0}.chooser-heading h3{margin:0;font-size:13px}.chooser-heading>div>span{color:var(--muted);font-size:11px}.chooser-heading label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}.chooser-heading select{max-width:130px;min-height:34px;padding:5px 24px 5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);font:inherit}
   .source-duration-tools{display:flex;flex-wrap:wrap;gap:7px}.source-duration-tools label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:10px}.source-duration-tools select{min-width:92px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);font:inherit}

@@ -302,6 +302,9 @@ export class ObservedWaveformCache {
     if (changed) {
       this.persistent.set(binding.persistenceKey, { ...record, key: binding.persistenceKey,
         durationSeconds: binding.durationSeconds, updatedAt: Math.max(record.updatedAt, existing?.updatedAt ?? 0), bins: combined });
+      // Database reads can populate the cache without passing through record().
+      // Keep the active binding available even if its stored observation is old.
+      this.trimPersistent(false, binding.persistenceKey);
       this.markDirty();
     }
     this.deleteSession(binding.sessionKey);
@@ -490,10 +493,12 @@ export class ObservedWaveformCache {
     this.session.delete(key);
   }
 
-  private trimPersistent(checkSerializedBytes = true): void {
+  private trimPersistent(checkSerializedBytes = true, preserveKey?: string): void {
     const serializedBytes = () => new TextEncoder().encode(JSON.stringify({ schemaVersion: 1, records: [...this.persistent.values()] })).byteLength;
     while (this.persistent.size > OBSERVED_WAVEFORM_CACHE_MAX_ENTRIES || checkSerializedBytes && serializedBytes() > OBSERVED_WAVEFORM_CACHE_MAX_SERIALIZED_BYTES) {
-      const oldest = [...this.persistent.entries()].sort((a, b) => a[1].updatedAt - b[1].updatedAt)[0];
+      const oldest = [...this.persistent.entries()]
+        .filter(([key]) => key !== preserveKey)
+        .sort((a, b) => a[1].updatedAt - b[1].updatedAt)[0];
       if (!oldest) break;
       this.persistent.delete(oldest[0]);
       this.dirty = true;

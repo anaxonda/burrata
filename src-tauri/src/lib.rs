@@ -135,6 +135,7 @@ pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
 pub mod track_sort_text;
+mod traxsource_duration_proof;
 mod verification_staging;
 pub mod waveform_analysis;
 mod webview_audio_transcode;
@@ -1861,6 +1862,23 @@ async fn resolve_track_album(
 }
 
 #[tauri::command]
+fn get_cached_track_album(
+    state: State<'_, AppState>,
+    track: Track,
+) -> Result<Option<album_navigation::AlbumResolution>> {
+    album_navigation::cached_resolution(&state.store, &track)
+}
+
+#[tauri::command]
+fn remember_track_album_choice(
+    state: State<'_, AppState>,
+    track: Track,
+    release: artists::ArtistRef,
+) -> Result<()> {
+    album_navigation::remember_choice(&state.store, &track, &release)
+}
+
+#[tauri::command]
 async fn verify_spotify_album_membership(
     state: State<'_, AppState>,
     track: Track,
@@ -1897,7 +1915,10 @@ async fn verify_spotify_album_membership(
                     tracks.append(&mut page.tracks);
                     let Some(cursor) = page.next_cursor else {
                         return Ok(tracks.len() == total
-                            && album_navigation::recording_member(&track, &tracks));
+                            && (album_navigation::recording_member(&track, &tracks)
+                                || album_navigation::radio_album_member(
+                                    &track, &title, None, &tracks,
+                                )));
                     };
                     if !cursors.insert(cursor.clone()) {
                         return Ok(false);
@@ -1919,6 +1940,13 @@ async fn get_artist_artwork(
     state: State<'_, AppState>,
     artist: artists::ArtistRef,
 ) -> Result<serde_json::Value> {
+    if artist.provider == "spotify" {
+        let image = state
+            .remote_playlists
+            .spotify_artist_artwork(&artist.id)
+            .await?;
+        return Ok(serde_json::json!({"imageUrl": image}));
+    }
     let image = state
         .artists
         .get_artist_artwork(
@@ -1927,6 +1955,16 @@ async fn get_artist_artwork(
         )
         .await?;
     Ok(serde_json::json!({"imageUrl":image}))
+}
+#[tauri::command]
+async fn get_lastfm_top_track_artwork(
+    state: State<'_, AppState>,
+    track: models::Track,
+) -> Result<Option<String>> {
+    let Some(key) = state.connections.credential("lastfm")? else {
+        return Ok(None);
+    };
+    state.artists.lastfm_top_track_artwork(&track, &key).await
 }
 #[tauri::command]
 fn cached_spotify_artist_ref(
@@ -3167,6 +3205,7 @@ async fn search_source(
     isrc: Option<String>,
     search_id: Option<String>,
     request_id: Option<String>,
+    exact_video_url: Option<bool>,
 ) -> Result<discovery::DiscoveryPage> {
     state
         .provider_reads
@@ -3180,6 +3219,7 @@ async fn search_source(
                 limit,
                 isrc,
                 search_id,
+                exact_video_url.unwrap_or_default(),
             )
             .await?;
             for result in &mut page.results {
@@ -7469,6 +7509,7 @@ async fn prepare_upcoming_playback_source(
         cancel.clone(),
         operation_id,
         handoff,
+        true,
     )
     .await;
     let elapsed_ms = started.elapsed().as_millis();
@@ -8284,6 +8325,13 @@ async fn browse_remote_artist_tracks(
                 .browse_artist_tracks(&artist_id, cursor.as_deref())
                 .await
         })
+        .await
+}
+#[tauri::command]
+async fn browse_spotify_track(state: State<'_, AppState>, track_id: String) -> Result<Track> {
+    state
+        .remote_playlists
+        .get_remote_track("spotify", &track_id)
         .await
 }
 #[tauri::command]
@@ -9321,11 +9369,21 @@ pub fn run() {
             // A browser extension updates independently of the desktop app.
             // Keep already registered standard hosts on this app's protocol;
             // isolated/custom profiles must not replace the normal profile's host.
-            if std::env::var_os("BURRATA_APP_DATA").is_none() {
-                if let Err(failure) = install_integration::refresh_registered_host(&resources) {
-                    log::warn!("Could not refresh the registered browser helper: {failure}");
+            startup_mark("browser_host.refresh.begin");
+            let browser_host_refresh = if std::env::var_os("BURRATA_APP_DATA").is_none() {
+                let resources = resources.clone();
+                match std::thread::Builder::new().name("burrata-browser-host-refresh".into())
+                    .spawn(move || install_integration::refresh_registered_host(&resources))
+                {
+                    Ok(task) => Some(task),
+                    Err(error) => {
+                        log::warn!("Could not start browser helper refresh: {error}");
+                        None
+                    }
                 }
-            }
+            } else {
+                None
+            };
             let backup_staging = backup_staging::BackupStaging::open(&dir)?;
             backup_staging.cleanup_abandoned()?;
             let restored_profile = backup_manager::apply_pending_restore_with_staging(&dir, &backup_staging)
@@ -9333,9 +9391,11 @@ pub fn run() {
             // Asset protocol grants are process-local. Restored playback can already
             // contain asset:// artwork URLs and skip the HTTPS cache command, so
             // regrant only our own flat artwork cache before the frontend mounts.
+            startup_mark("artwork_cache.grants.begin");
             for path in artwork_cache::cached_image_files(&app.path().app_data_dir()?.join("artwork")) {
                 app.asset_protocol_scope().allow_file(&path)?;
             }
+            startup_mark("artwork_cache.grants.end");
             let yt=tools::bundled_executable("yt-dlp").unwrap_or_else(||tools::executable("system:yt-dlp","yt-dlp"));
             let node=tools::bundled_executable("node").or_else(||Some(tools::executable("system:node","node")));
             let helper=resources.join("youtube-support/bgutil/server/build/main.js");
@@ -9509,6 +9569,17 @@ pub fn run() {
                 Ok(service) => Some(service),
                 Err(error) => { diagnostics.push(format!("Desktop media controls unavailable: {error}")); None }
             };
+            // Publish the endpoint only after any existing registered host is
+            // refreshed, while overlapping its filesystem work with setup.
+            startup_mark("browser_host.refresh.join");
+            if let Some(task) = browser_host_refresh {
+                match task.join() {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => log::warn!("Could not refresh the registered browser helper: {error}"),
+                    Err(_) => log::warn!("Browser helper refresh worker exited unexpectedly"),
+                }
+            }
+            startup_mark("browser_host.refresh.end");
             let router = automation.router().merge(local_audio.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
             startup_mark("browser_bridge.begin");
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
@@ -9629,7 +9700,7 @@ pub fn run() {
             submit_backup_checkpoint,
             inspect_backup_settings,
             apply_backup_settings,
-            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_youtube_channel_videos,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
+            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_youtube_channel_videos,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,browse_spotify_track,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             inspect_backup, consume_import_drop, create_backup, estimate_backup, get_backup_job, get_active_backup_job, cancel_backup_job, restore_backup, get_restore_work_policy, review_restored_automatic_work, choose_backup_restore_root, get_backup_schedule, set_backup_schedule, choose_backup_schedule_destination, get_backup_frontend_preferences, ack_backup_frontend_preferences, get_backup_playback_restore, ack_backup_playback_restore,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
             migrate_native_playback, get_playback_snapshot, playback_command,
@@ -9750,7 +9821,7 @@ pub fn run() {
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, resolve_track_album, verify_spotify_album_membership, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, resolve_track_album, get_cached_track_album, remember_track_album_choice, verify_spotify_album_membership, get_artist_artwork, get_lastfm_top_track_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,

@@ -1227,6 +1227,8 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
         "reportedSourceArtists",
         "unclassifiedSourceArtistCredits",
         "catalogArtistCredits",
+        "youtubeGeneratedDistributor",
+        "youtubeGeneratedArtistCredits",
     ] {
         let Some(value) = metadata.get(field) else {
             continue;
@@ -1257,6 +1259,29 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
             if let Some(rows) = rows {
                 result.insert(field.to_owned(), json!(rows));
             }
+            continue;
+        }
+        if field == "youtubeGeneratedArtistCredits" {
+            if value.as_array().is_some_and(|credits| {
+                !credits.is_empty()
+                    && credits.len() <= 32
+                    && credits.iter().all(|credit| {
+                        credit.as_str().is_some_and(|name| {
+                            !name.trim().is_empty()
+                                && name.chars().count() <= 256
+                                && !name.chars().any(char::is_control)
+                        })
+                    })
+            }) {
+                result.insert(field.to_owned(), value.clone());
+            }
+            continue;
+        }
+        if field == "youtubeGeneratedDistributor"
+            && value
+                .as_str()
+                .is_none_or(|name| name.trim().is_empty() || name.chars().count() > 256)
+        {
             continue;
         }
         let bounded = match value {
@@ -1291,6 +1316,7 @@ pub(super) fn cached_direct_allowed(
     track: &Track,
     candidate: &Candidate,
     level: MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
 ) -> bool {
     if !crate::youtube_recording_metadata::catalog_context_matches_request(
         track,
@@ -1308,12 +1334,16 @@ pub(super) fn cached_direct_allowed(
     if m["evaluatorVersion"] != VERSION || m["level"] != json!(level) {
         return false;
     }
-    let a = crate::recording_match_context::assess(
+    let a = assessment_with_options(
         store,
         track,
+        &[],
+        &[],
+        None,
         candidate,
         level,
         MatchStage::Resolved,
+        options,
     );
     a.action == MatchAction::Accept && a.relationship != MatchRelationship::Alternative
 }
@@ -1321,6 +1351,30 @@ pub(super) fn cached_direct_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_identity_preserves_complete_generated_distributor_credits() {
+        let evidence = json!({
+            "youtubeGeneratedDistributor": "MTN Muting The Noise GmbH",
+            "youtubeGeneratedArtistCredits": ["Rampa", "Adam Port", "&ME", "Chuala", "Keinemusik"],
+            "description": "Raw provider payload must not be retained",
+        });
+        let cached = bounded_identity_metadata(&evidence);
+        assert_eq!(
+            cached["youtubeGeneratedDistributor"],
+            evidence["youtubeGeneratedDistributor"]
+        );
+        assert_eq!(
+            cached["youtubeGeneratedArtistCredits"],
+            evidence["youtubeGeneratedArtistCredits"]
+        );
+        assert!(cached.get("description").is_none());
+        let malformed = json!({
+            "youtubeGeneratedDistributor": "x".repeat(257),
+            "youtubeGeneratedArtistCredits": ["Rampa", "bad\u{0000}credit", "Keinemusik"],
+        });
+        assert_eq!(bounded_identity_metadata(&malformed), json!({}));
+    }
 
     #[test]
     fn verified_classical_caption_matches_only_with_the_fresh_album_and_performers() {
@@ -2174,7 +2228,8 @@ mod tests {
                 &store,
                 &track,
                 &candidate,
-                MatchLevel::Exact
+                MatchLevel::Exact,
+                Default::default(),
             ));
             let current = recording_match::assess(
                 &track,
@@ -2920,7 +2975,13 @@ mod tests {
             request_fingerprint(&t, MatchLevel::Exact),
             request_fingerprint(&t, MatchLevel::Flexible)
         );
-        assert!(!cached_direct_allowed(&s, &t, &c, MatchLevel::Exact));
+        assert!(!cached_direct_allowed(
+            &s,
+            &t,
+            &c,
+            MatchLevel::Exact,
+            Default::default()
+        ));
         assert_eq!(t.title, "Song");
     }
     #[test]
@@ -3320,7 +3381,8 @@ mod retained_locator_tests {
             &reopened,
             &track,
             &candidate,
-            MatchLevel::Balanced
+            MatchLevel::Balanced,
+            Default::default(),
         ));
         // A source locator locates an extraction; it never invents missing
         // performer evidence or carries a resolved-stream acceptance.

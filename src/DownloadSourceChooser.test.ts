@@ -4,7 +4,7 @@ import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Candidate, LocalAsset } from "./lib/types";
 import DownloadSourceChooser from "./DownloadSourceChooser.svelte";
-import { groupDownloadCandidates } from "./lib/download-source-chooser";
+import { candidateSizeLabel, groupDownloadCandidates } from "./lib/download-source-chooser";
 
 const candidate = (id: string, provider: string, overrides: Partial<Candidate> = {}): Candidate => ({
   id, provider, url: `https://${provider}.example/${id}`, title: `${provider} ${id}`, formats: [], permission: "allowed",
@@ -35,6 +35,18 @@ describe("download source grouping", () => {
     expect(groupDownloadCandidates(candidates, { sort: "duration" })[0]!.candidates.map(item => item.id)).toEqual(["short", "long", "unknown"]);
     expect(groupDownloadCandidates(candidates, { sort: "duration", direction: "desc" })[0]!.candidates.map(item => item.id)).toEqual(["long", "short", "unknown"]);
   });
+
+  it("uses inspected web format sizes and honors an explicit format selection", () => {
+    const known = candidate("known", "youtube", { formats: [
+      { id: "aac", codec: "aac", extension: "m4a", lossless: false, sizeBytes: 3_145_728 },
+      { id: "opus", codec: "opus", extension: "webm", lossless: false, sizeBytes: 4_194_304 },
+      { id: "unknown", codec: "opus", extension: "webm", lossless: false },
+    ] });
+    expect(candidateSizeLabel(known)).toBe("3.0 MB–4.0 MB");
+    expect(candidateSizeLabel(known, "opus")).toBe("4.0 MB");
+    expect(candidateSizeLabel(known, "unknown")).toBe("Size unknown");
+    expect(groupDownloadCandidates([candidate("unchecked", "youtube"), known], { sort: "size" })[0]!.candidates[0]).toBe(known);
+  });
 });
 
 describe("DownloadSourceChooser", () => {
@@ -62,13 +74,14 @@ describe("DownloadSourceChooser", () => {
     destroy = () => unmount(instance);
     await tick();
     expect(target.textContent).toContain("23.8 MB");
+    expect(target.textContent).toContain("Soulseek · 1");
     expect(target.textContent).toContain("Peer source · unverified");
     expect(target.textContent?.replace(/\s+/g, " ")).toMatch(/Lossless listed\s*·\s*unverified/);
   });
 
   it("filters source rows by a duration bound", async () => {
     const candidates = [candidate("short", "source", { durationSeconds: 60 }), candidate("long", "source", { durationSeconds: 180 })];
-    const target = document.createElement("div"); document.body.append(target);
+    const target = document.createElement("dialog"); document.body.append(target); target.open = true;
     const instance = mount(DownloadSourceChooser, { target, props: { candidates, onSelect: vi.fn() } });
     destroy = () => unmount(instance);
     await tick();
@@ -76,13 +89,18 @@ describe("DownloadSourceChooser", () => {
     expect(filters.getAttribute("aria-expanded")).toBe("false");
     expect(target.querySelector('[aria-label="Minimum source duration"]')?.parentElement?.parentElement?.hasAttribute("hidden")).toBe(true);
     filters.click(); await tick();
-    const minimum = document.body.querySelector<HTMLInputElement>('[aria-label="Minimum source duration"]')!;
+    const minimum = target.querySelector<HTMLInputElement>('[aria-label="Minimum source duration"]')!;
     minimum.value = "2:00"; minimum.dispatchEvent(new Event("input", { bubbles: true })); await tick();
     expect(target.querySelectorAll("button.candidate")).toHaveLength(1);
     expect(target.querySelector("button.candidate")?.textContent).toContain("source long");
-    filters.click(); await tick();
+    minimum.focus();
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    minimum.dispatchEvent(escape);
+    await tick();
     expect(minimum.value).toBe("2:00");
     expect(filters.getAttribute("aria-expanded")).toBe("false");
+    expect(escape.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(filters);
   });
 
   it("shows local file facts and marks the active file instead of offering it again", async () => {

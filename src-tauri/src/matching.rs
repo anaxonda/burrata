@@ -219,9 +219,125 @@ pub fn strip_trailing_display_runtime(value: &str) -> &str {
     }
 }
 
+pub(crate) fn has_exact_chart_version_capture(track: &Track, version: &str) -> bool {
+    track.provenance["browserImport"] == true
+        && track.provenance["captureProvider"].as_str() == Some(track.provider.as_str())
+        && track.provenance["rawCaptures"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.iter().any(|row| {
+                    row["providerId"].as_str() == Some(track.provider_id.as_str())
+                        && row["sourceUrl"].as_str() == Some(track.source_url.as_str())
+                        && row["title"].as_str() == Some(track.title.as_str())
+                        && row["version"].as_str() == Some(version)
+                })
+            })
+}
+
+/// Reinterpret chart display fields only for the exact source occurrence.
+/// Matching consumes the corrected copy; the captured labels remain in the library.
+pub(crate) fn chart_playback_identity(track: &Track) -> Cow<'_, Track> {
+    let Some(version) = track.version.as_deref() else {
+        return Cow::Borrowed(track);
+    };
+    let manual = &track.provenance["manualFields"];
+    if !matches!(track.provider.as_str(), "beatport" | "traxsource")
+        || track.playback_range.is_some()
+        || manual["title"] == true
+        || manual["version"] == true
+        || manual["durationSeconds"] == true
+    {
+        return Cow::Borrowed(track);
+    }
+    if !has_exact_chart_version_capture(track, version)
+        && !crate::recording_match::native_catalog_annotation_source(track)
+    {
+        return Cow::Borrowed(track);
+    }
+    if track.provider == "traxsource" {
+        if let Some((minutes, seconds)) = version
+            .trim()
+            .strip_prefix('(')
+            .and_then(|clock| clock.strip_suffix(')'))
+            .and_then(|clock| clock.split_once(':'))
+        {
+            let rollover = minutes
+                .parse::<u32>()
+                .ok()
+                .zip(seconds.parse::<u32>().ok())
+                .filter(|&(minutes, value)| {
+                    minutes < 60 && seconds.len() == 2 && (60..=99).contains(&value)
+                })
+                .map(|(minutes, seconds)| minutes * 60 + seconds);
+            if rollover.is_some_and(|runtime| {
+                track
+                    .duration_seconds
+                    .is_some_and(|seconds| (seconds - f64::from(runtime)).abs() < 0.5)
+            }) {
+                let mut corrected = track.clone();
+                corrected.version = None;
+                return Cow::Owned(corrected);
+            }
+        }
+        let heading = track.title.trim_end().rsplit_once(' ');
+        let printed_version = split_balanced_trailing_parenthetical(version);
+        if let Some(((base, generic), (mix, clock))) = heading.zip(printed_version) {
+            if generic.eq_ignore_ascii_case("remix")
+                && split_balanced_trailing_parenthetical(base).is_some()
+                && crate::recording_identity::named_remix_vocal_form(&normalize(mix))
+                && parse_display_runtime(clock)
+                    .zip(track.duration_seconds)
+                    .is_some_and(|(shown, recorded)| (shown - recorded).abs() < 0.5)
+            {
+                let mut corrected = track.clone();
+                corrected.title = base.trim_end().to_owned();
+                corrected.version = Some(mix.to_owned());
+                return Cow::Owned(corrected);
+            }
+        }
+        if let Some((title, generic)) = split_balanced_trailing_parenthetical(&track.title) {
+            let printed_mix = crate::recording_identity::parse_recording_text(
+                strip_trailing_display_runtime(version),
+            );
+            let mixes = printed_mix.semantic_versions().collect::<Vec<_>>();
+            if generic.eq_ignore_ascii_case("remix")
+                && !printed_mix.parsing_incomplete
+                && normalize(title)
+                    == normalize(&printed_mix.title_without_recognized_annotations())
+                && matches!(mixes.as_slice(), [mix] if normalize(mix).split_whitespace().count() >= 2
+                    && normalize(mix) != "original mix")
+            {
+                let mut corrected = track.clone();
+                corrected.title = title.to_owned();
+                corrected.version = Some(mixes[0].to_owned());
+                return Cow::Owned(corrected);
+            }
+        }
+    } else {
+        let title = crate::recording_identity::parse_recording_text(&track.title);
+        if title
+            .semantic_versions()
+            .any(|value| value.eq_ignore_ascii_case("remix"))
+            && split_balanced_trailing_parenthetical(&title.title_without_recognized_annotations())
+                .is_some_and(|(_, subtitle)| {
+                    !normalize(version).is_empty() && normalize(subtitle) == normalize(version)
+                })
+        {
+            let mut corrected = track.clone();
+            corrected.version = None;
+            return Cow::Owned(corrected);
+        }
+    }
+    Cow::Borrowed(track)
+}
+
 /// Build a transient matching view for legacy/imported titles that contain a known
 /// display version and runtime. This clone is never persisted and respects manual tags.
 pub fn ephemeral_playback_identity(track: &Track) -> Cow<'_, Track> {
+    let chart = chart_playback_identity(track);
+    if matches!(chart, Cow::Owned(_)) {
+        return chart;
+    }
     let manual = &track.provenance["manualFields"];
     if track.playback_range.is_some()
         || track.duration_seconds.is_some()
@@ -369,7 +485,10 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
     let artist_match = coverage(&artist, &upload);
     let mut reasons = vec![
         format!("Title token match: {:.0}%", title_match * 100.0),
-        format!("Artist token match: {:.0}%", artist_match * 100.0),
+        format!(
+            "Artist tokens in upload title: {:.0}%",
+            artist_match * 100.0
+        ),
     ];
     if !artist.is_empty()
         && contains_phrase(&uploader, &artist)

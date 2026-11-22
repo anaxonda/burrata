@@ -2349,6 +2349,31 @@ impl Store {
         tx.commit().map_err(err)?;
         Ok(result)
     }
+    /// Register recently browsed tracks for ID-based actions without promoting them
+    /// to the Library or replacing source metadata on an existing listing.
+    pub(crate) fn cache_missing_tracks(&self, tracks: &[Track]) -> Result<()> {
+        if tracks.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.lock_connection()?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        for track in tracks {
+            let cached: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM catalog_listings WHERE id=?1)",
+                    [&track.id],
+                    |row| row.get(0),
+                )
+                .map_err(err)?;
+            if !cached {
+                upsert_track(&tx, track, false)?;
+            }
+        }
+        tx.commit().map_err(err)
+    }
+
     /// Cache album/provider metadata and add all supplied tracks to the Library atomically.
     /// Manual recording metadata remains in `recordings.manual_metadata` and is never replaced.
     pub fn save_library_tracks(&self, tracks: &[Track]) -> Result<Vec<String>> {
@@ -4443,11 +4468,7 @@ impl Store {
     /// Safe to call during startup, even before the first asset is downloaded.
     pub fn ensure_downloads_collection(&self) -> Result<Collection> {
         let conn = self.lock_connection()?;
-        conn.execute(
-            "INSERT INTO collections(id,name) VALUES(?1,'Downloads') ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL",
-            [DOWNLOADS_COLLECTION_ID],
-        )
-        .map_err(err)?;
+        ensure_downloads_collection_row(&conn)?;
         self.active_collection(&conn, DOWNLOADS_COLLECTION_ID)
     }
     pub fn add_to_collection(&self, collection_id: &str, tracks: &[Track]) -> Result<()> {
@@ -4638,18 +4659,8 @@ impl Store {
     pub fn add_asset_to_downloads(&self, asset: &LocalAsset) -> Result<Collection> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
-        ensure_track(&tx, &asset.track)?;
-        promote_track(&tx, &asset.track.id)?;
-        tx.execute(
-            "INSERT INTO collections(id,name) VALUES(?1,'Downloads') ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL",
-            [DOWNLOADS_COLLECTION_ID],
-        )
-        .map_err(err)?;
-        tx.execute(
-            "INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position) SELECT ?1,recording_id,(SELECT COALESCE(MAX(position),0)+1 FROM collection_members WHERE collection_id=?1) FROM catalog_listings WHERE id=?2",
-            params![DOWNLOADS_COLLECTION_ID, asset.track.id],
-        )
-        .map_err(err)?;
+        ensure_downloads_collection_row(&tx)?;
+        add_downloads_track(&tx, &asset.track)?;
         tx.commit().map_err(err)?;
         self.active_collection(&conn, DOWNLOADS_COLLECTION_ID)
     }
@@ -4661,15 +4672,24 @@ impl Store {
         loop {
             let (assets, next_before_rowid) =
                 self.managed_download_candidates_page(before_rowid, 500)?;
-            for asset in assets {
-                if asset.track.provenance["publicationJobId"]
-                    .as_str()
-                    .is_some_and(|job_id| !job_id.is_empty())
-                    && Path::new(&asset.path).is_file()
-                {
-                    self.add_asset_to_downloads(&asset)?;
-                    added += 1;
+            let present = assets
+                .into_iter()
+                .filter(|asset| {
+                    asset.track.provenance["publicationJobId"]
+                        .as_str()
+                        .is_some_and(|job_id| !job_id.is_empty())
+                        && Path::new(&asset.path).is_file()
+                })
+                .collect::<Vec<_>>();
+            if !present.is_empty() {
+                let mut conn = self.lock_connection()?;
+                let tx = conn.transaction().map_err(err)?;
+                ensure_downloads_collection_row(&tx)?;
+                for asset in &present {
+                    add_downloads_track(&tx, &asset.track)?;
                 }
+                tx.commit().map_err(err)?;
+                added += present.len();
             }
             let Some(next_before_rowid) = next_before_rowid else {
                 break;
@@ -7361,6 +7381,29 @@ fn validate_portable_source_targets(
     Ok(())
 }
 
+fn ensure_downloads_collection_row(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO collections(id,name) VALUES(?1,'Downloads')
+         ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL
+         WHERE collections.name<>'Downloads' OR collections.deleted_at IS NOT NULL",
+        [DOWNLOADS_COLLECTION_ID],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+fn add_downloads_track(conn: &Connection, track: &Track) -> Result<()> {
+    ensure_track(conn, track)?;
+    promote_track(conn, &track.id)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position)
+         SELECT ?1,recording_id,(SELECT COALESCE(MAX(position),0)+1 FROM collection_members WHERE collection_id=?1)
+         FROM catalog_listings WHERE id=?2",
+        params![DOWNLOADS_COLLECTION_ID, track.id],
+    ).map_err(err)?;
+    Ok(())
+}
+
 fn ensure_track(conn: &Connection, track: &Track) -> Result<()> {
     if track.id != format!("{}:{}", track.provider, track.provider_id) {
         return Err("Invalid track identity".into());
@@ -7441,6 +7484,7 @@ fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
     )
     .map_err(err)?;
     let mut metadata = serde_json::to_value(track).map_err(err)?;
+    crate::metadata_normalization::repair_legacy_youtube_caption(&mut metadata);
     let old: Option<String> = conn
         .query_row(
             "SELECT metadata FROM catalog_listings WHERE provider=?1 AND provider_id=?2",
@@ -7450,8 +7494,13 @@ fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
         .ok();
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(old) = old {
-        let old: serde_json::Value = decode(old)?;
+        let mut old: serde_json::Value = decode(old)?;
+        crate::metadata_normalization::repair_legacy_youtube_caption(&mut old);
         crate::import_metadata::merge_evidence(&old, &mut metadata);
+        crate::metadata_normalization::preserve_structured_youtube_search_fields(
+            &old,
+            &mut metadata,
+        );
         if let (Some(new), Some(old)) = (metadata.as_object_mut(), old.as_object()) {
             if old.get("dateAdded").is_some_and(|v| !v.is_null()) {
                 new.insert("dateAdded".into(), old["dateAdded"].clone());
@@ -7808,10 +7857,11 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
         }
     }
     let matching_settings = current_matching_settings(conn);
-    let selected = recordings
+    // Recordings with no assets cannot contribute a preferred local file.
+    // Avoid searching the track batch again for every remote-only recording.
+    let selected = assets
         .iter()
-        .map(|recording| {
-            let rows = assets.get(recording).map(Vec::as_slice).unwrap_or(&[]);
+        .map(|(recording, rows)| {
             let preferred = preferences.get(recording).and_then(Option::as_deref);
             let request = tracks
                 .iter()
@@ -7819,7 +7869,7 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
                 .map(|(track, _)| track);
             let rows = request
                 .map(|track| eligible_hydration_rows(rows, track, &matching_settings))
-                .unwrap_or_else(|| rows.to_vec());
+                .unwrap_or_else(|| rows.clone());
             (recording.clone(), select_hydration_asset(&rows, preferred))
         })
         .collect::<HashMap<_, _>>();
@@ -7912,6 +7962,7 @@ fn apply_hydration_metadata(
     track.disposition = values.1;
     let manual: serde_json::Value = decode(values.2)?;
     let mut metadata = serde_json::to_value(&track).map_err(err)?;
+    crate::metadata_normalization::repair_legacy_youtube_caption(&mut metadata);
     if let (Some(obj), Some(overrides)) = (metadata.as_object_mut(), manual.as_object()) {
         for (k, v) in overrides {
             obj.insert(k.clone(), v.clone());
@@ -8470,6 +8521,131 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn channel_cache_registers_missing_uploads_without_overwriting_existing_listings() {
+        let (_dir, store) = db();
+        let channel_upload = |video_id: &str| Track {
+            id: format!("youtube:{video_id}"),
+            provider: "youtube".into(),
+            provider_id: video_id.into(),
+            source_url: format!("https://www.youtube.com/watch?v={video_id}"),
+            title: "Raw upload title".into(),
+            artwork_url: Some(format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")),
+            provenance: serde_json::json!({
+                "sourceKind": "youtubeChannelUpload",
+                "playbackMode": "source",
+                "uploaderChannelId": "UC8TZwtZ17WKFJSmwTZQpBTA",
+            }),
+            ..Track::default()
+        };
+        let duplicate = channel_upload("LSHM_bkSYQI");
+        let saved = Track {
+            title: "Library title".into(),
+            artist: "Library artist".into(),
+            provenance: serde_json::json!({"sourceKind": "audioSearch"}),
+            ..duplicate.clone()
+        };
+        store.save_library_tracks(&[saved]).unwrap();
+        let original = store.get_library_track(&duplicate.id).unwrap().unwrap();
+        let upload = channel_upload("Jnm-TY4WzXY");
+        assert!(store.get_track(&upload.id).unwrap().is_none());
+
+        store
+            .cache_missing_tracks(&[duplicate.clone(), upload.clone()])
+            .unwrap();
+
+        let cached = store.get_track(&upload.id).unwrap().unwrap();
+        assert_eq!(cached.id, upload.id);
+        assert_eq!(cached.source_url, upload.source_url);
+        assert_eq!(cached.artwork_url, upload.artwork_url);
+        assert_eq!(cached.provenance["sourceKind"], "youtubeChannelUpload");
+        assert_eq!(cached.provenance["playbackMode"], "source");
+        assert!(store.get_library_track(&upload.id).unwrap().is_none());
+        let existing = store.get_library_track(&duplicate.id).unwrap().unwrap();
+        assert_eq!(existing.title, original.title);
+        assert_eq!(existing.artist, original.artist);
+        assert_eq!(existing.provenance, original.provenance);
+    }
+
+    fn youtube_caption_fixture() -> Track {
+        let id = "youtube:LSHM_bkSYQI";
+        let url = "https://www.youtube.com/watch?v=LSHM_bkSYQI";
+        Track {
+            id: id.into(),
+            provider: "youtube".into(),
+            provider_id: "LSHM_bkSYQI".into(),
+            source_url: url.into(),
+            artist: "No Viviré".into(),
+            title: "Gipsy Kings".into(),
+            duration_seconds: Some(246.0),
+            provenance: serde_json::json!({
+                "sourceKind": "audioSearch",
+                "artistSource": "inferred_from_title",
+                "weakFields": {"artist": true, "title": true},
+                "audioCandidate": {
+                    "id": id, "provider": "youtube", "url": url,
+                    "title": "No Viviré - Gipsy Kings"
+                }
+            }),
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn youtube_caption_repairs_existing_search_listing_and_keeps_manual_edits() {
+        let (_dir, store) = db();
+        let legacy = youtube_caption_fixture();
+        store.save_library_tracks(&[legacy.clone()]).unwrap();
+        store
+            .lock_connection()
+            .unwrap()
+            .execute(
+                "UPDATE catalog_listings SET metadata=?1 WHERE id=?2",
+                params![encode(&legacy).unwrap(), legacy.id],
+            )
+            .unwrap();
+
+        let mut repaired = store.get_library_track(&legacy.id).unwrap().unwrap();
+        assert_eq!(repaired.title, "No Viviré - Gipsy Kings");
+        assert!(repaired.artist.is_empty());
+        assert_eq!(repaired.source_url, legacy.source_url);
+        assert_eq!(repaired.duration_seconds, legacy.duration_seconds);
+        assert_eq!(repaired.provenance["artistSource"], "unknown");
+
+        repaired.title = "No Viviré".into();
+        repaired.artist = "Gipsy Kings".into();
+        store.update_track(&repaired).unwrap();
+        let refreshed = store.cache_track(&legacy).unwrap();
+        assert_eq!(refreshed.title, repaired.title);
+        assert_eq!(refreshed.artist, repaired.artist);
+        assert_eq!(refreshed.provenance["manualFields"]["artist"], true);
+        assert_eq!(refreshed.provenance["manualFields"]["title"], true);
+    }
+
+    #[test]
+    fn youtube_caption_refresh_preserves_structured_playlist_fields() {
+        let (_dir, store) = db();
+        let legacy = youtube_caption_fixture();
+        let mut structured = legacy.clone();
+        structured.title = "No Viviré".into();
+        structured.artist = "Gipsy Kings".into();
+        structured.provenance = serde_json::json!({
+            "remotePlaylist": true,
+            "artistCredits": [{"name": "Gipsy Kings", "role": "artist"}],
+        });
+        store.cache_track(&structured).unwrap();
+
+        let refreshed = store.cache_track(&legacy).unwrap();
+        assert_eq!(refreshed.title, structured.title);
+        assert_eq!(refreshed.artist, structured.artist);
+        assert_eq!(
+            refreshed.provenance["artistCredits"],
+            structured.provenance["artistCredits"]
+        );
+        assert_eq!(refreshed.provenance["weakFields"]["artist"], false);
+        assert_eq!(refreshed.provenance["weakFields"]["title"], false);
     }
 
     #[test]

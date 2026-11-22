@@ -3134,6 +3134,17 @@ fn native_session_ready(mode: &str) -> bool {
     mode == NATIVE_MODE_READY
 }
 
+fn native_provider_operations_ready(
+    mode: &str,
+    session: &PersistedSession,
+    provider: &str,
+) -> bool {
+    matches!(provider, "spotify" | "youtube")
+        && native_session_ready(mode)
+        && session.accounts.contains_key(provider)
+        && native_youtube_reconnect_gate(provider, session.youtube_reconnect_required).is_ok()
+}
+
 fn native_transport_requested(environment_override: Option<&str>, persisted_opt_in: bool) -> bool {
     match environment_override {
         Some("1") => true,
@@ -3952,6 +3963,10 @@ impl ManagedProviderSession {
 
 #[async_trait::async_trait]
 impl ProviderTransport for ManagedProviderSession {
+    fn provider_session_revision(&self) -> Option<u64> {
+        Some(self.native_generation.load(Ordering::SeqCst))
+    }
+
     fn native_write_sync_enabled(&self) -> bool {
         self.native_transport_enabled()
     }
@@ -3991,6 +4006,18 @@ impl ProviderTransport for ManagedProviderSession {
             return self.bridge.provider_operations_supported();
         }
         self.bridge.provider_operations_supported()
+    }
+
+    fn provider_operations_supported_for(&self, provider: &str) -> bool {
+        if !native_runtime_open(&self.native_shutdown) {
+            return false;
+        }
+        if self.native_transport_enabled() {
+            return self.state.lock().ok().is_some_and(|state| {
+                native_provider_operations_ready(&state.mode, &state.persisted, provider)
+            });
+        }
+        matches!(provider, "spotify" | "youtube") && self.provider_operations_supported()
     }
 
     async fn provider_operation(
@@ -5126,6 +5153,68 @@ mod tests {
             fs::read_to_string(second.join("scripts/provider.mjs")).unwrap(),
             "fixture-worker-v2"
         );
+    }
+
+    #[test]
+    fn native_provider_readiness_checks_the_requested_account_and_reconnect_state() {
+        let mut session = PersistedSession {
+            session_id: "fixture-session".into(),
+            accounts: BTreeMap::new(),
+            background_opt_in: true,
+            native_transport_opt_in: true,
+            native_stopped: false,
+            youtube_reconnect_required: false,
+        };
+        let account = |id: &str| ConfirmedAccount {
+            account_id: id.to_owned(),
+            revision: 1,
+        };
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+
+        session
+            .accounts
+            .insert("spotify".into(), account("spotify-fixture"));
+        assert!(native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "spotify"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+
+        session.accounts.remove("spotify");
+        session
+            .accounts
+            .insert("youtube".into(), account("youtube-fixture"));
+        assert!(native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "spotify"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_CONFIRMED,
+            &session,
+            "youtube"
+        ));
+
+        session.youtube_reconnect_required = true;
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
     }
 
     #[test]

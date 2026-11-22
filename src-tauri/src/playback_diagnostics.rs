@@ -1135,6 +1135,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "discogs",
             "independentCatalog",
             "shazamAppleExact",
+            "traxsourceSpotifyCompleteRelease",
         ]),
         "roleStage" => Some(&[
             "service",
@@ -1327,6 +1328,8 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "alias_lexical_preflight_end"
             | "bandcamp_fallback_start"
             | "bandcamp_fallback_end"
+            | "bandcamp_linked_album_lookahead_start"
+            | "bandcamp_linked_album_lookup_end"
             | "canonical_search_warmup_end"
             | "catalog_alias_preparation_end"
             | "catalog_alias_preparation_skipped"
@@ -1955,6 +1958,23 @@ mod tests {
             assert_eq!(safe["destinationHostClass"], class);
             assert_eq!(safe["redirectHop"], 1);
         }
+    }
+
+    #[test]
+    fn bandcamp_linked_album_phases_keep_safe_timing_and_outcome() {
+        let mut start = event(1);
+        start["phase"] = json!("bandcamp_linked_album_lookahead_start");
+        start["provider"] = json!("bandcamp");
+        assert!(sanitize_event(start).is_some());
+
+        let mut end = event(2);
+        end["phase"] = json!("bandcamp_linked_album_lookup_end");
+        end["provider"] = json!("bandcamp");
+        end["details"] = json!({"elapsedMs":1975,"accepted":true,"rawAlbumHtml":"private value"});
+        let safe = sanitize_event(end).unwrap();
+        assert_eq!(safe.details["elapsedMs"], 1975);
+        assert_eq!(safe.details["accepted"], true);
+        assert!(!safe.details.contains_key("rawAlbumHtml"));
     }
 
     #[test]

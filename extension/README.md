@@ -65,6 +65,13 @@ Registration explicitly covers Firefox, Chrome, Chromium and Edge. Other browser
 variants and Snap/Flatpak browser packages are not qualified. See
 [system-specific troubleshooting](../docs/install.md#updates-and-common-problems).
 
+### Open Spotify links in Burrata
+
+Right-click a Spotify track, album, artist, or playlist page or link and choose
+**Open in Burrata**. The companion sends the Spotify link to the running app.
+This action uses the installed browser host and works with browser-assisted
+access turned off.
+
 ### Connections and account access
 
 Manual page import needs no provider pairing code. In the popup's **Connections**,

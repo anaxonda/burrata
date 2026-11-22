@@ -68,6 +68,7 @@ export interface Chart {
 }
 export interface BrowserStatus {
   connected: boolean; pendingCount: number; lastSeen: string | null; hostName: string;
+  providerProtocolVersion?: number | null;
 }
 export interface BrowserImportResult {
   id: string; provider: string; kind: "chart" | "playlist" | "album" | "collection"; title: string; sourceUrl: string; fetchedAt: string; collectionId: string; capturedCount: number; importedCount: number; expectedTotal: number | null; complete: boolean; warnings: string[]; failedSources?: string[]; changes?: {added:number;removed:number;moved:number;retainedFromEarlierCapture:number;partial:boolean};

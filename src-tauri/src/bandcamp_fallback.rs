@@ -729,6 +729,72 @@ fn shared_policy_assessment_with_options(
         .then_some(assessment)
 }
 
+pub(crate) fn has_exact_linked_album_reference(track: &Track) -> bool {
+    linked_album::release_id(track).is_some()
+}
+
+type LinkedAlbumResult = Result<Option<(Candidate, Value)>, String>;
+
+pub(crate) enum LinkedAlbumLookup {
+    Inline,
+    Prefetch(LinkedAlbumLookahead),
+    AlreadyAttempted,
+}
+
+impl LinkedAlbumLookup {
+    pub(crate) fn prefetch(
+        store: std::sync::Arc<Store>,
+        track: Track,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> Self {
+        Self::Prefetch(LinkedAlbumLookahead::new(async move {
+            linked_album::discover(&store, &track, cancel, deadline).await
+        }))
+    }
+
+    async fn finish(
+        self,
+        store: &Store,
+        track: &Track,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> LinkedAlbumResult {
+        match self {
+            Self::Inline => linked_album::discover(store, track, cancel, deadline).await,
+            Self::Prefetch(task) => task.finish(cancel, deadline).await,
+            Self::AlreadyAttempted => Ok(None),
+        }
+    }
+}
+
+pub(crate) struct LinkedAlbumLookahead(tokio::task::JoinHandle<LinkedAlbumResult>);
+
+impl LinkedAlbumLookahead {
+    fn new(future: impl std::future::Future<Output = LinkedAlbumResult> + Send + 'static) -> Self {
+        Self(tokio::spawn(future))
+    }
+
+    async fn finish(
+        mut self,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> LinkedAlbumResult {
+        bounded(cancel, deadline, async {
+            (&mut self.0)
+                .await
+                .map_err(|_| "Bandcamp album lookup stopped")?
+        })
+        .await
+    }
+}
+
+impl Drop for LinkedAlbumLookahead {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) async fn resolve(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -740,21 +806,52 @@ pub(crate) async fn resolve(
     failed: &[crate::playback_sources::FailedPlaybackCandidate],
     reference_verification: bool,
 ) -> Result<ResolvedSource, String> {
+    resolve_with_linked_album_lookup(
+        store,
+        acquisition,
+        track,
+        settings,
+        cancel,
+        trace,
+        deadline,
+        failed,
+        reference_verification,
+        LinkedAlbumLookup::Inline,
+    )
+    .await
+}
+
+pub(crate) async fn resolve_with_linked_album_lookup(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    trace: SourceTrace,
+    deadline: PlaybackDeadline,
+    failed: &[crate::playback_sources::FailedPlaybackCandidate],
+    reference_verification: bool,
+    linked_album_lookup: LinkedAlbumLookup,
+) -> Result<ResolvedSource, String> {
     let key = fingerprint(track);
     let had_stored_track = store.get_track(&track.id)?.is_some();
-    let cached = store.get_provider_cache(CACHE, &key)?;
+    let cached = store
+        .get_provider_cache(CACHE, &key)?
+        // An alternate edition needs to pass the release and track checks
+        // again. Its previous extraction alone cannot verify the relationship.
+        .filter(|proof| proof["linkedReleaseId"].is_null());
     let mut candidates = vec![];
     let mut linked_proof = None;
     let linked_started = std::time::Instant::now();
     // Refresh the linked album when available; a stale proof must not pin a
     // recording forever after legitimate source metadata changes.
-    let linked = Box::pin(linked_album::discover(
-        store,
-        track,
-        cancel.clone(),
-        deadline,
-    ))
-    .await;
+    let linked = Box::pin(linked_album_lookup.finish(store, track, cancel.clone(), deadline)).await;
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.remaining().is_zero() {
+        return Err("Bandcamp fallback exceeded the playback deadline".into());
+    }
     trace.event("bandcamp_linked_album_lookup_end","bandcamp",json!({"accepted":linked.as_ref().ok().is_some_and(|value|value.is_some()),"elapsedMs":linked_started.elapsed().as_millis(),"releaseId":linked_album::release_id(track)}));
     if let Ok(Some((candidate, proof))) = linked {
         linked_proof = Some((candidate.id.clone(), proof));
@@ -935,8 +1032,11 @@ pub(crate) async fn resolve(
                 proof = json!({"method":"waveform-v1","referenceId":reference["trackId"],"referenceTitle":reference["title"],"referenceArtist":reference["artist"],"referenceSha256":format!("{:x}",Sha256::digest(&reference_bytes)),"score":score,"offsetSamples":offset,"sampleRate":RATE,"sourceId":candidate.id,"sourceUrl":candidate.url,"resolvedTitle":audio.resolved_title,"resolvedArtist":artist,"duration":audio.duration_seconds});
             }
         }
-        if *cancel.borrow() || deadline.remaining().is_zero() {
+        if *cancel.borrow() {
             return Err("Cancelled".into());
+        }
+        if deadline.remaining().is_zero() {
+            return Err("Bandcamp fallback exceeded the playback deadline".into());
         }
         if strict {
             proof = json!({"method":"metadata-v1"});
@@ -1004,6 +1104,12 @@ pub(crate) async fn resolve(
         candidate.source_metadata = Some(resolved_metadata);
         proof["recordingMatch"] = json!(assessment);
         proof["candidate"] = json!(candidate);
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        if deadline.remaining().is_zero() {
+            return Err("Bandcamp fallback exceeded the playback deadline".into());
+        }
         // Identity evidence survives ordinary cache refreshes; never retain signed URLs.
         store.set_provider_cache(CACHE, &key, &proof, 315_576_000)?;
         return Ok(ResolvedSource {
@@ -1162,6 +1268,98 @@ pub(crate) async fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct LookupDropped(Option<tokio::sync::oneshot::Sender<()>>);
+
+    impl Drop for LookupDropped {
+        fn drop(&mut self) {
+            if let Some(done) = self.0.take() {
+                let _ = done.send(());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn bandcamp_lookahead_overlaps_prior_provider_without_extracting_early() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let (metadata_ready_tx, metadata_ready) = tokio::sync::oneshot::channel();
+        let (previous_failed_tx, previous_failed) = tokio::sync::oneshot::channel();
+        let (extraction_tx, mut extraction) = tokio::sync::oneshot::channel();
+        let lookup = LinkedAlbumLookahead::new(async move {
+            metadata_ready_tx.send(()).unwrap();
+            Ok(Some((
+                Candidate {
+                    id: "bandcamp:51".into(),
+                    ..Candidate::default()
+                },
+                json!({"linkedReleaseId":"test-edition"}),
+            )))
+        });
+        let resolver = tokio::spawn(async move {
+            previous_failed.await.unwrap();
+            let (candidate, proof) = lookup
+                .finish(cancel, PlaybackDeadline::after(Duration::from_secs(4)))
+                .await
+                .unwrap()
+                .unwrap();
+            extraction_tx.send(candidate.id.clone()).unwrap();
+            proof
+        });
+        metadata_ready.await.unwrap();
+        assert_eq!(
+            extraction.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        );
+        previous_failed_tx.send(()).unwrap();
+        assert_eq!(extraction.await.unwrap(), "bandcamp:51");
+        assert_eq!(resolver.await.unwrap()["linkedReleaseId"], "test-edition");
+    }
+
+    #[tokio::test]
+    async fn bandcamp_lookahead_drops_when_earlier_provider_wins_or_request_is_canceled() {
+        for earlier_provider_succeeded in [true, false] {
+            let (cancel_tx, cancel) = watch::channel(false);
+            let (started_tx, started) = tokio::sync::oneshot::channel();
+            let (dropped_tx, dropped) = tokio::sync::oneshot::channel();
+            let lookup = LinkedAlbumLookahead::new(async move {
+                let _dropped = LookupDropped(Some(dropped_tx));
+                started_tx.send(()).unwrap();
+                std::future::pending::<LinkedAlbumResult>().await
+            });
+            started.await.unwrap();
+            if earlier_provider_succeeded {
+                // An earlier provider returns directly from resolve_serial. Its
+                // return drops the pending lookahead before the Bandcamp stage.
+                drop(lookup);
+            } else {
+                cancel_tx.send_replace(true);
+                assert_eq!(
+                    lookup
+                        .finish(cancel, PlaybackDeadline::after(Duration::from_secs(4)))
+                        .await
+                        .err()
+                        .as_deref(),
+                    Some("Cancelled")
+                );
+            }
+            dropped.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn bandcamp_lookahead_rejects_a_ready_proof_after_stage_expiry() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let lookup = LinkedAlbumLookahead(tokio::spawn(async {
+            Ok(Some((Candidate::default(), json!({"marker":"ready"}))))
+        }));
+        let expired = PlaybackDeadline::at(tokio::time::Instant::now() - Duration::from_secs(1));
+        let outcome = lookup.finish(cancel, expired).await;
+        assert_eq!(
+            outcome.err().as_deref(),
+            Some("Bandcamp fallback exceeded the playback deadline")
+        );
+    }
+
     fn track() -> Track {
         Track {
             id: "radio_song:fixture".into(),

@@ -36,7 +36,6 @@ const RECOVERY_HEALTHY_RESET: Duration = Duration::from_secs(60);
 const MAX_RECURRING_SOURCE_SWAPS: u8 = 2;
 const MAX_PENDING_NATIVE_SOURCES: usize = 4;
 const PENDING_NATIVE_SOURCE_TTL: Duration = Duration::from_secs(30);
-const MANUAL_FADE_WAIT: Duration = Duration::from_secs(6);
 
 fn preparation_window_seconds(override_value: Option<&str>) -> f64 {
     match override_value {
@@ -229,24 +228,48 @@ fn seek_watchdog_waiting_for_audio(
         && current_epoch == watched_epoch
         && status == "buffering"
 }
-fn automation_start_still_owned(original: &Value, current: &Value) -> bool {
+fn automation_start_still_owned(
+    original: &Value,
+    current: &Value,
+    current_failure_skip_origin: Option<&str>,
+) -> bool {
     let Some(generation) = original["generation"].as_u64() else {
         return false;
     };
     if current["generation"].as_u64() == Some(generation) {
+        // Soft transitions can take operation ownership before switching
+        // decoder generations. A queue edit can retain the decoder and seek
+        // position while replacing its queue entry.
+        return original.pointer("/diagnostics/operationId")
+            == current.pointer("/diagnostics/operationId")
+            && original["seekSerial"] == current["seekSerial"];
+    }
+    if !current["generation"]
+        .as_u64()
+        .is_some_and(|next| next > generation)
+        || original["seekSerial"] != current["seekSerial"]
+    {
+        return false;
+    }
+    // A failed occurrence starts a new decoder operation within the same queue.
+    let original_start = original["failureSkipOrigin"].as_str().or_else(|| {
+        original
+            .pointer("/diagnostics/operationId")
+            .and_then(Value::as_str)
+    });
+    if original_start.is_some_and(|id| current_failure_skip_origin == Some(id))
+        && original["queueRevision"]
+            .as_u64()
+            .is_some_and(|revision| current["queueRevision"].as_u64() == Some(revision))
+    {
         return true;
     }
     // Recovery owns a new decoder generation, but retains the initiating
     // operation/occurrence. A new play, queue transition or seek must still win.
-    current["generation"]
-        .as_u64()
-        .is_some_and(|next| next > generation)
-        && original.pointer("/diagnostics/operationId")
-            == current.pointer("/diagnostics/operationId")
+    original.pointer("/diagnostics/operationId") == current.pointer("/diagnostics/operationId")
         && original["entryId"]
             .as_str()
             .is_some_and(|id| current["entryId"].as_str() == Some(id))
-        && original["seekSerial"] == current["seekSerial"]
         && current
             .pointer("/diagnostics/recoveryCount")
             .and_then(Value::as_u64)
@@ -260,14 +283,14 @@ fn automation_start_still_owned(original: &Value, current: &Value) -> bool {
 async fn wait_for_automation_start(
     mut updates: watch::Receiver<Value>,
     original: Value,
-) -> Result<(), String> {
+) -> Result<Value, String> {
     loop {
         let value = updates.borrow().clone();
-        if !automation_start_still_owned(&original, &value) {
+        if !automation_start_still_owned(&original, &value, value["failureSkipOrigin"].as_str()) {
             return Err("Playback request was superseded".into());
         }
         match value["status"].as_str() {
-            Some("playing") => return Ok(()),
+            Some("playing") => return Ok(value),
             Some("failed") => {
                 return Err(value["playerMessage"]
                     .as_str()
@@ -656,6 +679,7 @@ struct PendingManualFade {
     index: usize,
     entry: String,
     seconds: u8,
+    deadline: tokio::time::Instant,
     claimed: Arc<AtomicBool>,
     replacement: Option<PlaybackSelection>,
 }
@@ -704,7 +728,14 @@ impl PlaybackSelection {
     ) -> Option<Candidate> {
         replace_play_queue(state, self.tracks, index);
         if let Some(entry) = entry {
-            state.entries[state.index] = entry;
+            let replaced = std::mem::replace(&mut state.entries[state.index], entry.clone());
+            if let Some(original) = state
+                .unshuffled_entries
+                .as_mut()
+                .and_then(|order| order.iter_mut().find(|id| **id == replaced))
+            {
+                *original = entry;
+            }
         }
         state.preview_source_entry = candidate_only.then(|| state.entries[state.index].clone());
         state.loudness_queue_contexts.clear();
@@ -835,6 +866,7 @@ struct State {
     natural_queue_end: bool,
     queue: Vec<Track>,
     entries: Vec<String>,
+    unshuffled_entries: Option<Vec<String>>,
     loudness_queue_contexts: HashMap<String, crate::loudness::LoudnessResourceIdentity>,
     queue_revision: u64,
     published_queue_revision: Option<u64>,
@@ -906,6 +938,7 @@ struct State {
     queued_intent_epoch: u64,
     queued_operation_id: Option<String>,
     operation_id: Option<String>,
+    failure_skip_origin: Option<String>,
     operation_kind: Option<String>,
     operation_received_at: Option<Instant>,
     operation_client_started_at_ms: Option<u64>,
@@ -936,6 +969,7 @@ impl Default for State {
             natural_queue_end: false,
             queue: vec![],
             entries: vec![],
+            unshuffled_entries: None,
             loudness_queue_contexts: HashMap::new(),
             queue_revision: 0,
             published_queue_revision: None,
@@ -1005,6 +1039,7 @@ impl Default for State {
             queued_intent_epoch: 0,
             queued_operation_id: None,
             operation_id: None,
+            failure_skip_origin: None,
             operation_kind: None,
             operation_received_at: None,
             operation_client_started_at_ms: None,
@@ -1129,13 +1164,21 @@ impl State {
         value
     }
 
-    fn backup_checkpoint_values(&self) -> (Value, Value) {
-        let queue = json!({
+    fn queue_checkpoint_value(&self) -> Value {
+        let mut queue = json!({
             "tracks": self.queue,
             "entryIds": self.entries,
             "queueRevision": self.queue_revision,
             "queueLoudnessContexts": self.loudness_queue_contexts,
         });
+        if let Some(order) = &self.unshuffled_entries {
+            queue["unshuffledEntryIds"] = json!(order);
+        }
+        queue
+    }
+
+    fn backup_checkpoint_values(&self) -> (Value, Value) {
+        let queue = self.queue_checkpoint_value();
         let session = json!({
             "index": self.index,
             "currentEntryId": self.entries.get(self.index),
@@ -1179,6 +1222,15 @@ impl State {
         value["queueHasMore"] = json!(end < self.queue.len());
         value
     }
+
+    fn automation_start_receipt(&self, native: bool, started: &Value) -> Result<Value, String> {
+        let page = self.snapshot_page(native, 0, 50);
+        if !automation_start_still_owned(started, &page, self.failure_skip_origin.as_deref()) {
+            return Err("Playback request was superseded".into());
+        }
+        Ok(page)
+    }
+
     fn chapter(&self) -> Value {
         if let Some(r) = self.track().and_then(|t| t.playback_range.as_ref()) {
             return json!({"title":self.track().map(|t|t.title.as_str()),"startSeconds":r.start_time,"endSeconds":r.end_time});
@@ -1214,6 +1266,22 @@ fn reorder_queue_state(
     let entry = s.entries.remove(from);
     s.queue.insert(to, track);
     s.entries.insert(to, entry);
+    if from != to {
+        if let Some(order) = &mut s.unshuffled_entries {
+            let moved = &s.entries[to];
+            let after = from < to;
+            let neighbor = &s.entries[if after { to - 1 } else { to + 1 }];
+            if let Some(old) = order.iter().position(|id| id == moved) {
+                order.remove(old);
+                let new = order
+                    .iter()
+                    .position(|id| id == neighbor)
+                    .map(|index| index + usize::from(after))
+                    .unwrap_or(order.len());
+                order.insert(new, moved.clone());
+            }
+        }
+    }
     mark_queue_changed(s);
     s.index = s.entries.iter().position(|id| *id == selected).unwrap_or(0);
     Ok(())
@@ -1279,6 +1347,9 @@ fn select_queue_occurrence<T>(
 fn mark_queue_changed(state: &mut State) {
     state.queue_revision = state.queue_revision.wrapping_add(1);
     let entries: HashSet<&str> = state.entries.iter().map(String::as_str).collect();
+    if let Some(order) = &mut state.unshuffled_entries {
+        order.retain(|entry| entries.contains(entry.as_str()));
+    }
     state
         .loudness_queue_contexts
         .retain(|entry_id, _| entries.contains(entry_id.as_str()));
@@ -1673,9 +1744,8 @@ fn persist_playback_state<E>(
     let _persistence = persistence.lock().unwrap_or_else(|e| e.into_inner());
     let (queue_revision, queue, session_key, session) = {
         let s = state.lock().unwrap_or_else(|e| e.into_inner());
-        let queue = (s.persisted_queue_revision != Some(s.queue_revision)).then(
-            || json!({"tracks":s.queue,"entryIds":s.entries,"queueRevision":s.queue_revision,"queueLoudnessContexts":s.loudness_queue_contexts}),
-        );
+        let queue = (s.persisted_queue_revision != Some(s.queue_revision))
+            .then(|| s.queue_checkpoint_value());
         let key = persisted_session_key(&s);
         let session = (s.persisted_session.as_ref() != Some(&key)).then(|| {
                 json!({"index":s.index,"currentEntryId":s.entries.get(s.index),"queueRevision":s.queue_revision,"position":s.position,"volume":s.volume,"repeat":s.repeat,"shuffle":s.shuffle,"finished":s.status=="ended"})
@@ -3732,9 +3802,13 @@ impl PlaybackService {
             crate::source_preparation::observe_playback_status(&s.status);
             let include_queue = s.published_queue_revision != Some(s.queue_revision);
             let revision = s.queue_revision;
+            let mut lite = s.snapshot(self.native_enabled(), false);
+            if let Some(origin) = &s.failure_skip_origin {
+                lite["failureSkipOrigin"] = json!(origin);
+            }
             (
                 s.snapshot(self.native_enabled(), include_queue),
-                s.snapshot(self.native_enabled(), false),
+                lite,
                 revision,
                 include_queue,
             )
@@ -4130,6 +4204,7 @@ impl PlaybackService {
                             s.entries
                                 .insert(at + offset, uuid::Uuid::new_v4().to_string());
                         }
+                        remember_shuffle_insertions(s, at, track_count, mode == "next");
                     }
                     bind_loudness_context_to_queue_range(
                         s,
@@ -4466,13 +4541,7 @@ impl PlaybackService {
                 let enabled = command["enabled"]
                     .as_bool()
                     .ok_or("Shuffle setting missing")?;
-                self.change(|s| {
-                    if enabled && !s.shuffle {
-                        shuffle_upcoming(s);
-                        mark_queue_changed(s);
-                    }
-                    s.shuffle = enabled;
-                });
+                self.change(|s| set_queue_shuffle(s, enabled));
             }
             "sort_upcoming" => {
                 let field = command["field"].as_str().ok_or("Sort field is missing")?;
@@ -4651,6 +4720,7 @@ impl PlaybackService {
             resume,
             pause_when_ready,
             None,
+            None,
         );
     }
     fn start_with_resolved_source(
@@ -4666,6 +4736,7 @@ impl PlaybackService {
             true,
             pause_when_ready,
             Some(resolved),
+            None,
         );
     }
     fn start_with_pause_and_resolved_source(
@@ -4675,6 +4746,7 @@ impl PlaybackService {
         resume: bool,
         pause_when_ready: bool,
         resolved_source: Option<crate::playback_sources::ResolvedSource>,
+        startup_deadline: Option<Instant>,
     ) {
         let startup_budget = self
             .inner
@@ -4752,7 +4824,9 @@ impl PlaybackService {
             if !resume || s.session.is_empty() {
                 s.recovery_deadline = None;
                 s.recovered_audio_since = None;
-                s.request_started = Instant::now();
+                s.request_started = startup_deadline
+                    .and_then(|deadline| deadline.checked_sub(startup_budget))
+                    .unwrap_or_else(Instant::now);
                 s.first_audio_ms = None;
                 s.source_ready_ms = None;
                 s.operation_source_ready_ms = None;
@@ -5509,6 +5583,10 @@ impl PlaybackService {
             };
             self.cancel();
             self.change(|s| {
+                let origin = s
+                    .failure_skip_origin
+                    .take()
+                    .or_else(|| s.operation_id.clone());
                 begin_operation(
                     s,
                     Some(&format!("native-{}", uuid::Uuid::new_v4())),
@@ -5518,6 +5596,7 @@ impl PlaybackService {
                     None,
                     None,
                 );
+                s.failure_skip_origin = origin;
                 s.index = next;
                 s.recovery = 0;
                 clear_current_source_failure(s);
@@ -6177,6 +6256,13 @@ impl PlaybackService {
         if replace_preload {
             self.clear_preload();
         }
+        let startup_budget = self
+            .inner
+            .store
+            .playback_settings()
+            .map(|settings| settings.playback_startup_timeout())
+            .unwrap_or(crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE);
+        let deadline = tokio::time::Instant::now() + startup_budget;
         let claimed = Arc::new(AtomicBool::new(false));
         {
             let mut state = self.inner.state.lock().unwrap();
@@ -6196,6 +6282,7 @@ impl PlaybackService {
                 index,
                 entry,
                 seconds,
+                deadline,
                 claimed: claimed.clone(),
                 replacement: replacement.take(),
             };
@@ -6208,31 +6295,36 @@ impl PlaybackService {
 
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(MANUAL_FADE_WAIT).await;
-            let _command = service.inner.commands.lock().await;
-            let fallback = {
-                let mut state = service.inner.state.lock().unwrap();
-                if !state
-                    .manual_fade
-                    .as_ref()
-                    .is_some_and(|request| Arc::ptr_eq(&request.claimed, &claimed))
-                    || claimed.swap(true, Ordering::AcqRel)
-                {
-                    return;
-                }
-                state
-                    .manual_fade
-                    .take()
-                    .filter(|_| matches!(state.status.as_str(), "playing" | "buffering"))
-            };
-            if let Some(request) = fallback {
-                service.start_manual_target(request);
-            }
+            tokio::time::sleep_until(deadline).await;
+            service.fallback_manual_fade(&claimed).await;
         });
         true
     }
 
+    async fn fallback_manual_fade(&self, claimed: &Arc<AtomicBool>) {
+        let _command = self.inner.commands.lock().await;
+        let fallback = {
+            let mut state = self.inner.state.lock().unwrap();
+            if !state
+                .manual_fade
+                .as_ref()
+                .is_some_and(|request| Arc::ptr_eq(&request.claimed, claimed))
+                || claimed.swap(true, Ordering::AcqRel)
+            {
+                return;
+            }
+            state
+                .manual_fade
+                .take()
+                .filter(|_| matches!(state.status.as_str(), "playing" | "buffering"))
+        };
+        if let Some(request) = fallback {
+            self.start_manual_target(request);
+        }
+    }
+
     fn start_manual_target(&self, request: PendingManualFade) {
+        let startup_deadline = request.deadline.into_std();
         let candidate = {
             let mut state = self.inner.state.lock().unwrap();
             self.cancel_locked(&mut state);
@@ -6241,11 +6333,18 @@ impl PlaybackService {
             candidate
         };
         self.publish();
-        self.start(candidate, 0., false);
+        self.start_with_pause_and_resolved_source(
+            candidate,
+            0.,
+            false,
+            false,
+            None,
+            Some(startup_deadline),
+        );
     }
 
     fn prepare_next(&self) {
-        let (owner, track, candidate, cancel) = {
+        let (owner, track, candidate, cancel, manual) = {
             let mut s = self.inner.state.lock().unwrap();
             if s.status != "playing"
                 || s.station.is_some()
@@ -6283,7 +6382,7 @@ impl PlaybackService {
                     .clone(),
                 cancel: tx,
             };
-            (owner, track, candidate, rx)
+            (owner, track, candidate, rx, s.manual_fade.is_some())
         };
         let track = self.track_with_registered_chapter_asset(&track);
         let service = self.clone();
@@ -6358,7 +6457,7 @@ impl PlaybackService {
             // Use the full idle lead time to warm stable provider results.
             // This remains explicitly search/identity-only; the 45s deadline
             // does not authorize returning an old signed URL at handoff.
-            if track.local_path.is_none() && candidate.is_none() {
+            if !manual && track.local_path.is_none() && candidate.is_none() {
                 let background_service = service.clone();
                 let background_track = track.clone();
                 let background_owner_cancel = cancel.clone();
@@ -6450,20 +6549,29 @@ impl PlaybackService {
                 stop.send_replace(true);
             }
             trace.event("next_preparation_resolve_start", "other", json!({}));
-            let remaining_seconds = {
+            let (remaining_seconds, requested_deadline) = {
                 let state = service
                     .inner
                     .state
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
-                if state.duration.is_finite() && state.duration > state.position {
+                let remaining = if state.duration.is_finite() && state.duration > state.position {
                     (state.duration - state.position).min(45.0).max(0.0)
                 } else {
                     20.0
-                }
+                };
+                (
+                    remaining,
+                    state
+                        .manual_fade
+                        .as_ref()
+                        .filter(|request| request.entry == owner.entry)
+                        .map(|request| request.deadline),
+                )
             };
-            let handoff =
-                tokio::time::Instant::now() + Duration::from_secs_f64(remaining_seconds.max(0.05));
+            let handoff = requested_deadline.unwrap_or_else(|| {
+                tokio::time::Instant::now() + Duration::from_secs_f64(remaining_seconds.max(0.05))
+            });
             let mut resolved = crate::playback_sources::resolve_for_preload_until(
                 &service.inner.store,
                 &service.inner.acquisition,
@@ -6472,6 +6580,7 @@ impl PlaybackService {
                 cancel.clone(),
                 operation_id,
                 handoff,
+                requested_deadline.is_none(),
             )
             .await;
             let resolved_ok = resolved.is_ok();
@@ -6529,7 +6638,17 @@ impl PlaybackService {
                 _ => None,
             };
             let mut s = service.inner.state.lock().unwrap();
+            let preparation_current = preload_preparation_is_current(&s, &owner);
             let Some(resolved) = finish_preload_resolution(&mut s, &owner, resolved) else {
+                let fallback = (preparation_current && !resolved_ok)
+                    .then(|| {
+                        s.manual_fade
+                            .as_ref()
+                            .filter(|request| request.entry == owner.entry)
+                            .map(|request| request.claimed.clone())
+                    })
+                    .flatten();
+                drop(s);
                 span.finish(if *cancel.borrow() {
                     "cancelled"
                 } else if resolved_ok {
@@ -6537,6 +6656,13 @@ impl PlaybackService {
                 } else {
                     "failed"
                 });
+                if let Some(claimed) = fallback {
+                    // An early failure should advance the existing hard-start
+                    // path without waiting out the remainder of the soft window.
+                    tauri::async_runtime::spawn(async move {
+                        service.fallback_manual_fade(&claimed).await;
+                    });
+                }
                 return;
             };
             let queue_album_context = s
@@ -7575,14 +7701,17 @@ impl PlaybackService {
         if !should_wait {
             return Ok(self.snapshot_page(0, 50));
         }
-        match tokio::time::timeout(
-            Duration::from_secs(45),
-            wait_for_automation_start(self.subscribe(), snapshot),
-        )
-        .await
-        {
-            Ok(Ok(())) => Ok(self.snapshot_page(0, 50)),
-            Ok(Err(error)) => Err(error),
+        let await_receipt = async {
+            let started = wait_for_automation_start(self.subscribe(), snapshot).await?;
+            // A replacement may have started since the watcher observed first
+            // audio. Validate ownership and capture the page from the same
+            // locked state, outside the time spent waiting for audio.
+            let _command = self.inner.commands.lock().await;
+            let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.automation_start_receipt(self.native_enabled(), &started)
+        };
+        match tokio::time::timeout(Duration::from_secs(45), await_receipt).await {
+            Ok(result) => result,
             Err(_) => Err("Playback timed out".into()),
         }
     }
@@ -7887,6 +8016,9 @@ fn merge_persisted_queue(saved: &mut Value, queue: &Value) -> Result<(), String>
     if let Some(contexts) = queue.get("queueLoudnessContexts") {
         saved["queueLoudnessContexts"] = contexts.clone();
     }
+    if let Some(order) = queue.get("unshuffledEntryIds") {
+        saved["unshuffledEntryIds"] = order.clone();
+    }
     Ok(())
 }
 
@@ -7918,17 +8050,24 @@ fn engine_switch_checkpoint(saved: &Value) -> Result<(Value, Value), String> {
     }
     let mut restored = State::default();
     restore_state(&mut restored, saved)?;
-    let queue = json!({"tracks":restored.queue,"entryIds":restored.entries,"queueRevision":restored.queue_revision,"queueLoudnessContexts":restored.loudness_queue_contexts});
+    let queue = restored.queue_checkpoint_value();
     let session = json!({"index":restored.index,"currentEntryId":restored.entries.get(restored.index),"queueRevision":restored.queue_revision,"position":restored.position,"volume":restored.volume,"repeat":restored.repeat,"shuffle":restored.shuffle,"finished":false});
     Ok((queue, session))
 }
 
 fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
-    let tracks = serde_json::from_value::<Vec<Track>>(saved["tracks"].clone())
-        .map_err(|_| "Saved playback queue is invalid")?;
-    if tracks.len() > 10000 {
+    let mut raw_tracks = saved["tracks"].clone();
+    let entries = raw_tracks
+        .as_array_mut()
+        .ok_or("Saved playback queue is invalid")?;
+    if entries.len() > 10000 {
         return Err("Saved playback queue is too large".into());
     }
+    for track in entries {
+        crate::metadata_normalization::repair_legacy_youtube_caption(track);
+    }
+    let tracks = serde_json::from_value::<Vec<Track>>(raw_tracks)
+        .map_err(|_| "Saved playback queue is invalid")?;
     let has_identity = saved.get("entryIds").is_some()
         || saved.get("queueRevision").is_some()
         || saved.get("currentEntryId").is_some();
@@ -7992,6 +8131,16 @@ fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
     let volume = positive(saved.get("volume"), 0.8)?.min(1.);
     state.queue = tracks;
     state.entries = entries;
+    state.unshuffled_entries = if saved["shuffle"] == true {
+        serde_json::from_value::<Vec<String>>(saved["unshuffledEntryIds"].clone())
+            .ok()
+            .filter(|order| {
+                order.len() == state.entries.len()
+                    && order.iter().collect::<HashSet<_>>() == state.entries.iter().collect()
+            })
+    } else {
+        None
+    };
     state.loudness_queue_contexts = loudness_queue_contexts;
     mark_queue_changed(state);
     if let Some(revision) = queue_revision {
@@ -8002,6 +8151,14 @@ fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
     state.published_queue_revision = None;
     state.index = index;
     state.position = position;
+    state.duration = state
+        .track()
+        .and_then(|track| match &track.playback_range {
+            Some(range) => Some(range.end_time - range.start_time),
+            None => track.duration_seconds,
+        })
+        .filter(|duration| duration.is_finite() && *duration > 0. && *duration >= position)
+        .unwrap_or(0.);
     state.volume = volume;
     state.repeat = saved["repeat"]
         .as_str()
@@ -8070,6 +8227,9 @@ fn sort_upcoming(
     for (index, (track, entry)) in (start..state.queue.len()).zip(upcoming) {
         state.queue[index] = track;
         state.entries[index] = entry;
+    }
+    if state.unshuffled_entries.is_some() {
+        state.unshuffled_entries = Some(state.entries.clone());
     }
     mark_queue_changed(state);
 }
@@ -8791,6 +8951,7 @@ fn begin_operation(
     command_bytes: Option<usize>,
 ) {
     state.operation_id = Some(id.map(str::to_owned).unwrap_or_else(native_operation_id));
+    state.failure_skip_origin = None;
     state.operation_kind = Some(kind.to_owned());
     state.operation_received_at = Some(received_at);
     state.operation_client_started_at_ms = client_started_at_ms;
@@ -8859,7 +9020,9 @@ pub(crate) fn track_failure_category(reason: &str) -> &'static str {
             | "source identity changed during inspection; select it again"
     ) {
         "source_identity_mismatch"
-    } else if message == "this source has no supported audio stream" {
+    } else if message == "this source has no supported audio stream"
+        || reason == crate::playback_sources::SOULSEEK_DOWNLOAD_REQUIRED
+    {
         "unsupported_audio_stream"
     } else {
         "failed_with_reason"
@@ -9071,6 +9234,7 @@ fn replace_queued_tracks(state: &mut State, tracks: Vec<Track>, preserve_current
         .map(|_| uuid::Uuid::new_v4().to_string())
         .collect();
     state.index = 0;
+    state.unshuffled_entries = state.shuffle.then(|| state.entries.clone());
     state.preview_source_entry = preserve_preview.then(|| state.entries[0].clone());
 }
 
@@ -9084,6 +9248,7 @@ fn replace_play_queue(state: &mut State, tracks: Vec<Track>, index: usize) {
         .map(|_| uuid::Uuid::new_v4().to_string())
         .collect();
     state.index = index;
+    state.unshuffled_entries = state.shuffle.then(|| state.entries.clone());
     if state.shuffle {
         shuffle_upcoming(state);
     }
@@ -9101,6 +9266,54 @@ fn shuffle_upcoming(state: &mut State) {
     }
 }
 
+fn remember_shuffle_insertions(state: &mut State, at: usize, len: usize, play_next: bool) {
+    let Some(order) = &mut state.unshuffled_entries else {
+        return;
+    };
+    let end = at + len;
+    let index = if play_next {
+        let trailing: HashSet<&str> = state.entries[end..].iter().map(String::as_str).collect();
+        order
+            .iter()
+            .position(|id| trailing.contains(id.as_str()))
+            .unwrap_or(order.len())
+    } else {
+        order.len()
+    };
+    order.splice(index..index, state.entries[at..end].iter().cloned());
+}
+
+fn set_queue_shuffle(state: &mut State, enabled: bool) {
+    if enabled == state.shuffle {
+        return;
+    }
+    state.shuffle = enabled;
+    if enabled {
+        state.unshuffled_entries = Some(state.entries.clone());
+        shuffle_upcoming(state);
+    } else if let Some(order) = state.unshuffled_entries.take() {
+        let rank: HashMap<_, _> = order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
+        let start = (state.index + 1).min(state.queue.len());
+        let mut upcoming = state
+            .queue
+            .drain(start..)
+            .zip(state.entries.drain(start..))
+            .collect::<Vec<_>>();
+        upcoming.sort_by_key(|(_, id)| rank.get(id.as_str()).copied().unwrap_or(usize::MAX));
+        let (tracks, entries): (Vec<_>, Vec<_>) = upcoming.into_iter().unzip();
+        state.queue.extend(tracks);
+        state.entries.extend(entries);
+    } else {
+        // Queues already shuffled by older versions have no saved original order.
+        return;
+    }
+    mark_queue_changed(state);
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -9113,6 +9326,7 @@ mod tests {
         let claimed = Arc::new(AtomicBool::new(false));
         let mut state = State {
             status: "playing".into(),
+            shuffle: true,
             queue: vec![track("outgoing")],
             entries: vec!["outgoing-entry".into()],
             preload_cancel: Some(cancel.clone()),
@@ -9120,6 +9334,7 @@ mod tests {
                 index: 1,
                 entry: "selected-entry".into(),
                 seconds: 5,
+                deadline: tokio::time::Instant::now() + Duration::from_secs(20),
                 claimed: claimed.clone(),
                 replacement: Some(PlaybackSelection {
                     tracks: vec![track("first"), track("selected"), track("following")],
@@ -9142,6 +9357,10 @@ mod tests {
         selection.activate(&mut state);
         assert_eq!(state.track().unwrap().id, "selected");
         assert_eq!(state.entries[state.index], "selected-entry");
+        assert_eq!(
+            state.unshuffled_entries.as_ref().unwrap()[1],
+            "selected-entry"
+        );
         assert_eq!(state.queue[state.index + 1].id, "following");
         assert!(claimed.load(Ordering::Acquire));
     }
@@ -10314,6 +10533,98 @@ mod tests {
         assert_eq!(state.queue[3].id, "track-3");
         assert_eq!(state.queue[0].id, "track-0");
         assert_ne!(state.queue[4].id, state.queue[5].id);
+    }
+
+    #[test]
+    fn shuffle_off_restores_remaining_occurrences_after_advancing_and_restarting() {
+        let tracks = (0..12)
+            .map(|index| Track {
+                id: "duplicate-recording".into(),
+                title: format!("occurrence-{index}"),
+                ..Track::default()
+            })
+            .collect::<Vec<_>>();
+        let mut state = State::default();
+        replace_play_queue(&mut state, tracks.clone(), 1);
+        let order = state.entries.clone();
+        set_queue_shuffle(&mut state, true);
+        state.index = 4;
+        state.position = 71.;
+        let played = state.entries[..=state.index].to_vec();
+        let (queue, mut session) = state.backup_checkpoint_values();
+        merge_persisted_queue(&mut session, &queue).unwrap();
+        let mut restored = State::default();
+        restore_state(&mut restored, &session).unwrap();
+        let revision = restored.queue_revision;
+        set_queue_shuffle(&mut restored, false);
+
+        let mut expected = played.clone();
+        expected.extend(order.iter().filter(|id| !played.contains(id)).cloned());
+        assert_eq!(restored.entries, expected);
+        for (track, id) in restored.queue.iter().zip(&restored.entries) {
+            let original = order.iter().position(|entry| entry == id).unwrap();
+            assert_eq!(track.title, tracks[original].title);
+        }
+        assert_eq!(restored.index, 4);
+        assert_eq!(restored.position, 71.);
+        assert!(!restored.shuffle);
+        assert_eq!(restored.queue_revision, revision + 1);
+        assert!(restored
+            .queue_checkpoint_value()
+            .get("unshuffledEntryIds")
+            .is_none());
+    }
+
+    #[test]
+    fn shuffle_off_preserves_new_play_next_and_appended_entries_and_does_not_restore_removals() {
+        let mut state = State::default();
+        replace_play_queue(&mut state, vec![Track::default(); 5], 0);
+        let order = state.entries.clone();
+        set_queue_shuffle(&mut state, true);
+        let removed = state.entries.iter().position(|id| id == &order[2]).unwrap();
+        remove_queue_occurrences(&mut state, &[removed], None).unwrap();
+        state.queue.insert(1, Track::default());
+        state.entries.insert(1, "play-next".into());
+        remember_shuffle_insertions(&mut state, 1, 1, true);
+        state.queue.push(Track::default());
+        state.entries.push("appended".into());
+        let at = state.entries.len() - 1;
+        remember_shuffle_insertions(&mut state, at, 1, false);
+        mark_queue_changed(&mut state);
+        set_queue_shuffle(&mut state, false);
+        assert_eq!(
+            state.entries,
+            [
+                order[0].as_str(),
+                "play-next",
+                order[1].as_str(),
+                order[3].as_str(),
+                order[4].as_str(),
+                "appended"
+            ]
+        );
+    }
+
+    #[test]
+    fn shuffle_off_retains_an_explicit_move_when_the_other_entries_return_to_original_order() {
+        let mut state = State::default();
+        replace_play_queue(&mut state, vec![Track::default(); 5], 0);
+        let order = state.entries.clone();
+        state.shuffle = true;
+        state.unshuffled_entries = Some(order.clone());
+        state.entries.swap(1, 3);
+        reorder_queue_state(&mut state, 4, 2, None).unwrap();
+        set_queue_shuffle(&mut state, false);
+        assert_eq!(
+            state.entries,
+            [
+                order[0].as_str(),
+                order[1].as_str(),
+                order[4].as_str(),
+                order[2].as_str(),
+                order[3].as_str()
+            ]
+        );
     }
 
     fn youtube_handoff_fixture() -> (Track, Candidate) {
@@ -11741,13 +12052,158 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn automation_start_follows_only_skips_owned_by_the_original_queue() {
+        let mut original = automation_start_fixture();
+        original["queueRevision"] = json!(7);
+        let (tx, rx) = watch::channel(original.clone());
+        let pending = tokio::spawn(wait_for_automation_start(rx, original.clone()));
+        let mut skipped = json!({
+            "generation":3,"entryId":"third","seekSerial":0,"queueRevision":7,"status":"resolving",
+            "failureSkipOrigin":"native-request",
+            "diagnostics":{"operationId":"native-auto-transition","recoveryCount":0}
+        });
+        tx.send_replace(skipped.clone());
+        tokio::task::yield_now().await;
+        assert!(!pending.is_finished());
+        skipped["status"] = json!("playing");
+        tx.send_replace(skipped.clone());
+        assert!(tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_ok());
+
+        let mut exhausted = skipped.clone();
+        exhausted["status"] = json!("failed");
+        exhausted["playerMessage"] = json!("No playable source for the final track");
+        let (_tx, rx) = watch::channel(exhausted);
+        assert_eq!(
+            wait_for_automation_start(rx, original.clone())
+                .await
+                .unwrap_err(),
+            "No playable source for the final track"
+        );
+
+        for (field, replacement) in [
+            ("failureSkipOrigin", json!("another-request")),
+            ("queueRevision", json!(8)),
+            ("seekSerial", json!(1)),
+        ] {
+            let mut changed = skipped.clone();
+            changed[field] = replacement;
+            assert!(
+                !automation_start_still_owned(
+                    &original,
+                    &changed,
+                    changed["failureSkipOrigin"].as_str()
+                ),
+                "{field}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn automation_start_checks_command_and_seek_even_before_the_decoder_changes() {
+        let original = automation_start_fixture();
+        let mut playing = original.clone();
+        playing["status"] = json!("playing");
+        playing["entryId"] = json!("queue-edit-retaining-playback");
+        let (_tx, rx) = watch::channel(playing.clone());
+        assert!(wait_for_automation_start(rx, original.clone())
+            .await
+            .is_ok());
+
+        for (field, replacement) in [
+            ("/diagnostics/operationId", json!("native-transition")),
+            ("/seekSerial", json!(1)),
+        ] {
+            let mut replaced = playing.clone();
+            *replaced.pointer_mut(field).unwrap() = replacement;
+            let (_tx, rx) = watch::channel(replaced);
+            assert_eq!(
+                wait_for_automation_start(rx, original.clone())
+                    .await
+                    .unwrap_err(),
+                "Playback request was superseded"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn automation_start_receipt_rejects_replacement_after_observing_the_owned_skip() {
+        let mut original = automation_start_fixture();
+        original["queueRevision"] = json!(7);
+        let mut successor = State {
+            generation: 3,
+            queue_revision: 7,
+            operation_id: Some("native-auto-transition".into()),
+            failure_skip_origin: Some("native-request".into()),
+            status: "playing".into(),
+            queue: (0..51)
+                .map(|index| Track {
+                    id: format!("fixture:{index}"),
+                    ..Track::default()
+                })
+                .collect(),
+            entries: (0..51).map(|index| format!("original-{index}")).collect(),
+            index: 2,
+            ..State::default()
+        };
+        let mut first_audio = successor.snapshot(true, false);
+        first_audio["failureSkipOrigin"] = json!("native-request");
+        let (_tx, rx) = watch::channel(first_audio);
+        let started = wait_for_automation_start(rx, original).await.unwrap();
+
+        let receipt = successor.automation_start_receipt(true, &started).unwrap();
+        assert_eq!(receipt, successor.snapshot_page(true, 0, 50));
+        assert_eq!(receipt["trackId"], "fixture:2");
+        assert_eq!(receipt["entryId"], "original-2");
+        assert_eq!(receipt["queueLimit"], 50);
+        assert_eq!(receipt["queueHasMore"], true);
+        assert!(receipt.get("failureSkipOrigin").is_none());
+
+        // The other command can acquire the command lock before this request
+        // reads its receipt, even though this request already observed audio.
+        begin_operation(
+            &mut successor,
+            Some("native-other"),
+            "transition",
+            Instant::now(),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            successor
+                .automation_start_receipt(true, &started)
+                .unwrap_err(),
+            "Playback request was superseded"
+        );
+        successor.generation += 1;
+        replace_queued_tracks(
+            &mut successor,
+            vec![Track {
+                id: "fixture:replacement".into(),
+                ..Track::default()
+            }],
+            false,
+        );
+        assert_eq!(
+            successor
+                .automation_start_receipt(true, &started)
+                .unwrap_err(),
+            "Playback request was superseded"
+        );
+    }
+
     #[test]
     fn automation_start_rejects_new_commands_occurrences_and_seeks() {
         let original = automation_start_fixture();
         let mut recovery = original.clone();
         recovery["generation"] = json!(2);
         recovery["diagnostics"]["recoveryCount"] = json!(1);
-        assert!(automation_start_still_owned(&original, &recovery));
+        assert!(automation_start_still_owned(&original, &recovery, None));
         for pointer in [
             "/diagnostics/operationId",
             "/entryId",
@@ -11762,7 +12218,7 @@ mod tests {
                 _ => json!(0),
             };
             assert!(
-                !automation_start_still_owned(&original, &replaced),
+                !automation_start_still_owned(&original, &replaced, None),
                 "{pointer}"
             );
         }
@@ -13783,10 +14239,21 @@ mod tests {
     #[test]
     fn restore_is_paused_and_preserves_duplicate_entries() {
         let mut s = State::default();
-        restore_state(&mut s,&json!({"tracks":[Track{id:"a".into(),title:"A".into(),..Default::default()},Track{id:"a".into(),title:"A".into(),..Default::default()}],"index":1,"position":12.,"volume":0.5})).unwrap();
+        let track = Track {
+            id: "a".into(),
+            title: "A".into(),
+            duration_seconds: Some(127.626),
+            ..Default::default()
+        };
+        restore_state(
+            &mut s,
+            &json!({"tracks":[track.clone(),track],"index":1,"position":12.,"volume":0.5}),
+        )
+        .unwrap();
         assert_eq!(s.status, "paused");
         assert_eq!(s.index, 1);
         assert_eq!(s.position, 12.);
+        assert_eq!(s.snapshot(true, false)["duration"], 127.626);
         assert_ne!(s.entries[0], s.entries[1]);
     }
     #[test]
@@ -13946,6 +14413,47 @@ mod tests {
         assert_eq!(restored.track().unwrap().id, "legacy");
         assert_eq!(restored.entries.len(), 1);
     }
+
+    #[test]
+    fn youtube_caption_is_repaired_when_restoring_the_native_queue() {
+        let url = "https://www.youtube.com/watch?v=LSHM_bkSYQI";
+        let id = "youtube:LSHM_bkSYQI";
+        let legacy = Track {
+            id: id.into(),
+            provider: "youtube".into(),
+            provider_id: "LSHM_bkSYQI".into(),
+            source_url: url.into(),
+            artist: "No Viviré".into(),
+            title: "Gipsy Kings".into(),
+            provenance: json!({
+                "sourceKind": "audioSearch",
+                "artistSource": "inferred_from_title",
+                "weakFields": {"artist": true, "title": true},
+                "audioCandidate": {
+                    "provider": "youtube", "id": id, "url": url,
+                    "title": "No Viviré - Gipsy Kings"
+                }
+            }),
+            ..Track::default()
+        };
+        let mut manual = legacy.clone();
+        manual.provenance["manualFields"] = json!({"artist": true, "title": true});
+        let saved = json!({
+            "tracks": [legacy, manual],
+            "entryIds": ["first", "second"],
+            "currentEntryId": "first",
+            "queueRevision": 7
+        });
+        let mut restored = State::default();
+        restore_state(&mut restored, &saved).unwrap();
+        assert_eq!(restored.entries, ["first", "second"]);
+        assert_eq!(restored.queue_revision, 7);
+        assert_eq!(restored.queue[0].title, "No Viviré - Gipsy Kings");
+        assert!(restored.queue[0].artist.is_empty());
+        assert_eq!(restored.queue[1].artist, "No Viviré");
+        assert_eq!(restored.queue[1].title, "Gipsy Kings");
+    }
+
     #[test]
     fn candidate_artwork_is_shared_with_system_controls_without_reusing_an_old_cover() {
         let mut state = State::default();

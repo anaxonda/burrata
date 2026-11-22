@@ -77,7 +77,7 @@ fn explicit_preview_anchors(
     audio: &acquisition::PreviewAudio,
     trace: &SourceTrace,
 ) -> Option<VerifiedYoutubeRecordingAnchors> {
-    fresh_explicit_preview_transport_anchors(
+    fresh_explicit_youtube_transport_anchors(
         track,
         candidate,
         audio,
@@ -92,6 +92,7 @@ fn explicit_preview_anchors(
         true,
         PlaybackDeadline::after(Duration::from_secs(20)),
     )
+    .map(|(anchors, _)| anchors)
 }
 #[test]
 fn explicit_preview_fresh_authority_preserves_assets_edits_and_is_not_persistable() {
@@ -116,7 +117,7 @@ fn explicit_preview_authority_rejects_nonselected_wrong_proof_and_constraints() 
         kind: RecordingProofKind::ExplicitSource,
     });
     for (selected, pinned, limit) in [(false, true, 2), (true, false, 2), (true, true, 1)] {
-        assert!(fresh_explicit_preview_transport_anchors(
+        assert!(fresh_explicit_youtube_transport_anchors(
             &track,
             &candidate,
             &audio,
@@ -131,7 +132,7 @@ fn explicit_preview_authority_rejects_nonselected_wrong_proof_and_constraints() 
         )
         .is_none());
     }
-    assert!(fresh_explicit_preview_transport_anchors(
+    assert!(fresh_explicit_youtube_transport_anchors(
         &track,
         &candidate,
         &audio,
@@ -214,7 +215,7 @@ fn explicit_preview_requires_live_primary_session_remaining_deadline_and_second_
     let proof = Some(VerifiedRecordingProof {
         kind: RecordingProofKind::ExplicitSource,
     });
-    assert!(fresh_explicit_preview_transport_anchors(
+    assert!(fresh_explicit_youtube_transport_anchors(
         &track,
         &candidate,
         &audio,
@@ -467,7 +468,7 @@ fn explicit_preview_inspected_format_inventory_is_not_a_preview_format_lock() {
 fn explicit_preview_disabled_production_policy_rejects_without_global_env_mutation() {
     let (_dir, _store, _acquisition, track, candidate, audio, trace) = explicit_preview_fixture();
     assert!(!direct_youtube_policy(Some("0")));
-    assert!(fresh_explicit_preview_transport_anchors(
+    assert!(fresh_explicit_youtube_transport_anchors(
         &track,
         &candidate,
         &audio,

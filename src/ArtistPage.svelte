@@ -148,6 +148,15 @@
   const releaseEditionLoads = new Map<string, Promise<boolean>>();
   const releaseOrderLoads = new Map<string, Promise<void>>();
   let lastInitialSection = $state<"overview" | "releases" | "tracks" | "collaborations" | "local">("overview");
+  let sectionBarHeight = $state(0);
+  function measureSectionBar(node: HTMLElement) {
+    const update = () => sectionBarHeight = node.offsetHeight;
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
   let pageElement = $state<HTMLElement | null>(null);
   let lastInitialScroll = $state(0);
   let scrollRestorePending = $state(true);
@@ -157,7 +166,7 @@
   onMount(() => {
     if (!initialArtistRef && !artistName?.trim()) {
       const initialName = activeTrack?.artist?.trim();
-      if (initialName) { query = initialName; void runSearch(); }
+      if (initialName) { query = initialName; void runSearch(true); }
     }
   });
 
@@ -241,12 +250,12 @@
         requestGeneration++;
         selectedArtist = null; profile = null; releases = null; tracks = null; collaborations = null;
         const restoreQuery = artistName?.trim() || query.trim();
-        if (restoreQuery) { query = restoreQuery; void runSearch(); }
+        if (restoreQuery) { query = restoreQuery; void runSearch(Boolean(activeTrack)); }
         return;
       }
     }
     if (initialArtistRef && (selectedArtist?.artist.provider !== initialArtistRef.provider || selectedArtist?.artist.id !== initialArtistRef.id)) {
-      void openArtist({ artist: initialArtistRef, name: artistName?.trim() || activeTrack?.artist || "Artist", sourceUrl: sourceUrlFor(initialArtistRef) });
+      void openArtist({ artist: initialArtistRef, name: artistName?.trim() || activeTrack?.artist || "", sourceUrl: sourceUrlFor(initialArtistRef) });
       return;
     }
     if (initialSectionChanged && profile && (initialSection === "releases" || initialSection === "tracks")) {
@@ -257,7 +266,7 @@
       lastInitialArtistName = incomingArtistName;
       if (incomingArtistName && !initialArtistRef && incomingArtistName !== query.trim()) {
         query = incomingArtistName;
-        void runSearch();
+        void runSearch(Boolean(activeTrack));
       }
     }
   });
@@ -706,13 +715,24 @@
   });
   const visibleSourceTracks = $derived(visibleSourceOccurrences.map(row => row.track));
 
-  async function runSearch() {
+  async function runSearch(openExactArtist = false) {
     const term = query.trim();
     if (!term) return;
     const generation = ++requestGeneration;
     busy = true; error = ""; selectedArtist = null; profile = null; results = []; searchPage = 0; searchHasMore = false; searchWarnings = [];
     scrollRestorePending = true;
     try {
+      if (openExactArtist) {
+        const quoted = term.replace(/["\\]/g, "\\$&");
+        const narrowed = await searchArtists(`artist:"${quoted}"`, 1).catch(() => null);
+        if (generation !== requestGeneration || query.trim() !== term) return;
+        const key = (name: string) => name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+        const exact = dedupeArtistResults(narrowed?.results ?? []).filter(result => key(result.name) === key(term));
+        if (narrowed && !narrowed.hasMore && exact.length === 1) {
+          await openArtist(exact[0]!, "", false);
+          return;
+        }
+      }
       const page = await searchArtists(term, 1);
       if (generation !== requestGeneration) return;
       results = dedupeArtistResults(page.results);
@@ -727,8 +747,8 @@
     ? allTrackSortFieldsAvailable()
     : trackSortAvailability(tracks?.items ?? []));
 
-  async function openArtist(artist: ArtistSearchResult, trackSearch = "") {
-    onArtistSelected?.(artist.artist, artist.name);
+  async function openArtist(artist: ArtistSearchResult, trackSearch = "", recordRoute = true) {
+    onArtistSelected?.(artist.artist, artist.name, recordRoute);
     const generation = ++requestGeneration;
     busy = true; error = ""; review = null;
     loadingReleaseOrder = false;
@@ -976,19 +996,19 @@
     {#if searchHasMore}<button class="secondary" onclick={() => void moreSearchResults()} disabled={busy}>Load more artists</button>{/if}
   {:else}
     {#if showSearchResultsButton}<button class="back" onclick={backToResults}>← Search results</button>{/if}
-    <ArtistBanner class="artist-heading" name={selectedArtist.name} label={`${providerLabel(selectedArtist.artist.provider)} identity`} artworkUrl={profile?.imageUrl}>
+    <ArtistBanner class="artist-heading" name={selectedArtist.name || (busy ? "Loading artist…" : "Artist")} label={`${providerLabel(selectedArtist.artist.provider)} identity`} artworkUrl={profile?.imageUrl}>
       {#snippet details()}
         {#if selectedArtist?.artist.provider !== "discogs" && selectedArtist?.disambiguation}<p class="muted">{selectedArtist.disambiguation}</p>{/if}
       {/snippet}
       {#snippet actions()}
-        {#if selectedArtist}
+        {#if selectedArtist?.name}
           <SaveArtistButton name={selectedArtist.name} provider={selectedArtist.artist.provider} providerId={selectedArtist.artist.id} sourceUrl={selectedArtist.sourceUrl} artworkUrl={profile?.imageUrl} />
           {#if onBrowseArtistProvider}<button class="secondary artist-provider-action" type="button" aria-label={`Find ${selectedArtist.name} on Spotify`} onclick={browseCurrentArtistOnSpotify}>Find on Spotify</button>{/if}
           <SourceActionMenu title={selectedArtist.name} url={selectedArtist.sourceUrl} sourceLabel="Open source profile" />
         {/if}
       {/snippet}
     </ArtistBanner>
-    <nav class="tabs section-switcher" aria-label="Artist sections">
+    <nav class="tabs section-switcher sticky-toolbar" use:measureSectionBar aria-label="Artist sections">
       {#each [["overview", "Overview"], ["releases", "Discography"], ["tracks", "Tracks"], ["collaborations", "Collaborations"], ["local", "Local"]] as item}
         <button class:active={section === item[0]} aria-pressed={section === item[0]} onclick={() => void loadSection(item[0] as typeof section)}>{item[1]}</button>
       {/each}
@@ -1001,7 +1021,7 @@
         <h2>Top tracks {#if profile.topTracks.length}<small title="Tracks returned by Last.fm in popularity order">· Last.fm</small>{/if}</h2>
         {#if profile.topTracks.length}
           {@const topAvailability = trackSortAvailabilityForSources(profile.topTracks, ["lastfm-top-tracks"])}
-          <div class="catalog-controls" aria-label="Artist top tracks controls">
+          <div class="catalog-controls sticky-toolbar" style:top={`${sectionBarHeight}px`} aria-label="Artist top tracks controls">
             <input aria-label="Filter artist top tracks" placeholder="Filter loaded top tracks" bind:value={topTrackQuery} />
             <label>Sort loaded tracks<select aria-label="Sort artist top tracks" bind:value={topTrackSort}>
               <option value="sourceOrder">Last.fm popularity</option>
@@ -1034,7 +1054,7 @@
     {:else if section === "releases"}
       {#if releases?.sourceCoverage?.length}<details class="catalog-provider-details"><summary>Catalog sources · {releases.sourceCoverage.map(coverage => providerLabel(coverage.provider)).join(" · ")}</summary><ul class="source-coverage">{#each releases.sourceCoverage ?? [] as coverage (coverage.provider)}<li><strong>{providerLabel(coverage.provider)}</strong><span>{coverageLabel(coverage.status)}</span><small>{coverage.detail}</small></li>{/each}</ul></details>{/if}
       {#if releases?.warnings.length}<div class="notice">{#each releases.warnings as warning}<p>{warning}</p>{/each}</div>{/if}
-      <div class="catalog-controls" aria-label="Discography filters">
+      <div class="catalog-controls sticky-toolbar" style:top={`${sectionBarHeight}px`} aria-label="Discography filters">
         <input bind:value={releaseQuery} placeholder="Search releases and loaded tracks" aria-label="Search discography" />
         <select bind:value={releaseFilter} aria-label="Release type"><option>Albums</option><option>EPs</option><option>Singles</option><option>All</option></select>
         <select bind:value={releaseProvider} aria-label="Source provider"><option>All sources</option>{#each [...new Set((releases?.items ?? []).map((item) => item.release.provider))] as provider}<option value={provider}>{providerLabel(provider)}</option>{/each}</select>
@@ -1042,7 +1062,8 @@
       </div>
       {@const hasGroupIndex = (releases?.items ?? []).some(isReleaseGroup)}
       {@const loadedEditionCount = releaseGroups.reduce((count, group) => count + group.editions.filter(edition => !isReleaseGroup(edition)).length, 0)}
-      <p class="muted catalog-count">{#if hasGroupIndex}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} loaded{#if loadedEditionCount} · {loadedEditionCount} editions loaded{/if}{:else}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {loadedEditionCount} editions loaded{/if}</p>
+      {#if !releases && busy}<p class="muted" role="status">Loading releases…</p>
+      {:else if releases}<p class="muted catalog-count">{#if hasGroupIndex}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} loaded{#if loadedEditionCount} · {loadedEditionCount} editions loaded{/if}{:else}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {loadedEditionCount} editions loaded{/if}</p>{/if}
       {#if loadingReleaseOrder}<p class="muted" role="status">Loading remaining releases to order albums…</p>{:else if releases?.nextCursor && !releases.warnings.length}<p class="muted">More releases are available; order applies to the albums loaded so far.</p>{/if}
       <div class="release-list">{#each releaseGroups as group (group.key)}
         {@const release = selectedEdition(group)}
@@ -1100,7 +1121,7 @@
       </form>
       {#if catalogTrackQuery}<p class="muted" role="status">Catalog results for “{catalogTrackQuery}”</p>{/if}
       <p class="muted">{tracks?.source ?? "Loading source recordings…"} · {visibleSourceTracks.length} of {(tracks?.items ?? []).length} loaded recordings</p>
-      <div class="catalog-controls"><input bind:value={trackQuery} placeholder="Filter loaded tracks" aria-label="Filter loaded tracks" /><select bind:value={trackAvailability} aria-label="Track availability"><option value="all">All tracks</option><option value="on-device">On this device</option><option value="not-on-device">Not on this device</option></select><select bind:value={trackSort} aria-label="Sort tracks"><option value="sourceOrder">Source order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select><select bind:value={trackSortDirection} aria-label="Sort direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={trackMinDuration} bind:maxDuration={trackMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /></div>
+      <div class="catalog-controls sticky-toolbar" style:top={`${sectionBarHeight}px`}><input bind:value={trackQuery} placeholder="Filter loaded tracks" aria-label="Filter loaded tracks" /><select bind:value={trackAvailability} aria-label="Track availability"><option value="all">All tracks</option><option value="on-device">On this device</option><option value="not-on-device">Not on this device</option></select><select bind:value={trackSort} aria-label="Sort tracks"><option value="sourceOrder">Source order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select><select bind:value={trackSortDirection} aria-label="Sort direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={trackMinDuration} bind:maxDuration={trackMaxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /></div>
       <TrackList {showProviderCounts} presentation="playlist" tracks={visibleSourceTracks} selectionContext={`artist-source:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}:${tracks?.source ?? ""}:${catalogTrackQuery}`} selectionKeys={visibleSourceOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks?.items ?? []} selectionTrackKeys={(tracks?.items ?? []).map((_, index) => String(index))} listLabel="Artist recordings" meta={track => track.releaseDate ?? "Date unknown"} onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onQueueSelected={onQueueTracks ? items => onQueueTracks(items, "append") : undefined} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
       {#if tracks && !visibleSourceTracks.length}<p class="muted">{tracks.items.length ? "No loaded tracks match these filters." : catalogTrackQuery ? "No catalog tracks match this title." : "No tracks have been returned by this source."}</p>{/if}
       {#if tracks?.nextCursor}<button class="secondary" onclick={() => void moreTracks()} disabled={busy}>Load more tracks</button>{/if}
@@ -1114,7 +1135,7 @@
     {:else}
       <p class="muted">Local recordings use exact artist-credit text after case and whitespace normalization. Same-name identities are not merged.</p>
       {#if onLoadLocalAssetsPage}
-        <div class="catalog-controls" aria-label="Local artist recordings controls">
+        <div class="catalog-controls sticky-toolbar" style:top={`${sectionBarHeight}px`} aria-label="Local artist recordings controls">
           <input aria-label="Filter local artist recordings" placeholder="Filter local tracks" bind:value={localArtistQuery} oninput={resetLocalArtistQuery} />
           <select aria-label="Local artist track availability" bind:value={localArtistAvailability} onchange={resetLocalArtistQuery}><option value="all">All tracks</option><option value="on-device">On this device</option><option value="not-on-device">Not on this device</option></select>
           <label>Sort local tracks<select aria-label="Sort local artist tracks" bind:value={localArtistSort} onchange={resetLocalArtistQuery}>
@@ -1166,6 +1187,7 @@
 </section>
 
 <style>
+  .tabs.sticky-toolbar { z-index:5; }
   .artist-page{display:flex;flex:1;flex-direction:column;gap:1rem;padding:1.25rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;min-width:0;min-height:0;height:100%;overflow:auto;overflow-x:hidden;container-name:artist-pane;container-type:inline-size}
   .artist-page > * { flex-shrink: 0;min-width:0;max-width:100% }
   header,

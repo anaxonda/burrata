@@ -322,7 +322,8 @@
       if (!descriptor.query) throw new Error("Enter a playlist or channel to search for.");
       return await providerReads.read<BrowseResult>("search_remote_playlists", { provider: descriptor.provider, query: descriptor.query, kind: descriptor.searchKind, ...(pageCursor ? { cursor: pageCursor } : {}) });
     }
-    const ownerId = descriptor.mode === "profile" ? descriptor.profileUrl : undefined;
+    const profile = descriptor.mode === "profile" ? descriptor.profileUrl : undefined;
+    const ownerId = descriptor.provider === "youtube" && profile ? youtubeChannelOwner(profile) ?? profile : profile;
     if (descriptor.mode === "profile" && !ownerId) throw new Error("Enter a public profile or channel URL.");
     if (descriptor.mode === "profile" && descriptor.provider === "spotify" && !isSpotifyProfileReference(ownerId!)) throw new Error("For a Spotify display name, use Search profiles and choose a result. Browse directly with an official Spotify profile URL or user ID.");
     return await providerReads.read<BrowseResult>("list_remote_playlists", { provider: descriptor.provider, ...(ownerId ? { ownerId } : {}), ...(pageCursor ? { cursor: pageCursor } : {}) });

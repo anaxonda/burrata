@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "48";
+pub(crate) const EVALUATOR_VERSION: &str = "53";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 8] = [" - ", " – ", " — ", " | ", "  ", "－", "｜", "："];
 
@@ -904,6 +904,15 @@ fn prepared_semantic_observations(
                 | "sourceMetadata.mix"
                 | "sourceMetadata.performanceVersion"
         ) {
+            if field == "version"
+                && crate::matching::parse_runtime_only_version(&observation.parsed.original)
+                    .is_some()
+            {
+                // A catalog clock supplies duration evidence. An empty version
+                // key here would otherwise be treated as an explicit Original
+                // alongside a named edition already present in the title.
+                continue;
+            }
             if !observation.parsed.original.trim().is_empty() {
                 values.push(semantic_version(
                     context_title,
@@ -1024,6 +1033,154 @@ fn prepared_unknown_annotation(
                             })
                     }))
         })
+}
+
+fn captured_traxsource_collaboration_edition(track: &Track) -> Option<&str> {
+    let manual = &track.provenance["manualFields"];
+    if track.provider != "traxsource"
+        || track.playback_range.is_some()
+        || [
+            "title",
+            "version",
+            "artist",
+            "artistCredits",
+            "durationSeconds",
+        ]
+        .iter()
+        .any(|field| manual[*field] == true)
+    {
+        return None;
+    }
+    let version = track.version.as_deref()?;
+    let (edition, clock) = crate::matching::split_balanced_trailing_parenthetical(version)?;
+    let duration = crate::matching::parse_runtime_only_version(&format!("({clock})"))?;
+    if (valid_duration(track.duration_seconds)? - duration).abs() > 1.0
+        || !crate::matching::has_exact_chart_version_capture(track, version)
+    {
+        return None;
+    }
+    let (left, right) = edition
+        .split_once(" x ")
+        .or_else(|| edition.split_once(" X "))?;
+    let (left, right) = (norm_artist(left), norm_artist(right));
+    let credits = structured_primary_credits(track, &track.artist);
+    let [first, second] = credits.as_slice() else {
+        return None;
+    };
+    let (first, second) = (norm_artist(first), norm_artist(second));
+    (!left.is_empty() && left != right && (left, right) == (first, second)).then_some(edition)
+}
+
+fn split_captured_chart_edition<'a>(
+    raw: &'a str,
+    requested_title: &str,
+    edition: Option<&str>,
+) -> Option<&'a str> {
+    let edition = edition?;
+    let (title, suffix) = crate::matching::split_balanced_trailing_parenthetical(raw)
+        .or_else(|| crate::matching::split_balanced_trailing_square_group(raw))?;
+    let requested_title =
+        crate::matching::normalize_title_ignoring_intraword_apostrophes(requested_title);
+    (!requested_title.is_empty()
+        && crate::matching::normalize_title_ignoring_intraword_apostrophes(title)
+            == requested_title
+        && crate::matching::normalize(suffix) == crate::matching::normalize(edition))
+    .then_some(title)
+}
+
+/// Require a label already present on the exact captured occurrence. The
+/// generated distributor can spell out the corporate suffix on the same name.
+fn captured_chart_names_distributor(track: &Track, distributor: &str) -> bool {
+    let (Some(label), Some(version)) = (track.label.as_deref(), track.version.as_deref()) else {
+        return false;
+    };
+    if track.provenance["manualFields"]["label"] == true {
+        return false;
+    }
+    let distributor = norm(distributor);
+    if distributor.is_empty()
+        || !label.split('/').any(|name| {
+            let name = norm(name);
+            !name.is_empty()
+                && (name == distributor
+                    || distributor.strip_suffix(" enterprises") == Some(name.as_str()))
+        })
+    {
+        return false;
+    }
+    track.provenance["rawCaptures"]
+        .as_array()
+        .is_some_and(|captures| {
+            captures.iter().any(|row| {
+                row["providerId"].as_str() == Some(track.provider_id.as_str())
+                    && row["sourceUrl"].as_str() == Some(track.source_url.as_str())
+                    && row["title"].as_str() == Some(track.title.as_str())
+                    && row["version"].as_str() == Some(version)
+                    && row["label"].as_str() == Some(label)
+            })
+        })
+}
+
+// A fresh distributor-generated recording corroborates the exact chart's
+// two leading credits without classifying the additional names as writers
+// or declaring the performer list complete.
+fn captured_collaboration_matches_distributor(
+    track: &Track,
+    candidate: &Candidate,
+    meta: &Value,
+    edition: Option<&str>,
+    names: &[String],
+) -> bool {
+    let (Some(edition), Some(id), Some(generated), [primary, partner, ..]) = (
+        edition,
+        candidate.id.strip_prefix("youtube:"),
+        meta["youtubeGeneratedArtistCredits"].as_array(),
+        names,
+    ) else {
+        return false;
+    };
+    candidate.provider == "youtube"
+        && candidate.url == format!("https://www.youtube.com/watch?v={id}")
+        && id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        && meta["provider"] == "youtube"
+        && meta["sourceMetadataOrigin"] == "ytDlpFullInfo"
+        && meta["resolvedProviderId"].as_str() == Some(id)
+        && meta["identityMetadataUncertain"] != true
+        && meta["channelIsVerified"] == true
+        && meta["channelId"]
+            .as_str()
+            .is_some_and(crate::youtube_recording_metadata::channel_id)
+        && meta["channel"]
+            .as_str()
+            .is_some_and(|name| norm_artist(name) == norm_artist(primary))
+        && meta["youtubeGeneratedDistributor"]
+            .as_str()
+            .is_some_and(|name| captured_chart_names_distributor(track, name))
+        && norm(edition) == norm(&format!("{primary} x {partner}"))
+        && generated.len() == names.len()
+        && generated
+            .iter()
+            .zip(names)
+            .all(|(observed, name)| observed.as_str() == Some(name))
+        && split_captured_chart_edition(&candidate.title, &track.title, Some(edition)).is_some()
+        && meta["track"].as_str().is_some_and(|title| {
+            split_captured_chart_edition(title, &track.title, Some(edition)).is_some()
+        })
+        && valid_duration(track.duration_seconds)
+            .zip(valid_duration(candidate.duration_seconds))
+            .zip(valid_duration(meta["duration"].as_f64()))
+            .is_some_and(|((requested, actual), extracted)| {
+                (requested - actual).abs() <= 1.0 && (actual - extracted).abs() < 0.001
+            })
+        && candidate
+            .chapters
+            .as_ref()
+            .is_none_or(|chapters| chapters.is_empty())
+        && meta["isPreview"] != true
+        && meta["isFullAlbum"] != true
 }
 
 fn verified_request_catalog(track: &Track) -> bool {
@@ -2136,13 +2293,66 @@ fn request_scoped_collaboration_caption(
     {
         return Vec::new();
     }
+    let verified_youtube_channel = |artist: &str| {
+        candidate.provider == "youtube"
+            && meta["provider"] == "youtube"
+            && meta["sourceMetadataOrigin"] == "ytDlpFullInfo"
+            && meta["channelIsVerified"] == true
+            && meta["identityMetadataUncertain"] != true
+            && meta["channel"]
+                .as_str()
+                .is_some_and(|channel| uploader_matches_request_artist(channel, artist))
+    };
     for (prefix, suffix) in caption_splits(&candidate.title, false) {
-        if title_key(&base_title(suffix)) != title_key(requested_title)
-            || !guest_from_title(suffix).is_empty()
-        {
+        if title_key(&base_title(suffix)) != title_key(requested_title) {
             continue;
         }
-        let credits = collaboration_caption_credits(prefix, expected);
+        let credits = if guest_from_title(suffix).is_empty() {
+            let mut credits = collaboration_caption_credits(prefix, expected);
+            if credits.is_empty() {
+                // A presenter can be one of the catalog artists. Require the
+                // fresh verified presenter channel and the full requested
+                // lineup before interpreting "presents" as a credit boundary.
+                static PRESENTS: std::sync::LazyLock<regex::Regex> =
+                    std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\s+presents\s+").unwrap());
+                if let Some(join) = PRESENTS.find(prefix) {
+                    let presenter = &prefix[..join.start()];
+                    let lineup = &prefix[join.end()..];
+                    if verified_youtube_channel(presenter)
+                        && meta["channelId"]
+                            .as_str()
+                            .is_some_and(crate::youtube_recording_metadata::channel_id)
+                        && expected.iter().any(|name| {
+                            crate::recording_identity::artist_search_fold(name)
+                                == crate::recording_identity::artist_search_fold(presenter)
+                        })
+                    {
+                        credits = collaboration_caption_credits(
+                            &format!("{presenter}, {lineup}"),
+                            expected,
+                        );
+                    }
+                }
+            }
+            credits
+        } else if let Some((group, lineup)) =
+            crate::matching::split_balanced_trailing_parenthetical(prefix)
+        {
+            // A group can name its members in parentheses and its guest on
+            // the recording title. Use this shape only when the verified
+            // channel independently corroborates the group.
+            if !verified_youtube_channel(group) {
+                continue;
+            }
+            let guests = caption_feature_credits(suffix);
+            if guests.is_empty() {
+                continue;
+            }
+            let caption = format!("{group}, {lineup}, {}", guests.join(", "));
+            collaboration_caption_credits(&caption, expected)
+        } else {
+            continue;
+        };
         if !credits.is_empty() {
             return credits;
         }
@@ -2405,6 +2615,7 @@ struct ComparisonFacts {
     unresolved_annotation: bool,
     unresolved_candidate_title_gloss: bool,
     catalog_annotation_title_gloss: bool,
+    captured_distributor_collaboration: bool,
     empty_title: bool,
     empty_artist: bool,
     conflicting_request_versions: bool,
@@ -2543,6 +2754,7 @@ pub struct ScopedArtistCreditSetAliasEvidence {
 fn prepare_observations(
     track: &Track,
     candidate: &Candidate,
+    captured_edition: Option<&str>,
 ) -> (PreparedRecordingEvidence, PreparedRecordingEvidence) {
     let source_metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
     let filename_observations = verified_soulseek_filename_observations(candidate, source_metadata);
@@ -2566,6 +2778,19 @@ fn prepare_observations(
                 })
             {
                 annotation.kind = AnnotationKind::EstablishedLabel;
+            }
+        }
+        parsed
+    };
+    let parse_candidate_title = |raw: &str| {
+        let mut parsed = parse_text(raw);
+        // The exact chart gives this otherwise ambiguous suffix edition meaning.
+        // Keep the original caption and do not change performer or source proof.
+        if split_captured_chart_edition(raw, &track.title, captured_edition).is_some() {
+            if let Some(annotation) = parsed.annotations.last_mut() {
+                if annotation.kind == AnnotationKind::Unresolved {
+                    annotation.kind = AnnotationKind::SemanticVersion;
+                }
             }
         }
         parsed
@@ -2723,7 +2948,7 @@ fn prepare_observations(
                 &candidate_group,
                 EvidenceAuthority::UploaderCaption,
             ),
-            parsed: parse_text(&candidate.title),
+            parsed: parse_candidate_title(&candidate.title),
         });
     }
     if let Some(orientation) = &caption_orientation {
@@ -2766,7 +2991,11 @@ fn prepare_observations(
                         EvidenceAuthority::ProviderMetadata
                     },
                 ),
-                parsed: parse_text(text),
+                parsed: if matches!(field, "track" | "catalogTitle") {
+                    parse_candidate_title(text)
+                } else {
+                    parse_text(text)
+                },
             });
         }
     }
@@ -2878,17 +3107,20 @@ fn prepare_with_primary_credit_override_and_mode(
     verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
     lexical_credit_override: bool,
 ) -> PreparedMatchInput {
+    let track = &crate::matching::chart_playback_identity(track);
     let enabled = crate::diagnostic_metrics::is_enabled();
     let started = enabled.then(std::time::Instant::now);
     let cpu_started = enabled
         .then(crate::diagnostic_metrics::thread_cpu_time_ns)
         .flatten();
-    let (request, candidate_evidence) = prepare_observations(track, candidate);
+    let captured_edition = captured_traxsource_collaboration_edition(track);
+    let (request, candidate_evidence) = prepare_observations(track, candidate, captured_edition);
     let facts = build_comparison(
         track,
         candidate,
         &request,
         &candidate_evidence,
+        captured_edition,
         primary_credit_override,
         recording_scoped_title_alias,
         verified_name_alias,
@@ -2995,6 +3227,7 @@ fn build_comparison(
     candidate: &Candidate,
     request_evidence: &PreparedRecordingEvidence,
     candidate_evidence: &PreparedRecordingEvidence,
+    captured_edition: Option<&str>,
     primary_credit_override: Option<&[String]>,
     recording_scoped_title_alias: bool,
     verified_name_alias: Option<(&str, &str)>,
@@ -3066,6 +3299,10 @@ fn build_comparison(
                 .map(|orientation| orientation.title.clone())
         })
         .or_else(|| title_first_caption.as_ref().map(|(title, _)| title.clone()))
+        .or_else(|| {
+            split_captured_chart_edition(raw_candidate, &track.title, captured_edition)
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| {
             if canonical_catalog.is_some() {
                 bound_catalog_title(raw_candidate, &wanted_title, meta, known_label)
@@ -3142,6 +3379,7 @@ fn build_comparison(
                     .or_else(|| version.strip_suffix(" extended mix"))
                     .or_else(|| version.strip_suffix(" remix"))
                     .or_else(|| version.strip_suffix(" remix full vocal version"))
+                    .or_else(|| crate::recording_identity::numbered_remix_name(version, ' '))
             })
         })
         .flatten();
@@ -3312,7 +3550,15 @@ fn build_comparison(
     } else if filename_observations.is_some() {
         Vec::new()
     } else {
-        field_artist_names(meta)
+        let linked = field_artist_names(meta);
+        crate::youtube_recording_metadata::generated_album_credits_for_request(
+            track,
+            candidate,
+            meta,
+            &request_credit_parts,
+            &linked,
+        )
+        .unwrap_or(linked)
     };
     // Providers sometimes serialize absent credit arrays as JSON null or an
     // empty array. Both are no evidence and may fall back to an independent
@@ -3883,6 +4129,17 @@ fn build_comparison(
         || names.iter().any(|name| norm_artist(name).is_empty());
     let unverified_credit_hint = unverified_by_credit_hint(raw_candidate).is_some()
         || unverified_by_credit_hint(&candidate.title).is_some();
+    let captured_distributor_collaboration = !artist_array_observation.uncertain
+        && !request_credit_source_uncertain
+        && requested_guests.is_empty()
+        && actual_guests.is_empty()
+        && captured_collaboration_matches_distributor(
+            track,
+            candidate,
+            meta,
+            captured_edition,
+            &artist_array_observation.names,
+        );
     ComparisonFacts {
         dimensions,
         proof_strength,
@@ -3954,6 +4211,7 @@ fn build_comparison(
         unresolved_annotation,
         unresolved_candidate_title_gloss,
         catalog_annotation_title_gloss,
+        captured_distributor_collaboration,
         empty_title,
         empty_artist,
         conflicting_request_versions,
@@ -4534,7 +4792,12 @@ fn assess_prepared_inner(
         && !exact_recording_bound
         && isrc != Comparison::Agree;
     let balanced_open_credit_match = unbound_unrequested_credits
-        && facts.credits_complete
+        && (facts.credits_complete
+            || facts.captured_distributor_collaboration
+                && stage == MatchStage::Resolved
+                && level == MatchLevel::Balanced
+                && facts.missing_performers.is_empty()
+                && version == Comparison::Agree)
         && title == Comparison::Agree
         && artists == Comparison::Agree
         && runtime == Comparison::Agree
@@ -6098,6 +6361,103 @@ mod tests {
                 let result = assess(&request, &other, MatchLevel::Balanced, MatchStage::Search);
                 assert_ne!(result.action, MatchAction::Accept, "{suffix}: {result:?}");
             }
+        }
+    }
+
+    #[test]
+    fn spotify_numbered_remix_keeps_edition_and_matches_the_named_remixer_role() {
+        let request = Track {
+            provider: "spotify".into(),
+            artist: "Danidane, MAAURA, Ape Drums".into(),
+            title: "Like Dat - Ape Drums Remix 2.0".into(),
+            duration_seconds: Some(293.0),
+            ..Track::default()
+        };
+        for (label, expected) in [
+            ("Ape Drums Remix 2.0", Comparison::Agree),
+            ("Ape Drums Remix 2.1", Comparison::Conflict),
+            ("Ape Drums Remix", Comparison::Conflict),
+            ("Ape Drums Remix 2.0 Extended", Comparison::Conflict),
+        ] {
+            let title = format!("Like Dat ({label})");
+            let candidate = Candidate {
+                id: "youtube:UT4KozFa7KY".into(),
+                provider: "youtube".into(),
+                title: title.clone(),
+                uploader: Some("Danidane - Topic".into()),
+                duration_seconds: Some(293.0),
+                source_metadata: Some(json!({
+                    "sourceMetadataOrigin":"ytDlpFullInfo","extractor":true,
+                    "resolvedProviderId":"UT4KozFa7KY","catalogTitle":title,"track":title,
+                    "artists":["Danidane","MAAURA"],"artistCount":2,"duration":293
+                })),
+                ..Candidate::default()
+            };
+            let result = assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_eq!(result.dimensions.version, expected, "{result:?}");
+            assert_eq!(
+                result.action == MatchAction::Accept,
+                expected == Comparison::Agree,
+                "{result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spotify_group_caption_counts_named_members_and_guest_on_verified_channel() {
+        let request = Track {
+            provider: "spotify".into(),
+            artist: "Rampa, Adam Port, &ME, chuala, Keinemusik".into(),
+            title: "Say What".into(),
+            duration_seconds: Some(182.0),
+            ..Track::default()
+        };
+        let official = "Keinemusik (Rampa, &ME, Adam Port) - Say What (feat. Chuala)";
+        for (title, channel, bound, verified, accepted) in [
+            (official, "keinemusik", "1EVeFp-oKZg", true, true),
+            (official, "HouseDistrict", "1EVeFp-oKZg", true, false),
+            (official, "keinemusik", "1EVeFp-oKZg", false, false),
+            (official, "keinemusik", "oLlIA4hLUUw", true, false),
+            (
+                "Keinemusik (Rampa, &ME) - Say What (feat. Chuala)",
+                "keinemusik",
+                "1EVeFp-oKZg",
+                true,
+                false,
+            ),
+            (
+                "Keinemusik (Rampa, &ME, Adam Port) - Say What (feat. Other Guest)",
+                "keinemusik",
+                "1EVeFp-oKZg",
+                true,
+                false,
+            ),
+        ] {
+            let candidate = Candidate {
+                id: "youtube:1EVeFp-oKZg".into(),
+                provider: "youtube".into(),
+                title: title.into(),
+                uploader: Some(channel.into()),
+                duration_seconds: Some(182.0),
+                source_metadata: Some(json!({
+                    "provider":"youtube","sourceMetadataOrigin":"ytDlpFullInfo",
+                    "channel":channel,"channelIsVerified":verified,
+                    "resolvedProviderId":bound,"duration":182
+                })),
+                ..Candidate::default()
+            };
+            let result = assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_eq!(result.action == MatchAction::Accept, accepted, "{result:?}");
         }
     }
 

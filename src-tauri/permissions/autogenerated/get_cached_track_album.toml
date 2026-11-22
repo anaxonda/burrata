@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-cached-track-album"
+description = "Enables the get_cached_track_album command without any pre-configured scope."
+commands.allow = ["get_cached_track_album"]
+
+[[permission]]
+identifier = "deny-get-cached-track-album"
+description = "Denies the get_cached_track_album command without any pre-configured scope."
+commands.deny = ["get_cached_track_album"]

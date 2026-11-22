@@ -10,6 +10,7 @@
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { safeArtworkUrl, safeArtworkUrls } from "./lib/artwork-url";
   import { musicBrainzCover } from "./lib/catalog-artwork";
+  import { isLinkedAudioSearchCandidate } from "./lib/preview-source";
   import ArtworkImage from "./ArtworkImage.svelte";
   import TrackList from "./TrackList.svelte";
   import ActionMenu from "./ActionMenu.svelte";
@@ -19,8 +20,9 @@
   import { providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
   import { searchNavigationScopes, publicSearchNavigationScope } from "./lib/search-navigation-scope";
   import { takeCollectionRows } from "./lib/search-collection";
-  import { searchUiControlExpired, searchUiControlFingerprint } from "./lib/search-ui-control-revision";
+  import { captureSearchUiControlSnapshot, extendSearchUiControlSnapshot, searchUiControlExpired } from "./lib/search-ui-control-revision";
   import { addSearchHistoryEntry, readSearchHistory, removeSearchHistoryEntry, writeSearchHistory, type SearchHistoryEntry } from "./lib/search-history";
+  import { parseSpotifyLink, type SpotifyLink } from "./lib/spotify-link";
   import type { AutomationSearchErrorCode, AutomationSearchKind, AutomationSearchReport, AutomationSearchRequest, AutomationSearchSourceId } from "./lib/search-ui-automation";
 
   export type SearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
@@ -44,7 +46,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onOpenSpotifyLink, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {}, onInspectedChapters,
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, showProviderCounts = true,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -52,13 +54,14 @@
     navigationSnapshotKey?: string | null;
     startupReadStorage?: Pick<Storage, "getItem">;
     query?: string; initialSources?: string[]; availableSources?: { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string }[]; sourceCapabilities?: Record<string, boolean | string>;
-    searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number }) => Promise<SearchPage>;
+    searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number; exactVideoUrl?: boolean }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
     onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<unknown[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track, fromLibrary?: boolean) => void | Promise<void>;
     loadArtistProfile?: (artist: ArtistRef) => Promise<{ imageUrl?: string | null }>;
     onRemoteResult?: (row: SearchRow) => void;
     onOpenBandcampPlaylist?: (url: string) => void;
+    onOpenSpotifyLink?: (link: SpotifyLink) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
     onDownloadTracks?: (tracks: Track[]) => Promise<void> | void;
@@ -404,6 +407,8 @@
   const trackControlsApplicable = $derived(!["artists", "albums", "playlists", "profiles", "channels"].includes(kind));
   const enabledOnlineSources = $derived(sources.filter(source => ONLINE_SOURCE_IDS.includes(source.id) && sourceEnabled(source.id)));
   const selectedSource = $derived(searchMode === "library" || sourceChoice === "all" || sourceChoice === "custom" ? null : enabledOnlineSources.find(source => source.id === sourceChoice) ?? null);
+  const youtubeCollectionSearchUnavailable = $derived(selectedSource?.id === "youtube"
+    && (!sourceSupportsKind("youtube", "playlists") || !sourceSupportsKind("youtube", "channels")));
   const visibleKinds = $derived(searchMode === "library" ? kinds.filter(item => item.id === "all" || item.id === "tracks") : selectedSource ? kinds.filter(item => item.id === kind || sourceSupportsKind(selectedSource.id, item.id)) : kinds);
   const selectedSourceUnsupportedKinds = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource
     ? visibleKinds.filter(item => item.id === kind && !sourceSupportsKind(selectedSource.id, item.id))
@@ -637,8 +642,12 @@
     try { localStorage.setItem(AUTO_QUEUE_PREF_KEY, String(enabled)); } catch { /* preference remains active for this session */ }
   }
   async function requestSource(query: string, sourceId: string, cursor?: string | null, reads = providerReads, limit = 30): Promise<SearchPage> {
-    if (searchSource) return searchSource({ query, sourceIds: [sourceId], kinds: requestedKinds(), cursor, limit });
-    const args = { query, sourceIds: [sourceId], kinds: requestedKinds(), cursor: cursor ?? null, limit };
+    const activeSources = activeSourceIds();
+    const exactVideoUrl = !cursor && kind === "videos" && sourceId === "youtube"
+      && activeSources.length === 1 && activeSources[0] === "youtube";
+    const policy = exactVideoUrl ? { exactVideoUrl } : {};
+    if (searchSource) return searchSource({ query, sourceIds: [sourceId], kinds: requestedKinds(), cursor, limit, ...policy });
+    const args = { query, sourceIds: [sourceId], kinds: requestedKinds(), cursor: cursor ?? null, limit, ...policy };
     // Soulseek creates a separately polled job; its dedicated cancellation command owns that lifecycle.
     if (sourceId === "soulseek") return call<SearchPage>("search_source", args);
     return reads.read<SearchPage>("search_source", args);
@@ -819,24 +828,30 @@
   // Playback continuation follows the visible provider groups while the loaded
   // dataset remains intact for collection, sorting, selection, and snapshots.
   const playableOccurrences = $derived(loadedOccurrences.filter(item => !collapsedSources[item.sourceId]));
-  // Finite automation handles are tied to the exact loaded, filtered and sorted
-  // playable snapshot. They are invalidated synchronously before every action.
+  // Handles bind to a provider row's position within its group. Another provider
+  // can finish loading without invalidating an already inspected occurrence.
   let searchControlRevision = crypto.randomUUID();
-  let searchControlFingerprint = "";
-  const searchControlRows = new Map<string, { revision: string; sourceId: string; row: SearchRow }>();
+  let searchControlSnapshot: ReturnType<typeof captureSearchUiControlSnapshot> | undefined;
+  const searchControlRows = new Map<string, { sourceId: string; groupIndex: number }>();
   function syncSearchControlRevision() {
-    const fingerprint = searchUiControlFingerprint({
+    const snapshot = captureSearchUiControlSnapshot({
       text, submitted, mode: searchMode, source: sourceChoice, kind, sort: collectedSort,
       direction: collectedDirection, minimumDuration, maximumDuration, downloadAvailability, generation,
       collectionRequest, continueSearch,
+      visibleSources: displayedSources.filter(source => !collapsedSources[source.id]).map(source => source.id),
       occurrences: playableOccurrences.map(item => ({ sourceId: item.sourceId, rowId: item.row.id, rowKind: item.row.kind, track: item.track })),
     });
-    if (fingerprint !== searchControlFingerprint) {
-      searchControlFingerprint = fingerprint;
+    if (searchControlSnapshot) {
+      const extended = extendSearchUiControlSnapshot(searchControlSnapshot, snapshot);
+      if (extended) {
+        searchControlSnapshot = extended;
+        return extended;
+      }
       searchControlRevision = crypto.randomUUID();
       searchControlRows.clear();
     }
-    return searchControlRevision;
+    searchControlSnapshot = snapshot;
+    return snapshot;
   }
   function boundedAutomationText(value: unknown, max = 300) {
     if (typeof value !== "string") return "";
@@ -853,14 +868,15 @@
   }
   export function inspectAutomationSearchUi(offset = 0, limit = 100, expiresAtMs = Date.now() + 5_000) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    const snapshot = syncSearchControlRevision();
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
     const start = Math.max(0, Math.min(1_000_000, Math.floor(offset)));
     const count = Math.max(1, Math.min(200, Math.floor(limit)));
     const end = Math.min(playableOccurrences.length, start + count);
-    const rows = playableOccurrences.slice(start, end).map(item => {
+    const rows = playableOccurrences.slice(start, end).map((item, index) => {
       const token = crypto.randomUUID();
-      searchControlRows.set(token, { revision, sourceId: item.sourceId, row: item.row });
+      const groupIndex = start + index - snapshot.groups.get(item.sourceId)!.start;
+      searchControlRows.set(token, { sourceId: item.sourceId, groupIndex });
       return {
         occurrenceToken: token,
         sourceId: item.sourceId,
@@ -874,7 +890,7 @@
     const observedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, observedAtMs)) return { status: "expired" };
     return {
-      status: "ready", revision, observedAtMs, query: boundedAutomationText(submitted, 500),
+      status: "ready", revision: searchControlRevision, observedAtMs, query: boundedAutomationText(submitted, 500),
       mode: searchMode, sourceId: searchMode === "library" ? "library" : sourceChoice,
       queryInputPending: text.trim() !== submitted.trim(),
       kind, continueSearch, total: playableOccurrences.length, offset: start,
@@ -884,26 +900,29 @@
   }
   export async function setAutomationContinueSearch(expectedRevision: string, enabled: boolean, expiresAtMs: number) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    syncSearchControlRevision();
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    if (revision !== expectedRevision) return { status: "stale", revision };
+    if (searchControlRevision !== expectedRevision) return { status: "stale", revision: searchControlRevision };
     const appliedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, appliedAtMs)) return { status: "expired" };
     continueSearch = enabled;
     try { localStorage.setItem(CONTINUE_PREF_KEY, String(enabled)); } catch { /* preference remains active for this session */ }
     await tick();
-    return { status: "complete", revision: syncSearchControlRevision(), enabled: continueSearch, appliedAtMs };
+    syncSearchControlRevision();
+    return { status: "complete", revision: searchControlRevision, enabled: continueSearch, appliedAtMs };
   }
   export function playAutomationSearchResult(expectedRevision: string, occurrenceToken: string, expiresAtMs: number) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    const snapshot = syncSearchControlRevision();
+    const revision = searchControlRevision;
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
     if (revision !== expectedRevision) return { status: "stale", revision };
     const target = searchControlRows.get(occurrenceToken);
-    if (!target || target.revision !== revision) return { status: "stale", revision };
-    const index = playableOccurrences.findIndex(item => item.sourceId === target.sourceId && item.row === target.row);
-    if (index < 0) return { status: "stale", revision };
-    const item = playableOccurrences[index];
+    if (!target) return { status: "stale", revision };
+    const group = snapshot.groups.get(target.sourceId);
+    if (!group || target.groupIndex >= group.occurrences.length) return { status: "stale", revision };
+    const item = playableOccurrences[group.start + target.groupIndex];
+    if (!item || item.sourceId !== target.sourceId) return { status: "stale", revision };
     const dispatchedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, dispatchedAtMs)) return { status: "expired" };
     // Reuse the exact UI handler so the existing continuation/snapshot rules
@@ -944,19 +963,32 @@
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance : {};
     return { ...track, provenance: { ...provenance, searchPlaybackChapters: hint } };
   }
+  function selectMonochromeSearchSource(track: Track, sourceId?: string): Track {
+    if (sourceId !== "monochrome" || track.provider !== sourceId) return track;
+    const provenance = track.provenance && typeof track.provenance === "object"
+      ? track.provenance as Record<string, unknown> : {};
+    if (provenance.sourceKind !== "audioSearch" || !provenance.audioCandidate || typeof provenance.audioCandidate !== "object") return track;
+    const candidate = provenance.audioCandidate as Candidate;
+    const url = `https://tracks.monochrome.st/track/${track.providerId}`;
+    if (track.sourceUrl !== url || track.id !== `monochrome:${track.providerId}` ||
+        candidate.provider !== sourceId || candidate.url !== url || !isLinkedAudioSearchCandidate(track, candidate)) return track;
+    // Playing this result selects its exact audio source for this queue entry.
+    return { ...track, provenance: { ...provenance, userSelectedSource: true } };
+  }
   function publishInspectedChapters(row: SearchRow, track: Track, candidate?: Candidate) {
     if (!onInspectedChapters || (playingTrack?.id ?? playingTrackId) !== track.id) return;
     const hint = searchPlaybackChapters(track, row, candidate);
     if (hint) onInspectedChapters(hint);
   }
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
-    const playing = row ? trackWithSearchChapters(track, row) : track;
+    const playing = selectMonochromeSearchSource(row ? trackWithSearchChapters(track, row) : track, sourceId);
     if (!continueSearch) { onPlay?.(playing); return; }
     let index = sourceId && row ? playableOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
     if (index < 0) index = playableOccurrences.findIndex(item => item.track === track);
     let queue = playableOccurrences.map(item => trackWithSearchChapters(item.track, item.row));
     if (index < 0) { queue = [playing, ...queue]; index = 0; }
-    onPlay?.(queue[index] ?? playing, queue, index);
+    else queue[index] = playing;
+    onPlay?.(playing, queue, index);
   }
   async function collectMoreSearchResults() {
     const request = ++collectionRequest;
@@ -1075,9 +1107,11 @@
       return null;
     }
   });
+  const spotifyLink = $derived(onOpenSpotifyLink ? parseSpotifyLink(text) : null);
   function submitSearch(event: SubmitEvent) {
     event.preventDefault();
-    if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
+    if (spotifyLink) onOpenSpotifyLink?.(spotifyLink);
+    else if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
     else void runSearch();
   }
   function soulseekFolder(row: SearchRow): SoulseekFolder | null {
@@ -1279,7 +1313,7 @@
       </div>
     {/if}
   </div>
-  {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+  {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={track => track.localAvailability === "available" ? "On this device" : "Soulseek peer file · Download to play"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
   {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
 {/if}
 {/snippet}
@@ -1290,6 +1324,7 @@
   onresize={() => closeSourcePicker()} />
 <section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
   {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
+  <div class="search-toolbar sticky-toolbar">
   <form class="search-form" onsubmit={submitSearch}>
     <div class="search-input-wrap">
       <input aria-label="Search music" role="combobox" aria-autocomplete="none" aria-expanded={searchHistoryOpen && !text.trim()} aria-controls={searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined} aria-activedescendant={searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchHistoryKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); collectionSoulseekSource = null; statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
@@ -1298,7 +1333,7 @@
         {#each searchHistory as entry, index (entry.query.toLocaleLowerCase())}<div class="search-history-row" role="option" aria-selected={searchHistoryIndex === index}><button id={`search-history-item-${index}`} class="history-query" type="button" tabindex="-1" onclick={() => restoreSearchHistory(entry)}>{entry.query}<small>{entry.mode === "library" ? "My library" : entry.sourceChoice === "custom" ? "Selected sources" : entry.sourceChoice === "all" ? "All online sources" : sources.find(source => source.id === entry.sourceChoice)?.name ?? "Online"} · {kinds.find(option => option.id === entry.kind)?.label ?? "All"}</small></button><button class="remove-search-history" type="button" aria-label={`Remove ${entry.query} from search history`} title="Remove recent search" onclick={() => removeHistoryEntry(entry)}>×</button></div>{/each}
       </div>{/if}
     </div>
-    <button class="primary" type="submit" disabled={!bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
+    <button class="primary" type="submit" disabled={!spotifyLink && !bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{spotifyLink ? `Open Spotify ${spotifyLink.kind}` : bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
     {#if Object.values(statuses).some(status => status === "Searching…" || status === "Loading more…" || status.endsWith("…"))}<button type="button" onclick={cancel}>Cancel</button>{/if}
   </form>
   <div class="primary-controls-toolbar">
@@ -1347,7 +1382,9 @@
     {/each}
   </div>
   </div>
-  {#if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
+  {#if youtubeCollectionSearchUnavailable}
+    <p id="unsupported-result-kinds" class="scope-hint" role="note">To search YouTube playlists and channels, connect YouTube in Settings or enable Browser-assisted access in the Burrata extension.</p>
+  {:else if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
   {#if trackControlsApplicable}<div class="track-toolbar">
     <fieldset class="track-controls">
       <legend class="sr-only">Loaded track controls</legend>
@@ -1374,8 +1411,9 @@
       {:else}<span>{loadedSearchTrackRows.length} tracks loaded</span><button type="button" class="start-search-selection" aria-label="Select search tracks" onclick={() => searchSelectionMode = true}>Select</button>{/if}
     </div>{/if}
   </div>{/if}
+  </div>
   {#if collectingSearch || collectionProgress}<div class="collection-status" role="status">{collectionProgress}{#if collectingSearch}<button type="button" onclick={cancelCollection}>Cancel collection</button>{/if}</div>{/if}
-  {#if selectedSourceUnsupported}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source in Search in or change the result type.</p>{/if}
+  {#if selectedSourceUnsupported && !(youtubeCollectionSearchUnavailable && (kind === "playlists" || kind === "channels"))}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source in Search in or change the result type.</p>{/if}
 
   <div class="source-results" aria-live="polite">
     {#each displayedSources as source (source.id)}
@@ -1410,7 +1448,7 @@
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : track.provider === "slskd" ? "Download to play" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
                   {#if canLookUpChapters(row) && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
@@ -1471,6 +1509,7 @@
 {/if}
 
 <style>
+  .search-toolbar { display:grid; gap:.45rem; }
   .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
   .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
   .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}

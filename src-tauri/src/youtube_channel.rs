@@ -38,7 +38,7 @@ struct Cursor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Owner {
     Id(String),
-    Url { expected_page_url: String },
+    Handle(String),
 }
 
 fn valid_channel_id(id: &str) -> bool {
@@ -86,19 +86,15 @@ fn normalize_owner(raw: &str) -> Result<Owner, String> {
         .ok_or("YouTube channel URL path is invalid")?
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
-    let route = match path.as_slice() {
-        ["channel", channel_id] if valid_channel_id(channel_id) => {
-            format!("/channel/{channel_id}/videos")
+    match path.as_slice() {
+        ["channel", id] | ["channel", id, "videos"] if valid_channel_id(id) => {
+            Ok(Owner::Id((*id).to_owned()))
         }
-        ["channel", channel_id, "videos"] if valid_channel_id(channel_id) => {
-            format!("/channel/{channel_id}/videos")
+        [handle] | [handle, "videos"] if valid_handle_segment(handle) => {
+            Ok(Owner::Handle((*handle).to_owned()))
         }
-        [handle] if valid_handle_segment(handle) => format!("/{handle}/videos"),
-        [handle, "videos"] if valid_handle_segment(handle) => format!("/{handle}/videos"),
-        _ => return Err("YouTube channel URL must identify a channel ID or @handle".into()),
-    };
-    let expected_page_url = format!("https://www.youtube.com{route}");
-    Ok(Owner::Url { expected_page_url })
+        _ => Err("YouTube channel URL must identify a channel ID or @handle".into()),
+    }
 }
 
 fn encode_cursor(channel_id: &str, offset: usize, limit: usize) -> Result<String, String> {
@@ -146,9 +142,7 @@ fn decode_cursor(
 fn owner_page_url(owner: &Owner) -> String {
     match owner {
         Owner::Id(id) => format!("https://www.youtube.com/channel/{id}/videos"),
-        Owner::Url {
-            expected_page_url, ..
-        } => expected_page_url.clone(),
+        Owner::Handle(handle) => format!("https://www.youtube.com/{handle}/videos"),
     }
 }
 
@@ -184,6 +178,41 @@ fn optional_metadata_string<'a>(root: &'a Value, key: &str) -> Result<Option<&'a
     }
 }
 
+fn verify_channel_handle(root: &Value, requested: &str, channel_id: &str) -> Result<(), String> {
+    let webpage_owner =
+        optional_metadata_string(root, "webpage_url")?.and_then(|page| normalize_owner(page).ok());
+    let matches_page = match webpage_owner {
+        Some(Owner::Handle(handle)) => handle.eq_ignore_ascii_case(requested),
+        Some(Owner::Id(id)) => id == channel_id,
+        None => false,
+    };
+    if !matches_page {
+        return Err("YouTube channel response did not match the requested channel URL".into());
+    }
+
+    // The listing can echo the requested URL while redirecting to another channel.
+    let uploader_id = optional_metadata_string(root, "uploader_id")?;
+    let uploader_owner = optional_metadata_string(root, "uploader_url")?
+        .map(normalize_owner)
+        .transpose()?;
+    let uploader_id_matches_handle =
+        uploader_id.is_some_and(|id| id.eq_ignore_ascii_case(requested));
+    let uploader_url_matches_handle = matches!(&uploader_owner, Some(Owner::Handle(handle)) if handle.eq_ignore_ascii_case(requested));
+    if (uploader_id.is_some_and(|id| id != channel_id) && !uploader_id_matches_handle)
+        || match uploader_owner {
+            Some(Owner::Id(id)) => id != channel_id,
+            Some(Owner::Handle(_)) => !uploader_url_matches_handle,
+            None => false,
+        }
+    {
+        return Err("YouTube returned a different channel for this handle. Check the handle or use the channel ID.".into());
+    }
+    if !uploader_id_matches_handle && !uploader_url_matches_handle {
+        return Err("YouTube did not confirm this channel handle. Open the channel by ID.".into());
+    }
+    Ok(())
+}
+
 fn parse_root(
     raw: &str,
     owner: &Owner,
@@ -212,21 +241,16 @@ fn parse_root(
     let channel_id = channel_id_value
         .or(id_value)
         .ok_or("yt-dlp did not return a valid YouTube channel ID")?;
-    if expected_channel_id.is_some_and(|expected| expected != channel_id) {
+    if matches!(owner, Owner::Id(expected) if expected != channel_id)
+        || expected_channel_id.is_some_and(|expected| expected != channel_id)
+    {
         return Err("YouTube channel response did not match the requested channel".into());
     }
     if optional_metadata_string(&root, "availability")? != Some("public") {
         return Err("YouTube channel response is not confirmed public".into());
     }
-    if let Owner::Url {
-        expected_page_url, ..
-    } = owner
-    {
-        let actual = optional_metadata_string(&root, "webpage_url")?
-            .ok_or("yt-dlp did not confirm the requested YouTube channel URL")?;
-        if actual.trim_end_matches('/') != expected_page_url.trim_end_matches('/') {
-            return Err("YouTube channel response did not match the requested channel URL".into());
-        }
+    if let Owner::Handle(requested) = owner {
+        verify_channel_handle(&root, requested, channel_id)?;
     }
     if let Some(channel_url) = optional_metadata_string(&root, "channel_url")? {
         let canonical = safe_channel_url(channel_url)
@@ -411,6 +435,7 @@ mod tests {
             "availability":"public",
             "channel_url":"https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA",
             "webpage_url":"https://www.youtube.com/@MyAnalogJournal/videos",
+            "uploader_id":"@MyAnalogJournal",
             "entries":entries,
         })
         .to_string()
@@ -423,6 +448,10 @@ mod tests {
             Ok(Owner::Id("UC8TZwtZ17WKFJSmwTZQpBTA".into()))
         );
         assert!(normalize_owner("https://www.youtube.com/@MyAnalogJournal/videos").is_ok());
+        assert_eq!(
+            normalize_owner("https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA/videos"),
+            normalize_owner("UC8TZwtZ17WKFJSmwTZQpBTA"),
+        );
         for value in [
             "http://www.youtube.com/@x",
             "https://youtube.com/@x",
@@ -431,6 +460,43 @@ mod tests {
         ] {
             assert!(normalize_owner(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn rejects_unrelated_channel_even_when_listing_echoes_the_requested_route() {
+        let mut value: Value = serde_json::from_str(&root(json!([]))).unwrap();
+        let owner = normalize_owner("https://www.youtube.com/@PureHouseMusic/videos").unwrap();
+        value["channel_id"] = json!("UCQRinDihvyVgXhh2lqICsPw");
+        value["id"] = value["channel_id"].clone();
+        value["channel_url"] = json!("https://www.youtube.com/channel/UCQRinDihvyVgXhh2lqICsPw");
+        value["webpage_url"] = json!("https://www.youtube.com/@PureHouseMusic/videos");
+        value["uploader_id"] = json!("@loolfick");
+        value["uploader_url"] = json!("https://www.youtube.com/@loolfick");
+        let error = parse_root(&value.to_string(), &owner, None, 0, 25).unwrap_err();
+        assert!(error.contains("returned a different channel"));
+
+        value.as_object_mut().unwrap().remove("uploader_id");
+        value.as_object_mut().unwrap().remove("uploader_url");
+        assert!(parse_root(&value.to_string(), &owner, None, 0, 25).is_err());
+
+        let owner =
+            normalize_owner("https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA/videos")
+                .unwrap();
+        value["webpage_url"] =
+            json!("https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA/videos");
+        assert!(parse_root(&value.to_string(), &owner, None, 0, 25).is_err());
+    }
+
+    #[test]
+    fn accepts_verified_handle_case_variants_and_rejects_conflicting_fields() {
+        let captured = include_str!("../tests/fixtures/youtube-channel-maj-handle.json");
+        let mut value: Value = serde_json::from_str(captured).unwrap();
+        let owner = normalize_owner("https://www.youtube.com/@myanalogjournal").unwrap();
+        assert!(parse_root(captured, &owner, None, 0, 25).is_ok());
+        value["uploader_id"] = value["channel_id"].clone();
+        assert!(parse_root(&value.to_string(), &owner, None, 0, 25).is_ok());
+        value["uploader_id"] = json!("@OtherChannel");
+        assert!(parse_root(&value.to_string(), &owner, None, 0, 25).is_err());
     }
 
     #[test]

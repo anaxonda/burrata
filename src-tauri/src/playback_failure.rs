@@ -180,7 +180,9 @@ pub fn classify(reason: &str) -> PlaybackFailure {
             None,
         );
     }
-    if message == "this source has no supported audio stream" {
+    if message == "this source has no supported audio stream"
+        || reason == crate::playback_sources::SOULSEEK_DOWNLOAD_REQUIRED
+    {
         return failure(UnsupportedAudio, Stage::Resolver, Recording, false, None);
     }
     if message.starts_with("invalid monochrome catalog") {
@@ -499,6 +501,17 @@ pub(crate) fn extractor_diagnostic_reason(raw: &str) -> &'static str {
         ],
     ) {
         "tls_certificate"
+    } else if classify_extractor_failure(raw).category == FailureCategory::SourceAccess
+        && has_any(
+            &message,
+            &[
+                "sign in to confirm",
+                "sign-in to confirm",
+                "requires sign-in verification",
+            ],
+        )
+    {
+        "sign_in_verification"
     } else if message.contains("traceback (most recent call last)") {
         "helper_exception"
     } else if has_any(
@@ -536,6 +549,9 @@ pub fn safe_extractor_error(raw: &str) -> String {
         Timeout => "Audio source extraction timed out",
         Network => "Audio source network connection failed",
         RateLimited => "Audio source rate limit reached",
+        SourceAccess if extractor_diagnostic_reason(raw) == "sign_in_verification" => {
+            "The provider requires sign-in verification for this source. Choose another source."
+        }
         SourceAccess => "Audio source access was denied; refresh or choose another source",
         SourcePrivate => "Audio source is private; choose another source",
         SourceDeleted => "Audio source was removed; choose another source",
@@ -640,6 +656,26 @@ mod tests {
         assert!(
             !safe_extractor_error("Traceback (most recent call last): token=secret")
                 .contains("secret")
+        );
+    }
+
+    #[test]
+    fn extractor_sign_in_verification_is_distinct_and_remains_retryable() {
+        let raw = "Traceback (most recent call last): YouTube says Sign in to confirm you're not a bot. https://private/?token=secret";
+        let safe = safe_extractor_error(raw);
+        assert_eq!(extractor_diagnostic_reason(raw), "sign_in_verification");
+        assert_eq!(
+            safe,
+            "The provider requires sign-in verification for this source. Choose another source."
+        );
+        assert_eq!(safe_extractor_error(&safe), safe);
+        assert_eq!(classify(&safe).category, FailureCategory::SourceAccess);
+        assert_eq!(classify(&safe).scope, FailureScope::Source);
+        assert!(classify(&safe).retryable);
+        assert!(!should_skip_recording(&classify(&safe)));
+        assert_eq!(
+            extractor_diagnostic_reason("HTTP Error 403: Forbidden"),
+            "access_denied"
         );
     }
 

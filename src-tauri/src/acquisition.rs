@@ -2668,6 +2668,11 @@ async fn search_provider_candidates(
                     errors.push(format!("{provider}: incomplete search response"));
                 }
                 for mut candidate in response.candidates {
+                    if candidates.iter().any(|existing| {
+                        crate::playback_sources::same_candidate_search_row(existing, &candidate)
+                    }) {
+                        continue;
+                    }
                     matching::score_candidate(track, &mut candidate);
                     candidate
                         .reasons
@@ -2763,20 +2768,6 @@ fn metadata_text(value: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-fn split_source_credit_title(value: &str) -> Option<(String, String)> {
-    let separators = [" — ", " – ", " - "];
-    let matches = separators
-        .iter()
-        .filter_map(|separator| value.find(*separator).map(|index| (index, *separator)))
-        .collect::<Vec<_>>();
-    let [(index, separator)] = matches.as_slice() else {
-        return None;
-    };
-    let artist = value[..*index].trim();
-    let title = value[*index + separator.len()..].trim();
-    (!artist.is_empty() && !title.is_empty()).then(|| (artist.to_owned(), title.to_owned()))
-}
-
 fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     let provider_id = info["id"].as_str().unwrap_or_default().trim().to_owned();
     let provided_artist =
@@ -2786,10 +2777,15 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
         .clone()
         .or_else(|| metadata_text(&info["title"]))
         .unwrap_or_default();
+    // YouTube upload captions use both artist-first and title-first order.
+    // Keep the caption intact when the extractor has no structured artist.
     let (artist, title, artist_source) = if let Some(artist) = provided_artist {
         (artist, raw_title, "metadata")
-    } else if let Some((artist, title)) = split_source_credit_title(&raw_title) {
-        (artist, title, "inferred_from_title")
+    } else if let Some((artist, title)) = (candidate.provider != "youtube")
+        .then(|| crate::metadata_normalization::split_source_credit_title(&raw_title))
+        .flatten()
+    {
+        (artist.to_owned(), title.to_owned(), "inferred_from_title")
     } else {
         (String::new(), raw_title, "unknown")
     };
@@ -2831,6 +2827,35 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     }
     crate::recording_identity::hydrate_identifiers(&mut track);
     track
+}
+
+fn exact_youtube_url_id(raw: &str) -> Option<String> {
+    let url = validate_source_url(raw, "youtube").ok()?;
+    if url.fragment().is_some() {
+        return None;
+    }
+    let mut id = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "v" if id.is_none() => id = Some(value.into_owned()),
+            "si" | "feature" => {}
+            // Leave playlist, start/end, and unknown URL semantics to the
+            // existing search path. This shortcut returns one whole video.
+            _ => return None,
+        }
+    }
+    let path = url.path().split('/').collect::<Vec<_>>();
+    let id = match (url.host_str()?, path.as_slice(), id) {
+        ("www.youtube.com" | "youtube.com" | "music.youtube.com", ["", "watch"], Some(id)) => id,
+        ("www.youtube.com" | "youtube.com", ["", "shorts", id], None)
+        | ("youtu.be", ["", id], None) => (*id).to_owned(),
+        _ => return None,
+    };
+    (id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)))
+    .then_some(id)
 }
 
 fn youtube_search_results_url(query: &str) -> String {
@@ -7044,6 +7069,17 @@ fn resolved_extractor_identity_metadata(
         metadata.remove("artistNames");
         metadata.remove("artist");
         metadata.remove("artistCount");
+    } else if let Some((distributor, artists)) =
+        crate::youtube_recording_metadata::generated_recording_credits(candidate, info)
+    {
+        metadata.insert(
+            "youtubeGeneratedDistributor".into(),
+            serde_json::json!(distributor),
+        );
+        metadata.insert(
+            "youtubeGeneratedArtistCredits".into(),
+            serde_json::json!(artists),
+        );
     }
     Some(Value::Object(metadata))
 }
@@ -7744,6 +7780,33 @@ impl AcquisitionManager {
         }
     }
 
+    pub(crate) async fn find_spotify_release_evidence(
+        &self,
+        title: &str,
+        release_date: &str,
+        label: &str,
+        cancel: watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> Result<
+        Option<Vec<crate::remote_playlists::spotify_release_evidence::IndependentAlbumEvidence>>,
+        String,
+    > {
+        let service = self
+            .inner
+            .remote_playlists
+            .lock()
+            .map_err(|_| "Catalog service unavailable")?
+            .clone();
+        match service {
+            Some(service) => {
+                service
+                    .find_spotify_release_candidates(title, release_date, label, cancel, deadline)
+                    .await
+            }
+            None => Ok(None),
+        }
+    }
+
     pub(crate) async fn prepare_catalog_duration_track(
         &self,
         track: &Track,
@@ -7897,6 +7960,52 @@ impl AcquisitionManager {
             .get_or_search(key, || search_audio_tracks_raw(query, &providers, settings))
             .await
     }
+    pub(crate) async fn search_exact_youtube_url(
+        &self,
+        query: &str,
+        settings: &Settings,
+    ) -> Option<Track> {
+        if !uses_managed_ytdlp(&settings.yt_dlp_path) {
+            return None;
+        }
+        let id = exact_youtube_url_id(query)?;
+        let key = serde_json::json!(["exact-public-youtube-video-v1", id]).to_string();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_millis(650));
+        let probe = self
+            .inner
+            .raw_audio_search_cache
+            .get_or_search(key, || async {
+                let (_sender, cancel) = idle_cancel();
+                let metadata =
+                    crate::youtube_web_search::search_exact_video(&id, cancel, deadline).await?;
+                let row = metadata.row;
+                let info = serde_json::json!({
+                    "id": row.video_id,
+                    "title": row.title,
+                    "duration": row.duration_seconds,
+                    "uploader": row.uploader,
+                    "view_count": metadata.views,
+                    "url": format!("https://www.youtube.com/watch?v={id}"),
+                    "thumbnail": format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"),
+                });
+                let mut candidate = candidate_from_json(&info, "youtube");
+                candidate.url = youtube_search_video_url(&info, &candidate)
+                    .ok_or("YouTube WEB returned an inconsistent locator")?;
+                candidate.score = 0.8;
+                candidate.confidence = "review".into();
+                candidate.reasons = vec![
+                    "Direct source result; track identity has not been verified".into(),
+                    "Download permission has not been established".into(),
+                ];
+                Ok(vec![raw_search_track(candidate, &info)])
+            });
+        let tracks = tokio::time::timeout_at(deadline.instant(), probe)
+            .await
+            .ok()?
+            .ok()?;
+        tracks.into_iter().next()
+    }
+
     pub async fn search_audio_tracks_page(
         &self,
         query: &str,
@@ -17882,11 +17991,13 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn playback_flat_search_retains_bare_and_missing_urls_but_rejects_id_mismatch() {
+    async fn playback_flat_search_validates_urls_and_deduplicates_identical_rows() {
         let output = serde_json::json!({"entries":[
+            {"id":"XW9ycmy4CQA","url":"XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"XW9ycmy4CQA","url":"XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"5OdVxV30Ids","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"5OdVxV30Ids","title":"Fixture Artist - Fixture Song","duration":181},
             {"id":"short","url":"short","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://other.invalid/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180}
@@ -17908,7 +18019,14 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(found.len(), 3);
+        assert_eq!(found.len(), 4);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|candidate| candidate.id == "youtube:5OdVxV30Ids")
+                .count(),
+            2
+        );
         let bare = found
             .iter()
             .find(|candidate| candidate.id == "youtube:XW9ycmy4CQA")
@@ -19097,6 +19215,27 @@ mod tests {
         }
     }
     #[test]
+    fn raw_youtube_caption_keeps_ambiguous_artist_and_title_together() {
+        let info = serde_json::json!({
+            "id": "LSHM_bkSYQI",
+            "title": "No Viviré - Gipsy Kings",
+            "uploader": "nov1812",
+            "duration": 246,
+            "webpage_url": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+        });
+        let candidate = candidate_from_json(&info, "youtube");
+        let track = raw_search_track(candidate, &info);
+        assert_eq!(track.title, "No Viviré - Gipsy Kings");
+        assert!(track.artist.is_empty());
+        assert_eq!(track.provenance["artistSource"], "unknown");
+        assert_eq!(track.provenance["uploader"], "nov1812");
+        assert_eq!(
+            track.provenance["audioCandidate"]["title"],
+            "No Viviré - Gipsy Kings"
+        );
+    }
+
+    #[test]
     fn raw_search_track_recognizes_single_spaced_credit_separators() {
         for separator in [" — ", " – ", " - "] {
             let info = serde_json::json!({
@@ -19110,7 +19249,8 @@ mod tests {
             assert_eq!(track.title, "Song Title");
             assert_eq!(track.provenance["artistSource"], "inferred_from_title");
         }
-        let ambiguous = split_source_credit_title("Artist - Song – Subtitle");
+        let ambiguous =
+            crate::metadata_normalization::split_source_credit_title("Artist - Song – Subtitle");
         assert!(ambiguous.is_none());
     }
     #[test]
@@ -19172,6 +19312,34 @@ mod tests {
         .unwrap();
         assert_eq!(direct.len(), 1);
         assert_eq!(direct[0].url, found[0].source_url);
+    }
+
+    #[test]
+    fn an_exact_youtube_url_must_name_a_single_whole_video() {
+        let id = "UT4KozFa7KY";
+        for url in [
+            format!("https://www.youtube.com/watch?v={id}"),
+            format!("https://music.youtube.com/watch?v={id}"),
+            format!("https://www.youtube.com/shorts/{id}"),
+            format!("https://youtu.be/{id}?si=share"),
+        ] {
+            assert_eq!(exact_youtube_url_id(&url).as_deref(), Some(id), "{url}");
+        }
+        for value in [
+            id.into(),
+            "Like Dat (Remix)".into(),
+            format!("https://example.com/watch?v={id}"),
+            format!("https://www.youtube.com:8443/watch?v={id}"),
+            format!("https://user@www.youtube.com/watch?v={id}"),
+            format!("https://www.youtube.com/playlist?v={id}"),
+            format!("https://www.youtube.com/watch?v={id}&list=RD{id}"),
+            format!("https://www.youtube.com/watch?v={id}&t=20"),
+            format!("https://www.youtube.com/watch?v={id}&v=IkS6rgmwwLc"),
+            format!("https://youtu.be/{id}#t=20"),
+            format!("https://www.youtube.com/shorts/{id}/extra"),
+        ] {
+            assert!(exact_youtube_url_id(&value).is_none(), "{value}");
+        }
     }
 
     #[test]

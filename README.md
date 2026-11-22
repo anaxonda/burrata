@@ -30,6 +30,9 @@ and the [vendored source inventory](src-tauri/vendor/SOURCES.md).
 - Build a local library from audio files, imports, charts, and playlists.
 - Search music catalogs and online audio sources, then compare candidates and
   preview available audio.
+- Paste a Spotify track, album, artist, or playlist link into Search and press
+  Enter to open it with a connected Spotify account. The browser companion
+  also offers **Open in Burrata** on Spotify pages and links.
 - Save playlists and collections, manage local files, and review metadata,
   artwork, BPM, and key information.
 - Acquire a source only after you choose to start a download; validate and tag

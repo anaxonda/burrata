@@ -2,6 +2,103 @@
 use crate::models::Track;
 use serde_json::{json, Value};
 
+pub(crate) fn split_source_credit_title(value: &str) -> Option<(&str, &str)> {
+    let matches = [" — ", " – ", " - "]
+        .into_iter()
+        .filter_map(|separator| value.split_once(separator))
+        .collect::<Vec<_>>();
+    let [(artist, title)] = matches.as_slice() else {
+        return None;
+    };
+    let artist = artist.trim();
+    let title = title.trim();
+    (!artist.is_empty() && !title.is_empty()).then_some((artist, title))
+}
+
+/// Undo the old search import's delimiter guess only when the untouched pair
+/// still reproduces that guess from the caption of the same video.
+pub(crate) fn repair_legacy_youtube_caption(track: &mut Value) {
+    let provenance = &track["provenance"];
+    if track["provider"] != "youtube"
+        || provenance["sourceKind"] != "audioSearch"
+        || provenance["artistSource"] != "inferred_from_title"
+        || provenance["weakFields"]["artist"] != true
+        || provenance["weakFields"]["title"] != true
+        || provenance["manualFields"]["artist"] == true
+        || provenance["manualFields"]["title"] == true
+        || !track["playbackRange"].is_null()
+    {
+        return;
+    }
+    let candidate = &provenance["audioCandidate"];
+    let Some(caption) = candidate["title"].as_str().map(str::trim) else {
+        return;
+    };
+    let Some((artist, title)) = split_source_credit_title(caption) else {
+        return;
+    };
+    let Some(id) = track["providerId"].as_str() else {
+        return;
+    };
+    if track["artist"] != artist
+        || track["title"] != title
+        || track["id"] != format!("youtube:{id}")
+        || candidate["id"] != track["id"]
+        || candidate["provider"] != "youtube"
+        || candidate["url"] != track["sourceUrl"]
+        || candidate["url"]
+            .as_str()
+            .and_then(crate::acquisition::youtube_video_id)
+            .as_deref()
+            != Some(id)
+    {
+        return;
+    }
+
+    let caption = caption.to_owned();
+    track["artist"] = json!("");
+    track["title"] = json!(caption);
+    track["provenance"]["artistSource"] = json!("unknown");
+    track["provenance"]["parsedTitle"] = json!(crate::recording_identity::parse_title(&caption));
+}
+
+/// A weak search result for the same listing may refresh source metadata.
+/// Explicit recording fields already supplied by the provider take priority.
+pub(crate) fn preserve_structured_youtube_search_fields(old: &Value, incoming: &mut Value) {
+    let provenance = &incoming["provenance"];
+    if incoming["provider"] != "youtube" || provenance["sourceKind"] != "audioSearch" {
+        return;
+    }
+    let old_provenance = &old["provenance"];
+    let old_has_credits = old_provenance["artistCredits"]
+        .as_array()
+        .is_some_and(|credits| !credits.is_empty());
+    for field in ["artist", "title"] {
+        if incoming["provenance"]["weakFields"][field] != true
+            || !(old_provenance["weakFields"][field] == false
+                || (old_provenance["remotePlaylist"] == true && old_has_credits))
+            || old[field]
+                .as_str()
+                .is_none_or(|text| text.trim().is_empty())
+        {
+            continue;
+        }
+        incoming[field] = old[field].clone();
+        incoming["provenance"]["weakFields"][field] = json!(false);
+        if field == "artist" {
+            incoming["provenance"]["artistSource"] = json!(old_provenance["artistSource"]
+                .as_str()
+                .unwrap_or("metadata"));
+            if old_has_credits {
+                incoming["provenance"]["artistCredits"] = old_provenance["artistCredits"].clone();
+            }
+        } else if let Some(title) = incoming["title"].as_str() {
+            let parsed = crate::recording_identity::parse_title(title);
+            incoming["provenance"]["parsedTitle"] = json!(parsed);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LivePerformanceInference {
     pub artist: String,
@@ -284,6 +381,51 @@ fn normalize(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn youtube_caption_repair_requires_untouched_fields_from_the_same_video() {
+        let mut track = json!({
+            "provider": "youtube",
+            "providerId": "LSHM_bkSYQI",
+            "id": "youtube:LSHM_bkSYQI",
+            "sourceUrl": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+            "artist": "No Viviré",
+            "title": "Gipsy Kings",
+            "provenance": {
+                "sourceKind": "audioSearch",
+                "artistSource": "inferred_from_title",
+                "weakFields": {"artist": true, "title": true},
+                "audioCandidate": {
+                    "provider": "youtube",
+                    "id": "youtube:LSHM_bkSYQI",
+                    "url": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+                    "title": "No Viviré - Gipsy Kings"
+                }
+            }
+        });
+        for (field, wrong) in [
+            (
+                "/provenance/audioCandidate/id",
+                json!("youtube:another_id!"),
+            ),
+            (
+                "/provenance/audioCandidate/url",
+                json!("https://www.youtube.com/watch?v=4xo5tQUAqeA"),
+            ),
+            ("/title", json!("Different title")),
+            ("/provenance/weakFields/artist", json!(false)),
+        ] {
+            let mut changed = track.clone();
+            *changed.pointer_mut(field).unwrap() = wrong;
+            let before = changed.clone();
+            repair_legacy_youtube_caption(&mut changed);
+            assert_eq!(changed, before, "{field}");
+        }
+        repair_legacy_youtube_caption(&mut track);
+        assert_eq!(track["title"], "No Viviré - Gipsy Kings");
+        assert_eq!(track["artist"], "");
+        assert_eq!(track["provenance"]["artistSource"], "unknown");
+    }
 
     #[test]
     fn named_live_versions_are_inferred_without_guessing_a_release() {

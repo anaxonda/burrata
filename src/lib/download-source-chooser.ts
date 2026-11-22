@@ -10,8 +10,24 @@ const bitrate = (candidate: Candidate) => {
   const values = formats(candidate).map((format) => format.bitrate).filter((value): value is number => typeof value === "number" && value > 0);
   return values.length ? Math.max(...values) : candidate.source?.bitrate_kbps ?? null;
 };
-const size = (candidate: Candidate) => candidate.source?.size_bytes ?? 0;
 const availability = (candidate: Candidate) => candidate.permission === "restricted" ? 0 : candidate.source?.username?.trim() ? 1 : candidate.url ? 2 : 0;
+
+function sourceSizes(candidate: Candidate, formatId?: string) {
+  const peerSize = candidate.source?.size_bytes;
+  const reported = typeof peerSize === "number" && Number.isFinite(peerSize) && peerSize > 0
+    ? [peerSize]
+    : formats(candidate).filter(format => !formatId || format.id === formatId).map(format => format.sizeBytes);
+  return reported.filter((size): size is number => typeof size === "number" && Number.isFinite(size) && size > 0);
+}
+
+const size = (candidate: Candidate) => Math.max(0, ...sourceSizes(candidate));
+
+export function candidateSizeLabel(candidate: Candidate, formatId?: string) {
+  const sizes = sourceSizes(candidate, formatId);
+  if (!sizes.length) return "Size unknown";
+  const smallest = formatSourceSize(Math.min(...sizes)), largest = formatSourceSize(Math.max(...sizes));
+  return smallest === largest ? smallest : `${smallest}–${largest}`;
+}
 
 function compareMatch(a: Candidate, b: Candidate) {
   const confidence = (value: string) => ({ high: 3, medium: 2, low: 1 }[value.toLowerCase()] ?? 0);

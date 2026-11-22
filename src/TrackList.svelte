@@ -13,11 +13,21 @@
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
+  import { trackDisplayVersion } from "./lib/track-display";
   import { trackProviderCount } from "./lib/provider-counts";
   import { rowWindow } from "./lib/table";
   import { invertSelection } from "./lib/selection";
   import { playlistPosition } from "./lib/source-position";
   import { playlistDropIndex } from "./lib/playlist-reorder";
+
+  function topTrackArtworkLookup(track: Track) {
+    const provenance = track.provenance as { source?: string } | undefined;
+    if (track.provider !== "lastfm" || provenance?.source !== "Last.fm top tracks") return undefined;
+    return {
+      key: `lastfm-track:${track.id}:${track.artist}:${track.title}`,
+      load: () => call<string | null>("get_lastfm_top_track_artwork", { track }),
+    };
+  }
 
   let {
     tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
@@ -333,6 +343,7 @@
     {@const failed = current && playbackFailed}
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
+    {@const displayVersion = trackDisplayVersion(track)}
     {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
@@ -348,11 +359,11 @@
       {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedOccurrence} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
       {#if canReorderPlaylist && showSelection}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}; use Up and Down arrow keys`} aria-keyshortcuts="ArrowUp ArrowDown" title="Drag to reorder, or use the Up and Down arrow keys" onkeydown={(event) => occurrencePosition && reorderPlaylistFromHandle(event, track, occurrencePosition)} ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button>{/if}
       {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}{#if presentation === "playlist"}{@render playbackStatus()}{/if}</div>{/if}
-      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
+      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} artworkLookup={topTrackArtworkLookup(track)} /></span>
       {#if presentation !== "playlist"}{@render playbackStatus()}{/if}
       <div class="track-copy">
         <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
-          <strong>{track.title}{#if track.version}<small>{" "}({track.version})</small>{/if}</strong>
+          <strong>{track.title}{#if displayVersion}<small>{" "}({displayVersion})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
           {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if track.artist || track.album || rowMeta}{" · "}{/if}{/if}

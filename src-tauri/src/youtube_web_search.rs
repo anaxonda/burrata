@@ -43,6 +43,11 @@ pub(crate) struct YoutubeWebSearchCandidate {
     pub(crate) uploader: Option<String>,
 }
 
+pub(crate) struct ExactYoutubeVideoMetadata {
+    pub(crate) row: YoutubeWebSearchCandidate,
+    pub(crate) views: Option<u64>,
+}
+
 fn client() -> Result<&'static Client, &'static str> {
     static CLIENT: OnceLock<Result<Client, ()>> = OnceLock::new();
     match CLIENT.get_or_init(|| {
@@ -78,6 +83,29 @@ pub(crate) async fn search_candidates(
     search_candidates_at(client()?, SEARCH_URL, query, cancel, deadline).await
 }
 
+/// Load public metadata for an already parsed video locator. Neither a
+/// successful search response nor its displayed title/duration proves a
+/// recording match or that a media URL is playable.
+pub(crate) async fn search_exact_video(
+    video_id: &str,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<ExactYoutubeVideoMetadata, &'static str> {
+    if !valid_video_id(video_id) {
+        return Err("Invalid exact YouTube video ID");
+    }
+    let query = format!("https://www.youtube.com/watch?v={video_id}");
+    search_response_at(
+        client()?,
+        SEARCH_URL,
+        &query,
+        cancel,
+        deadline,
+        |status, body| parse_exact_video_response(status, body, video_id),
+    )
+    .await
+}
+
 async fn search_candidates_at(
     client: &Client,
     endpoint: &str,
@@ -85,6 +113,17 @@ async fn search_candidates_at(
     cancel: watch::Receiver<bool>,
     deadline: crate::playback_sources::PlaybackDeadline,
 ) -> Result<Vec<YoutubeWebSearchCandidate>, &'static str> {
+    search_response_at(client, endpoint, query, cancel, deadline, parse_response).await
+}
+
+async fn search_response_at<T>(
+    client: &Client,
+    endpoint: &str,
+    query: &str,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+    parse: impl FnOnce(StatusCode, &[u8]) -> Result<T, &'static str>,
+) -> Result<T, &'static str> {
     let opportunity_deadline = deadline.cap(REQUEST_BUDGET);
     if opportunity_deadline <= tokio::time::Instant::now() {
         return Err("YouTube WEB search deadline exceeded");
@@ -147,7 +186,7 @@ async fn search_candidates_at(
             }
             bytes.extend_from_slice(&chunk);
         }
-        parse_response(response.status(), &bytes)
+        parse(response.status(), &bytes)
     };
 
     tokio::select! {
@@ -193,34 +232,24 @@ pub(crate) fn safe_query_part(value: &str) -> Result<&str, &'static str> {
     Ok(value)
 }
 
-fn parse_response(
-    status: StatusCode,
-    body: &[u8],
-) -> Result<Vec<YoutubeWebSearchCandidate>, &'static str> {
+fn parse_search_json(status: StatusCode, body: &[u8]) -> Result<Value, &'static str> {
     if !status.is_success() {
         return Err("YouTube WEB search returned a non-success status");
     }
     if body.len() > MAX_BODY_BYTES {
         return Err("YouTube WEB search response exceeded size limit");
     }
-    let root: Value =
-        serde_json::from_slice(body).map_err(|_| "YouTube WEB search JSON invalid")?;
-    if root
-        .pointer(
-            "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
-        )
-        .and_then(Value::as_array)
-        .is_none()
-    {
-        return Err("YouTube WEB search layout changed");
-    }
+    serde_json::from_slice(body).map_err(|_| "YouTube WEB search JSON invalid")
+}
+
+fn primary_video_items(root: &Value) -> Result<impl Iterator<Item = &Value>, &'static str> {
     let sections = root
         .pointer(
             "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
         )
         .and_then(Value::as_array)
-        .unwrap();
-    let primary_videos = sections
+        .ok_or("YouTube WEB search layout changed")?;
+    Ok(sections
         .iter()
         .filter_map(|section| {
             section
@@ -228,9 +257,15 @@ fn parse_response(
                 .and_then(Value::as_array)
         })
         .flatten()
-        .filter(|row| row.get("videoRenderer").is_some())
-        .cloned()
-        .collect::<Vec<_>>();
+        .filter(|row| row["videoRenderer"].is_object()))
+}
+
+fn parse_response(
+    status: StatusCode,
+    body: &[u8],
+) -> Result<Vec<YoutubeWebSearchCandidate>, &'static str> {
+    let root = parse_search_json(status, body)?;
+    let primary_videos = primary_video_items(&root)?.cloned().collect::<Vec<_>>();
     let rows = parse_items(&serde_json::json!({"items":primary_videos}));
     // Empty or changed layouts must fall back to the existing helper instead
     // of publishing an authoritative empty search cache.
@@ -238,6 +273,56 @@ fn parse_response(
         return Err("YouTube WEB search has no usable rows");
     }
     Ok(rows)
+}
+
+fn parse_exact_video_response(
+    status: StatusCode,
+    body: &[u8],
+    video_id: &str,
+) -> Result<ExactYoutubeVideoMetadata, &'static str> {
+    let root = parse_search_json(status, body)?;
+    let mut exact = primary_video_items(&root)?
+        .filter(|item| item["videoRenderer"]["videoId"].as_str() == Some(video_id));
+    let item = exact
+        .next()
+        .ok_or("YouTube WEB did not return the exact video")?;
+    // Check uniqueness before the general parser deduplicates renderers.
+    if exact.next().is_some() {
+        return Err("YouTube WEB returned ambiguous metadata for the exact video");
+    }
+    let row = primary_exact_video_row(&item["videoRenderer"], video_id)
+        .ok_or("YouTube WEB did not return a usable title and duration for the exact video")?;
+    let views = display_text(&item["videoRenderer"]["viewCountText"])
+        .and_then(|text| exact_english_view_count(&text));
+    Ok(ExactYoutubeVideoMetadata { row, views })
+}
+
+fn primary_exact_video_row(renderer: &Value, video_id: &str) -> Option<YoutubeWebSearchCandidate> {
+    let renderer = renderer.as_object()?;
+    let row = parse_video_renderer(renderer, video_id)?;
+    (row.duration_seconds
+        .is_some_and(|seconds| (5..=86_400).contains(&seconds))
+        && !crate::matching::normalize(&row.title).is_empty())
+    .then_some(row)
+}
+
+fn exact_english_view_count(text: &str) -> Option<u64> {
+    let count = text
+        .strip_suffix(" views")
+        .or_else(|| text.strip_suffix(" view"))?;
+    let (first, rest) = count.split_once(',').unwrap_or((count, ""));
+    if first.is_empty()
+        || !first.bytes().all(|b| b.is_ascii_digit())
+        || (!rest.is_empty()
+            && (first.len() > 3
+                || !rest
+                    .split(',')
+                    .all(|group| group.len() == 3 && group.bytes().all(|b| b.is_ascii_digit()))))
+        || count.ends_with(',')
+    {
+        return None;
+    }
+    count.replace(',', "").parse().ok()
 }
 
 fn parse_items(root: &Value) -> Vec<YoutubeWebSearchCandidate> {
@@ -259,39 +344,11 @@ fn parse_items(root: &Value) -> Vec<YoutubeWebSearchCandidate> {
                     let Some(video_id) = renderer.get("videoId").and_then(Value::as_str) else {
                         continue;
                     };
-                    if !valid_video_id(video_id) || seen.contains(video_id) {
-                        // Continue descending; nested renderers may still exist.
-                    } else if let Some(title) = renderer
-                        .get("title")
-                        .and_then(display_text)
-                        .and_then(safe_display_text)
-                    {
-                        let duration_seconds = if is_live_or_upcoming(renderer) {
-                            None
-                        } else {
-                            renderer
-                                .get("lengthSeconds")
-                                .and_then(Value::as_u64)
-                                .and_then(|seconds| u32::try_from(seconds).ok())
-                                .filter(|seconds| *seconds <= 86_400)
-                                .or_else(|| {
-                                    renderer
-                                        .get("lengthText")
-                                        .and_then(display_text)
-                                        .and_then(parse_duration)
-                                })
-                        };
-                        let uploader = ["ownerText", "shortBylineText", "longBylineText"]
-                            .iter()
-                            .find_map(|key| renderer.get(*key).and_then(display_text))
-                            .and_then(safe_display_text);
-                        seen.insert(video_id.to_owned());
-                        rows.push(YoutubeWebSearchCandidate {
-                            video_id: video_id.to_owned(),
-                            title,
-                            duration_seconds,
-                            uploader,
-                        });
+                    if valid_video_id(video_id) && !seen.contains(video_id) {
+                        if let Some(row) = parse_video_renderer(renderer, video_id) {
+                            seen.insert(video_id.to_owned());
+                            rows.push(row);
+                        }
                     }
                 }
                 pending.extend(map.values().rev());
@@ -301,6 +358,41 @@ fn parse_items(root: &Value) -> Vec<YoutubeWebSearchCandidate> {
         }
     }
     rows
+}
+
+fn parse_video_renderer(
+    renderer: &serde_json::Map<String, Value>,
+    video_id: &str,
+) -> Option<YoutubeWebSearchCandidate> {
+    let title = renderer
+        .get("title")
+        .and_then(display_text)
+        .and_then(safe_display_text)?;
+    let duration_seconds = if is_live_or_upcoming(renderer) {
+        None
+    } else {
+        renderer
+            .get("lengthSeconds")
+            .and_then(Value::as_u64)
+            .and_then(|seconds| u32::try_from(seconds).ok())
+            .filter(|seconds| *seconds <= 86_400)
+            .or_else(|| {
+                renderer
+                    .get("lengthText")
+                    .and_then(display_text)
+                    .and_then(parse_duration)
+            })
+    };
+    let uploader = ["ownerText", "shortBylineText", "longBylineText"]
+        .iter()
+        .find_map(|key| renderer.get(*key).and_then(display_text))
+        .and_then(safe_display_text);
+    Some(YoutubeWebSearchCandidate {
+        video_id: video_id.to_owned(),
+        title,
+        duration_seconds,
+        uploader,
+    })
 }
 
 fn is_live_or_upcoming(renderer: &serde_json::Map<String, Value>) -> bool {
@@ -390,6 +482,70 @@ mod tests {
             "lengthText": duration,
             "shortBylineText": uploader
         }})
+    }
+
+    #[test]
+    fn exact_video_metadata_rejects_ambiguity_before_general_deduplication() {
+        let id = "UT4KozFa7KY";
+        let mut matched = renderer(
+            id,
+            json!({"simpleText":"Like Dat (Remix)"}),
+            json!({"simpleText":"4:54"}),
+            Value::Null,
+        );
+        matched["videoRenderer"]["viewCountText"] = json!({"simpleText":"5,958 views"});
+        let other = renderer(
+            "IkS6rgmwwLc",
+            json!({"simpleText":"Other"}),
+            json!({"simpleText":"4:54"}),
+            Value::Null,
+        );
+        let page = |items: Vec<Value>| {
+            serde_json::to_vec(&json!({
+                "contents":{"twoColumnSearchResultsRenderer":{"primaryContents":{
+                    "sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":items}}]}
+                }}}
+            }))
+            .unwrap()
+        };
+        let parsed = parse_exact_video_response(
+            StatusCode::OK,
+            &page(vec![other.clone(), matched.clone()]),
+            id,
+        )
+        .unwrap();
+        assert_eq!(parsed.row.video_id, id);
+        assert_eq!(parsed.row.title, "Like Dat (Remix)");
+        assert_eq!(parsed.row.duration_seconds, Some(294));
+        assert_eq!(parsed.views, Some(5958));
+        assert_eq!(exact_english_view_count("6K views"), None);
+        assert_eq!(exact_english_view_count("12,34 views"), None);
+        assert!(parse_exact_video_response(StatusCode::OK, &page(vec![other]), id).is_err());
+        assert!(parse_exact_video_response(
+            StatusCode::OK,
+            &page(vec![matched.clone(), matched.clone()]),
+            id
+        )
+        .is_err());
+        let mut conflict = matched.clone();
+        conflict["videoRenderer"]["lengthText"] = json!({"simpleText":"4:12"});
+        assert!(parse_exact_video_response(
+            StatusCode::OK,
+            &page(vec![matched.clone(), conflict]),
+            id
+        )
+        .is_err());
+        let mut missing_title = matched.clone();
+        missing_title["videoRenderer"]["title"] = Value::Null;
+        assert!(
+            parse_exact_video_response(StatusCode::OK, &page(vec![missing_title]), id).is_err()
+        );
+        let mut live = matched.clone();
+        live["videoRenderer"]["isLive"] = json!(true);
+        assert!(parse_exact_video_response(StatusCode::OK, &page(vec![live]), id).is_err());
+        assert!(
+            parse_exact_video_response(StatusCode::BAD_GATEWAY, &page(vec![matched]), id).is_err()
+        );
     }
 
     #[test]

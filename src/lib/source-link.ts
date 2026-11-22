@@ -14,7 +14,11 @@ export function trackSource(track: Track): { url: string; label: string } | null
         : host === "traxsource.com" || host.endsWith(".traxsource.com") ? "Traxsource"
         : host === "spotify.com" || host.endsWith(".spotify.com") ? "Spotify"
         : host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be" ? "YouTube"
-        : host === "soundcloud.com" || host.endsWith(".soundcloud.com") ? "SoundCloud" : "source";
+        : host === "soundcloud.com" || host.endsWith(".soundcloud.com") ? "SoundCloud"
+        : host === "bandcamp.com" || host.endsWith(".bandcamp.com") ? "Bandcamp"
+        : host === "musicbrainz.org" || host === "www.musicbrainz.org" ? "MusicBrainz"
+        : host === "discogs.com" || host === "www.discogs.com" ? "Discogs"
+        : host === "last.fm" || host === "www.last.fm" ? "Last.fm" : "source";
       return { url: url.href, label };
     } catch { /* Local metadata can have no web source. */ }
   }

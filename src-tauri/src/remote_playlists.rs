@@ -2029,8 +2029,8 @@ impl RemotePlaylistService {
             *current = Some(notifier);
         }
     }
-    pub fn browser_connected(&self) -> bool {
-        self.bridge.provider_operations_supported()
+    pub fn provider_operations_ready(&self, provider: &str) -> bool {
+        self.bridge.provider_operations_supported_for(provider)
     }
     pub fn write_sync_enabled(&self, provider: &str) -> Result<bool> {
         validate_provider(provider)?;
@@ -2075,7 +2075,7 @@ impl RemotePlaylistService {
         };
         if let Some(cached) = cached_account {
             if now.signed_duration_since(cached.checked_at).num_seconds() < ACCOUNT_FRESH_SECS
-                && self.bridge.provider_operations_supported()
+                && self.provider_operations_ready(provider)
             {
                 if provider == "spotify" {
                     self.schedule_existing_spotify_duration_backfill(cached.id.clone());
@@ -2092,7 +2092,7 @@ impl RemotePlaylistService {
             }
         }
         let checked_at = now.to_rfc3339();
-        if !self.bridge.provider_operations_supported() {
+        if !self.provider_operations_ready(provider) {
             return Ok(RemoteProviderStatus {
                 provider: provider.into(),
                 connected: false,
@@ -2501,18 +2501,7 @@ impl RemotePlaylistService {
         }
         validate_numeric_cursor(cursor, 100_000)?;
         let account = self.require_account("spotify").await?;
-        let artist_page = self
-            .bridge
-            .provider_operation("spotify", "getArtist", json!({"artistId":artist_id}))
-            .await?;
-        self.ensure_response_account("spotify", &artist_page, &account.id)?;
-        let artist_row = artist_page
-            .get("artist")
-            .ok_or("Spotify returned invalid artist details")?;
-        let artist = parse_spotify_artist(artist_row)?;
-        if artist.id != artist_id {
-            return Err("Spotify returned a different artist".into());
-        }
+        let artist = self.spotify_artist_identity(artist_id, &account.id).await?;
         let mut args = json!({"artistId":artist_id,"limit":REMOTE_BROWSE_PAGE_SIZE});
         if let Some(cursor) = cursor {
             args["cursor"] = json!(cursor);
@@ -2545,6 +2534,34 @@ impl RemotePlaylistService {
                 .map(|total| total as usize),
             top_tracks_unavailable: "Spotify's documented Web API no longer provides artist top tracks. Browse the artist's releases instead.".into(),
         })
+    }
+
+    async fn spotify_artist_identity(
+        &self,
+        artist_id: &str,
+        account_id: &str,
+    ) -> Result<RemoteSpotifyArtist> {
+        let page = self
+            .bridge
+            .provider_operation("spotify", "getArtist", json!({"artistId":artist_id}))
+            .await?;
+        self.ensure_response_account("spotify", &page, account_id)?;
+        let artist = parse_spotify_artist(&page["artist"])?;
+        if artist.id != artist_id {
+            return Err("Spotify returned a different artist".into());
+        }
+        Ok(artist)
+    }
+
+    pub async fn spotify_artist_artwork(&self, artist_id: &str) -> Result<Option<String>> {
+        if !valid_spotify_id(artist_id) {
+            return Err("Spotify artist ID is invalid".into());
+        }
+        let account = self.require_account("spotify").await?;
+        Ok(self
+            .spotify_artist_identity(artist_id, &account.id)
+            .await?
+            .artwork_url)
     }
     /// Read one bounded provider-ordered artist track page without persisting it.
     /// Inspect one authenticated artist-list response; return fixed counts/enums only.
@@ -12844,3 +12861,6 @@ mod alias_hydration_tests {
 #[path = "catalog_duration_proof.rs"]
 pub(crate) mod catalog_duration_proof;
 pub(crate) use catalog_duration_proof::PreparedCatalogDuration;
+
+#[path = "spotify_release_evidence.rs"]
+pub(crate) mod spotify_release_evidence;

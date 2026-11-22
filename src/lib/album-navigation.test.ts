@@ -34,3 +34,16 @@ it.each([['discogs','123','456'],['musicbrainz','6c56fb1d-e220-40ee-b836-10b6bf9
   expect(directCatalogAlbumTarget({...catalog,provenance:{...catalog.provenance,releaseId:"../invalid"}})).toBeNull();
   expect(directCatalogAlbumTarget({...catalog,provenance:{...catalog.provenance,artistCredits:[{name:"Main Act",artist:{provider:"wrong",id:artistId}}]}})).toBeNull();
 });
+
+it("opens the edition already assigned to a verified MusicBrainz recording result", () => {
+  const recordingId = "b09bf481-3621-4c02-93d0-bf56a3eb3286";
+  const releaseId = "c1fb68f6-0183-49b0-beff-4f1c8b6b0b4a";
+  const artistId = "9be2a5ac-8201-489b-b5f6-91f958bf9060";
+  const provider = "musicbrainz";
+  const provenance = { releaseId, catalog: { provider, recordingId, verified: true, artists: [{ provider, id: artistId, name: "Ali Farka Touré" }] } };
+  const imported: Track = { ...track, provider, providerId: recordingId, id: `${provider}:${recordingId}`,
+    sourceUrl: `https://musicbrainz.org/recording/${recordingId}`, album: "Talking Timbuktu",
+    provenance };
+  expect(directCatalogAlbumTarget(imported)?.release.release).toEqual({ provider, id: releaseId });
+  expect(directCatalogAlbumTarget({ ...imported, provenance: { ...provenance, manualFields: { album: true } } })).toBeNull();
+});

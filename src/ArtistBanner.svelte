@@ -1,31 +1,34 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { safeArtworkUrl } from "./lib/artwork-url";
+  import { safeArtworkUrls } from "./lib/artwork-url";
 
   let {
-    name, label, artworkUrl, heading = "h2", class: className = "", details, actions, onArtworkError,
+    name, label, artworkUrl, artworkFallback, heading = "h2", class: className = "", details, actions, onArtworkError, ariaLabel, oncontextmenu,
   }: {
     name: string;
     label: string;
     artworkUrl?: string | null;
+    artworkFallback?: string | null;
+    ariaLabel?: string;
+    oncontextmenu?: (event: MouseEvent) => void;
     heading?: "h1" | "h2";
     class?: string;
     details?: Snippet;
     actions?: Snippet;
     onArtworkError?: (url: string) => void;
   } = $props();
-  let failedArtwork = $state<string | null>(null);
-  const source = $derived(artworkUrl !== failedArtwork ? safeArtworkUrl(artworkUrl) : null);
+  let failedArtwork = $state<string[]>([]);
+  const source = $derived(safeArtworkUrls([artworkUrl, artworkFallback]).find(url => !failedArtwork.includes(url)));
 
   function rejectArtwork(event: Event) {
     const url = (event.currentTarget as HTMLImageElement).getAttribute("src");
     if (!url) return;
-    failedArtwork = url;
+    failedArtwork = [...failedArtwork, url];
     onArtworkError?.(url);
   }
 </script>
 
-<header class={`artist-banner ${className}`} style:--artist-artwork={source ? `url(${JSON.stringify(source)})` : undefined}>
+<header class={`artist-banner ${className}`} style:--artist-artwork={source ? `url(${JSON.stringify(source)})` : undefined} role={ariaLabel ? "group" : undefined} aria-label={ariaLabel} {oncontextmenu}>
   <div class="portrait" aria-hidden="true">
     {#if source}<img src={source} alt="" onerror={rejectArtwork} />{:else}<span class="placeholder">♫</span>{/if}
   </div>

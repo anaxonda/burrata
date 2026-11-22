@@ -119,7 +119,7 @@ test('Spotify artist ListPlatform duration preserves fractional nanoseconds and 
 
 test('Spotify artist releases and rich album tracks use pinned Pathfinder queries with offset pages',async()=>{
  const artistId='artist1234567890123456',albumId='album12345678901234567',secondAlbumId='otherAlbum123456789012',trackA='track12345678901234567',trackB='anotherTrack1234567890',calls=[];
- const release=(id,name)=>({__typename:'Album',uri:`spotify:album:${id}`,name,type:'ALBUM',date:{year:2024,isoString:'2024-01-01'},artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},coverArt:{sources:[{url:`https://i.scdn.co/image/${id}`,maxWidth:640,maxHeight:640}]},sharingInfo:{shareUrl:`https://open.spotify.com/album/${id}`},tracks:{totalCount:0}});
+ const release=(id,name)=>({__typename:'Album',uri:`spotify:album:${id}`,name,type:'ALBUM',date:{year:2024,isoString:'2024-01-01'},label:'Fixture Label',externalIds:{upc:'123456789012',ean:'invalid'},artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},coverArt:{sources:[{url:`https://i.scdn.co/image/${id}`,maxWidth:640,maxHeight:640}]},sharingInfo:{shareUrl:`https://open.spotify.com/album/${id}`},tracks:{totalCount:0}});
  const artistUnion={__typename:'Artist',uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'},visuals:{avatarImage:{sources:[{url:'https://i.scdn.co/image/artist',maxWidth:640,maxHeight:640}]}},stats:{followers:0},discography:{all:{totalCount:3}}};let discographyIdentityMode='omitted',albumIdentityMode='match';
  const track=(id,name,duration,number)=>({__typename:'Track',uri:`spotify:track:${id}`,name,artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},duration:{totalMilliseconds:duration},albumOfTrack:{uri:`spotify:album:${albumId}`,name:'First release',coverArt:{sources:[{url:'https://i.scdn.co/image/cover',maxWidth:640,maxHeight:640}]}},discNumber:1,trackNumber:number,playability:{playable:true},contentRating:{label:'EXPLICIT'},saved:false,...(number===1?{playcount:'0'}:number===2?{playCount:'1,234'}:number===3?{plays:'9007199254740992'}:{}),relinkingInformation:{linkedTrack:{__typename:'Track',uri:`spotify:track:${id}`}},associationsV3:{videoAssociations:{totalCount:number===4?999:0}}});
  const fetch=async(url,options={})=>{
@@ -129,6 +129,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
   if(target.includes('/pathfinder/v2/query')){
    if(request.operationName==='profileAttributes')return {ok:true,status:200,text:async()=>JSON.stringify({data:{me:{profile:{uri:'spotify:user:account-123',name:'Fixture account'}}}})};
    if(request.operationName==='queryArtistMinimal')return {ok:true,status:200,text:async()=>JSON.stringify({data:{artistUnion}})};
+   if(request.operationName==='searchDesktop')return {ok:true,status:200,text:async()=>JSON.stringify({data:{searchV2:{albumsV2:{totalCount:1,items:[{item:{data:release(albumId,'First release')}}]}}}})};
    if(request.operationName==='queryArtistDiscographyAll'){
     const items=variables.offset===0?[{releases:{items:[{...release(albumId,'First release'),tracks:{totalCount:51}}]}},{releases:{items:[]}}]:[{releases:{items:[release(secondAlbumId,'Second release')]}}];
     const {uri:omittedArtistUri,...discographyArtistUnion}=artistUnion;
@@ -147,7 +148,9 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch,crypto:webcrypto,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'open.spotify.com',origin:'https://open.spotify.com'},setInterval(){},setTimeout,clearTimeout});vm.runInContext(source,context);vm.runInContext(sharedSpotifySource,context);
- const hashes={profileAttributes:{hash:'a'.repeat(64)},totp:{code:'123456',version:61}};
+ const hashes={profileAttributes:{hash:'a'.repeat(64)},searchDesktop:{hash:'b'.repeat(64)},totp:{code:'123456',version:61}};
+ const search=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','search',{query:'First release',kind:'album'},hashes)));
+ assert.equal(search.total,1);assert.equal(search.rawCount,1);assert.equal(search.nextCursor,null);
  const artist=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtist',{artistId},hashes)));
  assert.equal(artist.artist?.title,'Fixture Artist',JSON.stringify(artist));assert.equal(artist.artist.artworkUrl,'https://i.scdn.co/image/artist');assert.equal(artist.artist.data.followers,0);
  const pageOne=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtistAlbums',{artistId,limit:30},hashes)));
@@ -161,6 +164,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
  assert.equal(emptyAlbum.album.data.totalTracks,0);
  assert.equal(Object.hasOwn(emptyAlbum.album.data,'plays'),false);
  const firstTrackPage=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getAlbumTracks',{albumId,limit:50},hashes)));
+ assert.equal(firstTrackPage.rawCount,50);assert.equal(firstTrackPage.reportedTotal,51);assert.equal(firstTrackPage.album.data.label,'Fixture Label');assert.deepEqual(firstTrackPage.album.data.productCodes,['123456789012']);
  assert.equal(firstTrackPage.items.length,49);assert.equal(firstTrackPage.items[0].durationSeconds,183.25);assert.equal(firstTrackPage.items[1].durationSeconds,183.333);assert.equal(firstTrackPage.items[0].position,1);assert.equal(firstTrackPage.items[0].trackNumber,1);assert.equal(firstTrackPage.items[0].isExplicit,true);assert.equal(firstTrackPage.items[0].plays,0);assert.equal(firstTrackPage.items[1].plays,1234);assert.equal(Object.hasOwn(firstTrackPage.items[2],'plays'),false);assert.equal(Object.hasOwn(firstTrackPage.items[3],'plays'),false);assert.equal(firstTrackPage.items[3].hasAssociatedVideo,true);assert.equal(firstTrackPage.total,51);assert.equal(firstTrackPage.nextCursor,'50');assert.equal(firstTrackPage.unrecognizedCount,1);assert.equal(Object.hasOwn(firstTrackPage,'complete'),false);assert.equal(Object.hasOwn(firstTrackPage,'pagingQualification'),false);
  const secondTrackPage=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getAlbumTracks',{albumId,limit:50,cursor:firstTrackPage.nextCursor},hashes)));
  assert.equal(secondTrackPage.items[0].trackId,trackB);assert.equal(secondTrackPage.nextCursor,null);assert.equal(secondTrackPage.pagingQualification,'experimental-offset');
@@ -337,6 +341,13 @@ test('modern YouTube lockup view models decode public playlists and channels',as
   const request=JSON.parse(options.body);calls.push(request);
   const isChannel=request.params==='EgIQAg%3D%3D';
   const result=lockup(isChannel?'LOCKUP_CONTENT_TYPE_CHANNEL':'LOCKUP_CONTENT_TYPE_PLAYLIST',isChannel?'UCmodernChannel123':'VLPLmodernPlaylist123',isChannel?'Public channel':'Public playlist',isChannel?'14K subscribers':'42 videos',`https://i.ytimg.com/${isChannel?'channel':'playlist'}.jpg`);
+  if (!isChannel) {
+    result.lockupViewModel.metadata.lockupMetadataViewModel.metadata.contentMetadataViewModel.metadataRows.push(
+      { metadataParts: [{ text: { content: 'One of the tracks · 3:40' } }] },
+      { metadataParts: [{ text: { content: 'View full playlist' } }] },
+      { metadataParts: [{ text: { content: 'Discover house music.│a href="https://example.com/"Follow us/a' } }] },
+    );
+  }
   return {ok:true,status:200,text:async()=>JSON.stringify({contents:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[result]}}]}}})};
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
@@ -352,6 +363,14 @@ test('modern YouTube lockup view models decode public playlists and channels',as
  assert.equal(channel.items[0].kind,'channel');
  assert.equal(channel.items[0].subtitle,'14K subscribers');
  assert.equal(calls.length,2);
+ const bootstrap = youtubeChannelFetch({ browseResponse: {} }).fetchImpl;
+ const fetchNative = async (url, options = {}) => String(url).includes('/youtubei/v1/search')
+   ? { ...await fetch(url, options), headers: new Headers() }
+   : bootstrap(url, options);
+ const native = await makeYoutubeSessionContext(fetchNative).BurrataYouTubeSessionProvider.run(
+   'search', { query: 'Gipsy Kings', kind: 'playlist' }, youtubeSessionFixture, { fetchImpl: fetchNative },
+ );
+ assert.equal(native.items[0].subtitle, '42 videos');
 });
 
 test('signed-in YouTube status binds identity from studio channel link and DATASYNC_ID fallback',async()=>{

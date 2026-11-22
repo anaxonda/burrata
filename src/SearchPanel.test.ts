@@ -165,6 +165,31 @@ describe("SearchPanel", () => {
     expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"custom",sourceIds:["spotify","bandcamp"]});
   });
 
+  it.each([
+    { initialSources: ["youtube"], exact: true },
+    { initialSources: ["youtube", "soundcloud"], exact: false },
+  ])("requests exact video lookup only for a single YouTube Videos search ($initialSources)", async ({ initialSources, exact }) => {
+    const searchSource = vi.fn(async (_request: { sourceIds: string[]; exactVideoUrl?: boolean }) => ({
+      complete: true, results: [],
+    }));
+    const target = render({ initialSources, searchSource, availableSources: [
+      { id: "youtube", name: "YouTube", enabled: true, kinds: ["video", "set"] },
+      { id: "soundcloud", name: "SoundCloud", enabled: true, kinds: ["video", "set"] },
+    ] });
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".filters button")]
+      .find(button => button.textContent?.trim() === "Videos / Sets")!.click();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "https://youtu.be/UT4KozFa7KY";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    const requests = searchSource.mock.calls.map(([request]) => request);
+    const youtube = requests.find(request => request.sourceIds.includes("youtube"))!;
+    expect(youtube.exactVideoUrl === true).toBe(exact);
+    expect(requests.some(request => request.sourceIds.includes("soundcloud"))).toBe(!exact);
+  });
+
   it.each(["Artists","Albums"])("shows Bandcamp %s results with the supported actions", async label => {
     const kind=label==="Artists"?"artist":"album";
     const url=kind==="artist"?"https://fixture.bandcamp.com/":"https://fixture.bandcamp.com/album/record";
@@ -436,10 +461,11 @@ describe("SearchPanel", () => {
       { id: "row-two", kind: "track", sourceId: "youtube", title: second.title, track: second },
     ] }));
     const onPlay = vi.fn();
+    const artworkUpdate = deferred<typeof second & { artworkUrl: string }>();
     const target = document.createElement("div"); document.body.append(target);
     const instance = mount(SearchPanel, { target, props: {
       initialSources: ["youtube"], availableSources: [{ id: "youtube", name: "YouTube", enabled: true, kinds: ["track"] }],
-      searchSource, onPlay,
+      searchSource, onPlay, enrichTrack: (track: typeof first) => track.providerId === second.providerId ? artworkUpdate.promise : Promise.resolve(track),
     } as never });
     destroy = () => unmount(instance);
     const query = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
@@ -452,11 +478,95 @@ describe("SearchPanel", () => {
     const snapshot = instance.inspectAutomationSearchUi(0, 10) as { revision: string; total: number; rows: { occurrenceToken: string }[] };
     expect(snapshot.total).toBe(2);
     expect(snapshot.rows[0]!.occurrenceToken).not.toBe(snapshot.rows[1]!.occurrenceToken);
+    const enriched = { ...second, artworkUrl: "https://example.com/cover.jpg" };
+    artworkUpdate.resolve(enriched);
+    await settle();
     expect(instance.playAutomationSearchResult(snapshot.revision, snapshot.rows[1]!.occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status: "dispatched" });
-    expect(onPlay).toHaveBeenCalledWith(second, [first, second], 1);
+    expect(onPlay).toHaveBeenCalledWith(enriched, [first, enriched], 1);
     target.querySelector<HTMLButtonElement>("[aria-label='Toggle loaded track sort direction']")!.click(); await settle();
     expect(instance.playAutomationSearchResult(snapshot.revision, snapshot.rows[0]!.occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status: "stale" });
     expect(onPlay).toHaveBeenCalledOnce();
+  });
+  it("keeps the inspected occurrence when an earlier provider finishes or appends search results", async () => {
+    const track = { id: "track", provider: "musicbrainz", providerId: "recording", sourceUrl: "https://musicbrainz.org/recording/recording", title: "Song", artist: "Artist", favorite: false, provenance: {} };
+    const duplicate = { ...track, provenance: { remoteEntryId: "second-occurrence" } };
+    const discogs = { ...track, id: "first-discogs", provider: "discogs", providerId: "release", sourceUrl: "", title: "Earlier provider" };
+    const later = { ...discogs, id: "second-discogs", title: "Later page" };
+    const row = (item: typeof track, sourceId: string, id: string) => ({ id, kind: "track", sourceId, title: item.title, track: item });
+    const firstDiscogsPage = deferred<{ sourceId: string; complete: boolean; nextCursor: string; results: ReturnType<typeof row>[] }>();
+    const onPlay = vi.fn();
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(SearchPanel, { target, props: {
+      initialSources: [],
+      availableSources: [
+        { id: "musicbrainz", name: "MusicBrainz", enabled: true, kinds: ["track"] },
+        { id: "discogs", name: "Discogs", enabled: true, kinds: ["track"] },
+      ],
+      searchSource: async ({ sourceIds: [sourceId], cursor }: { sourceIds: string[]; cursor?: string | null }) => {
+        if (sourceId === "discogs") return cursor
+          ? { sourceId, complete: true, results: [row(later, sourceId, "discogs-two")] }
+          : firstDiscogsPage.promise;
+        return { sourceId, complete: true, results: [row(track, sourceId, "first"), row(duplicate, sourceId, "second")] };
+      },
+      onPlay,
+    } as never });
+    destroy = () => unmount(instance);
+    const query = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    query.value = "song"; query.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    target.querySelector<HTMLInputElement>(".continue-setting input")!.click();
+    await settle();
+    const initial = instance.inspectAutomationSearchUi() as { revision: string; rows: { occurrenceToken: string; sourceId: string }[] };
+    expect(initial.rows.map(item => item.sourceId)).toEqual(["musicbrainz", "musicbrainz"]);
+    const { occurrenceToken } = initial.rows[1];
+
+    firstDiscogsPage.resolve({ sourceId: "discogs", complete: false, nextCursor: "page-two", results: [row(discogs, "discogs", "discogs-one")] });
+    await settle();
+    expect(instance.playAutomationSearchResult(initial.revision, occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status: "dispatched" });
+    expect(onPlay).toHaveBeenLastCalledWith(duplicate, [discogs, track, duplicate], 2);
+
+    target.querySelector<HTMLButtonElement>("[aria-label='Discogs results'] .load-more")!.click();
+    await settle();
+    expect(instance.playAutomationSearchResult(initial.revision, occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status: "dispatched" });
+    expect(onPlay).toHaveBeenLastCalledWith(duplicate, [discogs, later, track, duplicate], 3);
+  });
+  it.each([
+    { minimum: "", status: "dispatched", plays: 1 },
+    { minimum: "375", status: "stale", plays: 0 },
+  ])("checks visible membership after an exact-source duration refinement with minimum '$minimum'", async ({ minimum, status, plays }) => {
+    const track = {
+      id: "youtube:DQCXk4rQmCQ", provider: "youtube", providerId: "DQCXk4rQmCQ",
+      sourceUrl: "https://www.youtube.com/watch?v=DQCXk4rQmCQ",
+      title: "Right Here Right Now (Jill Scott x Terry Hunter)", artist: "Jill Scott", durationSeconds: 375,
+      favorite: false, provenance: {},
+    };
+    const details = deferred<typeof track>();
+    const onPlay = vi.fn();
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(SearchPanel, { target, props: {
+      initialSources: ["youtube"],
+      availableSources: [{ id: "youtube", name: "YouTube", enabled: true, kinds: ["track"] }],
+      searchSource: async () => ({ sourceId: "youtube", complete: true, results: [{ id: "row", sourceId: "youtube", kind: "track", title: track.title, track }] }),
+      enrichTrack: () => details.promise,
+      onPlay,
+    } as never });
+    destroy = () => unmount(instance);
+    const query = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    query.value = "Right Here Right Now"; query.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    const durationFilter = target.querySelector<HTMLInputElement>("[aria-label='Minimum loaded track duration']")!;
+    durationFilter.value = minimum;
+    durationFilter.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    const initial = instance.inspectAutomationSearchUi() as { revision: string; rows: { occurrenceToken: string; durationSeconds: number }[] };
+    expect(initial.rows[0]!.durationSeconds).toBe(375);
+    const refreshed = { ...track, durationSeconds: 374 };
+    details.resolve(refreshed);
+    await settle();
+    expect(instance.playAutomationSearchResult(initial.revision, initial.rows[0]!.occurrenceToken, Number.MAX_SAFE_INTEGER)).toMatchObject({ status });
+    expect(onPlay.mock.calls).toEqual(plays ? [[refreshed]] : []);
   });
   it("rejects a prior component's revision when a later search panel remounts", async () => {
     const track = { id:"remount-track", provider:"youtube", providerId:"remount", sourceUrl:"https://youtube.test/watch?v=remount", title:"Remount Song", artist:"Artist", favorite:false, provenance:{} };
@@ -1009,6 +1119,7 @@ describe("SearchPanel", () => {
       searchSource,
     });
     await settle();
+    expect(target.querySelector("#unsupported-result-kinds")?.textContent).toContain("enable Browser-assisted access");
     const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     input.value = "video search"; input.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -1396,6 +1507,51 @@ describe("SearchPanel", () => {
     expect(target.textContent).toContain("Incomplete results; no continuation is available");
     expect(target.textContent).not.toContain("More results available");
     expect(target.querySelector(".load-more")).toBeNull();
+  });
+
+  it("plays the selected Monochrome audio source without pinning the remaining search results", async () => {
+    const exact = "170796013471154176";
+    const other = "240966681495732224";
+    const makeTrack = (providerId: string, title: string) => {
+      const id = `monochrome:${providerId}`;
+      const sourceUrl = `https://tracks.monochrome.st/track/${providerId}`;
+      return {
+        id, providerId, provider: "monochrome", sourceUrl, artist: "Manos Loizos", title, favorite: false,
+        provenance: { sourceKind: "audioSearch", audioCandidate: { id, provider: "monochrome", url: sourceUrl, title } },
+      };
+    };
+    const shorter = makeTrack(other, "Shorter result");
+    const track = makeTrack(exact, "Zeibekiko (From Evdokia)");
+    const mismatched = {
+      ...track,
+      title: "Unbound result",
+      provenance: { ...track.provenance, audioCandidate: { ...track.provenance.audioCandidate, url: shorter.sourceUrl } },
+    };
+    const searchSource = vi.fn(async () => ({
+      complete: true,
+      results: [shorter, track, mismatched].map((result, index) => ({
+        id: `mono-row-${index}`, kind: "track", sourceId: "monochrome", title: result.title, track: result,
+      })),
+    }));
+    const onPlay = vi.fn();
+    const target = render({
+      query: "Zeibekiko", searchSource, onPlay, initialSources: ["monochrome"],
+      availableSources: [{ id: "monochrome", name: "Monochrome", enabled: true, kinds: ["track"] }],
+    });
+    await settle();
+
+    const selected = { ...track, provenance: { ...track.provenance, userSelectedSource: true } };
+    const play = (title: string) => target.querySelector<HTMLButtonElement>(`[aria-label="Play ${title}"]`)!.click();
+    play(track.title);
+    expect(onPlay).toHaveBeenLastCalledWith(selected);
+    expect(track.provenance).not.toHaveProperty("userSelectedSource");
+    play(mismatched.title);
+    expect(onPlay).toHaveBeenLastCalledWith(mismatched);
+
+    target.querySelector<HTMLInputElement>('[aria-label="Play remaining loaded search results"]')!.click();
+    await settle();
+    play(track.title);
+    expect(onPlay).toHaveBeenLastCalledWith(selected, [shorter, selected, mismatched], 1);
   });
 
   it("continues collected tracks from the selected row when enabled", async () => {

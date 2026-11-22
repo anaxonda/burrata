@@ -1057,9 +1057,34 @@ fn explicit_recording_version(label: &str) -> bool {
             .iter()
             .any(|prefix| lower.starts_with(prefix))
         || is_release_version(&lower)
+        || numbered_remix_name(&lower, '.').is_some()
+        || named_remix_vocal_form(&lower)
         || [" remix", " mix", " edit", " version", " cover", " dub"]
             .iter()
             .any(|suffix| lower.ends_with(suffix))
+}
+
+/// A named remix may identify the exact vocal or dubstrumental cut.
+pub(crate) fn named_remix_vocal_form(label: &str) -> bool {
+    [" remix vocal", " remix dubstrumental"]
+        .iter()
+        .any(|suffix| {
+            label
+                .strip_suffix(suffix)
+                .is_some_and(|name| !name.trim().is_empty())
+        })
+}
+
+/// Preserve the number as part of the edition. Extract only the remixer
+/// credit, accepting a decimal marker in raw or normalized title text.
+pub(crate) fn numbered_remix_name(label: &str, separator: char) -> Option<&str> {
+    let (name, number) = label.rsplit_once(" remix ")?;
+    let number = number.strip_suffix(" extended").unwrap_or(number);
+    let (major, minor) = number.split_once(separator)?;
+    [major, minor]
+        .iter()
+        .all(|part| (1..=3).contains(&part.len()) && part.bytes().all(|byte| byte.is_ascii_digit()))
+        .then_some(name)
 }
 
 /// One spelling key for structured fields and parsed version annotations.

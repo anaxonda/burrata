@@ -8,6 +8,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
 const VERSION = '0.1.2';
 const DEFAULT_SCHEMA = { type: 'object', properties: {}, additionalProperties: false };
+const BRIDGE_STATUS_TOOL = 'get_bridge_status';
 export const REGISTRY_TIMEOUT_MS = 5_000;
 export const CALL_TIMEOUT_MS = 65_000;
 export const PUBLIC_DURATION_REPAIR_TIMEOUT_MS = 75_000;
@@ -114,26 +115,54 @@ export async function apiRequest(discovery, endpoint, options = {}, dependencies
   return { response, payload };
 }
 
-export async function fetchToolRegistry(discoveryPath = defaultDiscoveryPath()) {
-  const discovery = await readDiscovery(discoveryPath);
+async function fetchAppToolRegistry(discovery) {
   const { response, payload } = await apiRequest(discovery, '/automation/tools');
-  if (!response.ok || !payload || !Array.isArray(payload.tools)) {
+  if (!response.ok) {
     const code = payload?.code === 'PLAYER_NOT_RUNNING' || payload?.error?.code === 'PLAYER_NOT_RUNNING'
       ? 'PLAYER_NOT_RUNNING'
       : requestErrorCode({ code: response.status === 401 ? 'UNAUTHORIZED' : 'NETWORK' });
-    throw new Error(code);
+    throw Object.assign(new Error(code), { status: response.status });
   }
+  const invalidRegistry = () => Object.assign(new Error('Invalid Burrata automation tool registry'), { code: 'INVALID_REGISTRY' });
+  if (!payload || !Array.isArray(payload.tools)) throw invalidRegistry();
   const names = new Set();
   for (const tool of payload.tools) {
     if (!tool || typeof tool.name !== 'string' || !/^[a-zA-Z0-9_.-]{1,128}$/.test(tool.name) || names.has(tool.name)) {
-      throw new Error('Invalid Burrata automation tool registry');
+      throw invalidRegistry();
     }
     if (typeof tool.description !== 'string' || !tool.description || (tool.inputSchema != null && (typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)))) {
-      throw new Error('Invalid Burrata automation tool registry');
+      throw invalidRegistry();
     }
     names.add(tool.name);
   }
   return payload.tools;
+}
+
+export async function fetchToolRegistry(discoveryPath = defaultDiscoveryPath()) {
+  return fetchAppToolRegistry(await readDiscovery(discoveryPath));
+}
+
+function bridgeStatusResult(appConnection, registry = 'unverified') {
+  const status = { bridge: 'running', appConnection, registry };
+  return { content: [{ type: 'text', text: JSON.stringify(status) }], structuredContent: status };
+}
+
+async function getBridgeStatus(discoveryPath, startupRegistry) {
+  let discovery;
+  try { discovery = await readDiscovery(discoveryPath); }
+  catch { return bridgeStatusResult('discovery_unavailable'); }
+  try {
+    const tools = await fetchAppToolRegistry(discovery);
+    return bridgeStatusResult('connected', JSON.stringify(tools) === startupRegistry ? 'current' : 'restart_required');
+  } catch (error) {
+    if (error?.status === 401) return bridgeStatusResult('unauthorized');
+    if (error?.code === 'INVALID_REGISTRY') return bridgeStatusResult('invalid_registry');
+    if (error?.message === 'PLAYER_NOT_RUNNING') return bridgeStatusResult('app_unavailable');
+    const code = requestErrorCode(error);
+    if (code === 'PLAYER_NOT_RUNNING') return bridgeStatusResult('connection_refused');
+    if (code === 'REQUEST_TIMEOUT') return bridgeStatusResult('timed_out');
+    return bridgeStatusResult('unreachable');
+  }
 }
 
 async function callAppTool(name, args, discoveryPath) {
@@ -171,6 +200,7 @@ async function callAppTool(name, args, discoveryPath) {
 export function createServer(tools, discoveryPath = defaultDiscoveryPath()) {
   const server = new McpServer({ name: 'burrata', version: VERSION });
   for (const tool of tools) {
+    if (tool.name === BRIDGE_STATUS_TOOL) continue;
     server.registerTool(tool.name, {
       ...(typeof tool.title === 'string' ? { title: tool.title } : {}),
       description: tool.description,
@@ -178,6 +208,12 @@ export function createServer(tools, discoveryPath = defaultDiscoveryPath()) {
       ...(tool.annotations ? { annotations: tool.annotations } : tool.scope === 'read' ? { annotations: { readOnlyHint: true } } : {}),
     }, (args) => callAppTool(tool.name, args, discoveryPath));
   }
+  const startupRegistry = JSON.stringify(tools);
+  server.registerTool(BRIDGE_STATUS_TOOL, {
+    description: 'Check the MCP bridge and its authenticated connection to Burrata, even when the app tools are unavailable.',
+    inputSchema: fromJsonSchema(DEFAULT_SCHEMA),
+    annotations: { readOnlyHint: true },
+  }, () => getBridgeStatus(discoveryPath, startupRegistry));
   return server;
 }
 
@@ -187,8 +223,8 @@ export async function main() {
   try { tools = await fetchToolRegistry(discoveryPath); }
   catch (error) {
     const message = error instanceof Error && error.message === 'PLAYER_NOT_RUNNING'
-      ? 'Burrata is not running; the MCP tool list is empty.'
-      : 'Could not load Burrata MCP tools; the MCP tool list is empty.';
+      ? 'Burrata is not running; only get_bridge_status is available.'
+      : 'Could not load Burrata MCP tools; only get_bridge_status is available.';
     console.error(message);
   }
   const handle = serveStdio(() => createServer(tools, discoveryPath));

@@ -927,6 +927,102 @@ impl ArtistService {
         })
     }
 
+    /// Find exact editions under the artist name printed on the release.
+    pub(crate) async fn find_musicbrainz_credited_editions(
+        &self,
+        title: &str,
+        credited_artist: &str,
+    ) -> Option<Vec<(ArtistReleaseRef, ArtistRef, String)>> {
+        if title.is_empty()
+            || title.chars().count() > 120
+            || credited_artist.trim().is_empty()
+            || credited_artist.chars().count() > 120
+        {
+            return None;
+        }
+        let query = format!(
+            "release:\"{}\" AND creditname:\"{}\"",
+            lucene_escape(title),
+            lucene_escape(credited_artist)
+        );
+        let result = self
+            .musicbrainz_json(
+                "release",
+                &[("query", query.clone()), ("limit", "12".into())],
+                "navigation.credited-edition.musicbrainz.v2",
+                &query,
+                SEARCH_TTL,
+            )
+            .await
+            .ok()?;
+        let rows = result["releases"].as_array()?;
+        if result["count"].as_u64() != Some(rows.len() as u64)
+            || result["offset"].as_u64() != Some(0)
+            || rows.len() > 12
+        {
+            return None;
+        }
+        let fold = crate::recording_identity::search_fold;
+        let wanted_title = fold(title);
+        let wanted_artist = fold(credited_artist);
+        let mut editions = rows
+            .iter()
+            .filter_map(|row| {
+                if fold(row["title"].as_str()?) != wanted_title {
+                    return None;
+                }
+                let id = row["id"].as_str().filter(|id| valid_mbid(id))?;
+                let [credit] = row["artist-credit"].as_array()?.as_slice() else {
+                    return None;
+                };
+                if fold(credit["name"].as_str()?) != wanted_artist {
+                    return None;
+                }
+                let artist = ArtistRef {
+                    provider: "musicbrainz".into(),
+                    id: credit["artist"]["id"]
+                        .as_str()
+                        .filter(|id| valid_mbid(id))?
+                        .to_owned(),
+                };
+                let group = row["release-group"]["id"]
+                    .as_str()
+                    .filter(|id| valid_mbid(id))
+                    .unwrap_or(id);
+                Some((
+                    row["status"] != "Official",
+                    parse_musicbrainz_release(row, &artist)?,
+                    artist,
+                    group.to_owned(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        editions.sort_by(|a, b| {
+            (
+                a.0,
+                a.1.release_date
+                    .as_deref()
+                    .filter(|date| !date.is_empty())
+                    .unwrap_or("9999"),
+                &a.1.release.id,
+            )
+                .cmp(&(
+                    b.0,
+                    b.1.release_date
+                        .as_deref()
+                        .filter(|date| !date.is_empty())
+                        .unwrap_or("9999"),
+                    &b.1.release.id,
+                ))
+        });
+        Some(
+            editions
+                .into_iter()
+                .map(|(_, release, artist, group)| (release, artist, group))
+                .collect(),
+        )
+    }
+
     /// Provider-scoped release search used by unified discovery sources.
     /// The combined `search_albums` API remains unchanged for Artist Pages.
     pub async fn search_albums_for(
@@ -1804,6 +1900,28 @@ impl ArtistService {
         track: &Track,
         api_key: &str,
     ) -> Result<Option<Track>, String> {
+        Ok(self
+            .lastfm_top_track_info(track, api_key)
+            .await?
+            .and_then(|info| lastfm_top_track_metadata(track, &info)))
+    }
+
+    pub(crate) async fn lastfm_top_track_artwork(
+        &self,
+        track: &Track,
+        api_key: &str,
+    ) -> Result<Option<String>, String> {
+        Ok(self
+            .lastfm_top_track_info(track, api_key)
+            .await?
+            .and_then(|info| verified_lastfm_track_artwork(track, &info)))
+    }
+
+    async fn lastfm_top_track_info(
+        &self,
+        track: &Track,
+        api_key: &str,
+    ) -> Result<Option<Value>, String> {
         if !lastfm_top_track_metadata_available(track) {
             return Ok(None);
         }
@@ -1822,7 +1940,7 @@ impl ArtistService {
         let data = self
             .get_json("artists.track_info.lastfm", &cache_key, url, LIST_TTL, None)
             .await?;
-        Ok(lastfm_top_track_metadata(track, &data["track"]))
+        Ok(data.get("track").cloned())
     }
 
     /// Compact album index for browsing. Exact edition discovery remains lazy
@@ -2903,6 +3021,29 @@ impl ArtistService {
                 track.artist.to_lowercase(),
                 track.title.to_lowercase()
             ),
+            SEARCH_TTL,
+        )
+        .await
+    }
+
+    pub(crate) async fn album_recording_search(
+        &self,
+        title: &str,
+        performers: &[String],
+        isrc: Option<&str>,
+    ) -> Result<Value, String> {
+        let mut query = format!("recording:\"{}\"", lucene_escape(title));
+        for artist in performers {
+            query.push_str(&format!(" AND artist:\"{}\"", lucene_escape(artist)));
+        }
+        if let Some(isrc) = isrc {
+            query.push_str(&format!(" AND isrc:\"{}\"", lucene_escape(isrc)));
+        }
+        self.musicbrainz_json(
+            "recording",
+            &[("query", query.clone()), ("limit", "12".into())],
+            "navigation.recording-search.musicbrainz.v1",
+            &query,
             SEARCH_TTL,
         )
         .await
@@ -4414,7 +4555,10 @@ fn parse_musicbrainz_release_page(
     (releases, more, raw_len, partial)
 }
 
-fn parse_musicbrainz_release(value: &Value, artist: &ArtistRef) -> Option<ArtistReleaseRef> {
+pub(crate) fn parse_musicbrainz_release(
+    value: &Value,
+    artist: &ArtistRef,
+) -> Option<ArtistReleaseRef> {
     let id = value["id"].as_str()?.to_owned();
     let title = value["title"]
         .as_str()
@@ -4770,6 +4914,18 @@ fn lastfm_top_track_metadata(track: &Track, info: &Value) -> Option<Track> {
         refreshed.artwork_url = lastfm_image(&info["album"]["image"]);
     }
     Some(refreshed)
+}
+
+fn verified_lastfm_track_artwork(track: &Track, info: &Value) -> Option<String> {
+    let artist = info["artist"]["name"].as_str()?;
+    let title = info["name"].as_str()?;
+    if track.provenance["manualFields"]["artworkUrl"] == true
+        || matching::normalize(artist) != matching::normalize(&track.artist)
+        || matching::normalize(title) != matching::normalize(&track.title)
+    {
+        return None;
+    }
+    lastfm_image(&info["album"]["image"])
 }
 
 fn artist_relationship(
@@ -5276,7 +5432,7 @@ fn lucene_escape(value: &str) -> String {
         .collect()
 }
 
-async fn musicbrainz_rate_limit() {
+pub(crate) async fn musicbrainz_rate_limit() {
     use std::sync::OnceLock;
     use tokio::sync::Mutex;
     static LAST: OnceLock<Mutex<std::time::Instant>> = OnceLock::new();
@@ -6444,6 +6600,14 @@ mod tests {
         );
         assert_eq!(track.title, original);
         assert_eq!(track.duration_seconds, None);
+        assert!(verified_lastfm_track_artwork(&track, &info).is_none());
+        let mut exact_artwork = info.clone();
+        exact_artwork["name"] = json!(original);
+        exact_artwork["duration"] = json!(0);
+        assert_eq!(
+            verified_lastfm_track_artwork(&track, &exact_artwork),
+            refreshed.artwork_url
+        );
 
         let mut incorrect = info.clone();
         incorrect["artist"]["name"] = json!("Another artist");
