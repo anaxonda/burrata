@@ -11,6 +11,8 @@ mod models;
 mod recording_filename;
 #[path = "../../src-tauri/src/recording_identity.rs"]
 mod recording_identity;
+#[path = "../../src-tauri/src/classical_movement_title.rs"]
+mod classical_movement_title;
 #[path = "../../src-tauri/src/recording_match.rs"]
 mod recording_match;
 #[path = "../../src-tauri/src/youtube_recording_metadata.rs"]
