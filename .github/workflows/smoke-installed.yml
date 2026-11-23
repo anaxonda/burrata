@@ -185,9 +185,9 @@ jobs:
         run: |
           import hashlib,json,os,pathlib,subprocess,zipfile,stat
           root=pathlib.Path('.cache/windows-diagnostic');root.mkdir(parents=True)
-          commit='3cf3b1a48709c4a102f7e06ac2ea6b15059b19b4'
-          run_id=41349273407;artifact_id=13102717611
-          digest='301d6a5942b90043c52de1274f29a96030dcb3811eb1c30206900b786d0657f2'
+          commit='3dc37dfb02a149b6d9b0e97aafb8bfd9534731c4'
+          run_id=45222116182;artifact_id=14847398728
+          digest='f2f0f1940a59359bb6661dac29b04190ab1f738bbc5d5d7a81bfd44fec14ed98'
           assert os.environ['PLATFORM']=='windows-x64' and os.environ['RPM_ONLY']=='false'
           assert os.environ['SOURCE_RUN_ID']==str(run_id) and os.environ['EXPECTED_COMMIT']==commit
           def diagnostic_member_size(size):return type(size) is int and 0<size<=512*1024**2
@@ -204,7 +204,7 @@ jobs:
           artifact=api(f'actions/artifacts/{artifact_id}')
           assert artifact['workflow_run']['id']==run_id and artifact['workflow_run']['head_sha']==commit
           assert artifact['name']=='debug-installer-windows-x64-'+commit and not artifact['expired']
-          assert artifact['size_in_bytes']==344839864 and artifact['digest']=='sha256:'+digest
+          assert artifact['size_in_bytes']==427714750 and artifact['digest']=='sha256:'+digest
           archive=pathlib.Path('.cache/windows-diagnostic-installer.zip')
           with archive.open('wb') as output:
               result=subprocess.run(['gh','api',f'repos/anaxonda/burrata/actions/artifacts/{artifact_id}/zip'],stdout=output,stderr=subprocess.PIPE,timeout=120)
@@ -213,7 +213,7 @@ jobs:
           destination=pathlib.Path('.cache/windows-diagnostic-installer');destination.mkdir()
           with zipfile.ZipFile(archive) as zipped:
               members=[m for m in zipped.infolist() if not m.is_dir()]
-              assert len(members)==1 and members[0].filename=='Burrata_0.1.25_x64-setup.exe'
+              assert len(members)==1 and members[0].filename=='Burrata_0.1.62_x64-setup.exe'
               member=members[0];assert stat.S_IFMT(member.external_attr>>16)!=stat.S_IFLNK
               assert diagnostic_member_size(member.file_size)
               installer=destination/member.filename
@@ -266,9 +266,9 @@ jobs:
         shell: bash
         run: |
           python scripts/release/smoke-installed.py --windows-diagnostic \
-            --installer .cache/windows-diagnostic-installer/Burrata_0.1.25_x64-setup.exe \
+            --installer .cache/windows-diagnostic-installer/Burrata_0.1.62_x64-setup.exe \
             --evidence .cache/windows-diagnostic/native-diagnostic.json \
-            --source-run-id 41349273407 --source-commit 3cf3b1a48709c4a102f7e06ac2ea6b15059b19b4 \
+            --source-run-id 45222116182 --source-commit 3dc37dfb02a149b6d9b0e97aafb8bfd9534731c4 \
             --harness-commit '${{ github.sha }}'
       - uses: actions/upload-artifact@v7
         if: always()
