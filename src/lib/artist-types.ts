@@ -213,7 +213,7 @@ export interface ArtistPageProps {
   initialSection?: "overview" | "releases" | "tracks" | "collaborations" | "local";
   initialScroll?: number;
   onSectionChange?: (section: "overview" | "releases" | "tracks" | "collaborations" | "local") => void;
-  onArtistSelected?: (artist: ArtistRef | null, name?: string) => void;
+  onArtistSelected?: (artist: ArtistRef | null, name?: string, recordRoute?: boolean) => void;
   onScroll?: (position: number) => void;
   localTracks: Track[];
   onLoadLocalAssetsPage?: (request: ArtistLocalAssetsPageRequest) => Promise<ArtistLocalAssetsPage>;

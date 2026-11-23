@@ -1593,7 +1593,7 @@ async fn run_tool<F: FnMut(&str)>(
 
 // Each helper gets its own RAII directory in the managed app profile, so a
 // restricted system temp quota cannot prevent the bundled binary from unpacking.
-fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::TempDir, String> {
+pub(crate) fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::TempDir, String> {
     let Some(root) = root else {
         return tempfile::Builder::new()
             .prefix("burrata-yt-dlp-")
@@ -1969,6 +1969,19 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
         Value::String("ytDlpCandidateMetadata".into()),
     );
     source_metadata.insert("resolvedProviderId".into(), Value::String(id.to_owned()));
+    if provider == "soundcloud" && info["webpage_url"].as_str() == Some(url) {
+        if let (Some(release_id), Some(uploader)) = (
+            crate::recording_match::soundcloud_purchase_release_id(info),
+            metadata_text(&info["uploader"]).filter(|name| name.len() <= 256),
+        ) {
+            source_metadata.insert("provider".into(), Value::String("soundcloud".into()));
+            source_metadata.insert("uploader".into(), Value::String(uploader));
+            source_metadata.insert(
+                "soundcloudBeatportReleaseId".into(),
+                Value::String(release_id),
+            );
+        }
+    }
     if info.get("artists").is_some_and(|value| {
         !value.is_null()
             && match value.as_array() {
@@ -2668,6 +2681,11 @@ async fn search_provider_candidates(
                     errors.push(format!("{provider}: incomplete search response"));
                 }
                 for mut candidate in response.candidates {
+                    if candidates.iter().any(|existing| {
+                        crate::playback_sources::same_candidate_search_row(existing, &candidate)
+                    }) {
+                        continue;
+                    }
                     matching::score_candidate(track, &mut candidate);
                     candidate
                         .reasons
@@ -2763,20 +2781,6 @@ fn metadata_text(value: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-fn split_source_credit_title(value: &str) -> Option<(String, String)> {
-    let separators = [" — ", " – ", " - "];
-    let matches = separators
-        .iter()
-        .filter_map(|separator| value.find(*separator).map(|index| (index, *separator)))
-        .collect::<Vec<_>>();
-    let [(index, separator)] = matches.as_slice() else {
-        return None;
-    };
-    let artist = value[..*index].trim();
-    let title = value[*index + separator.len()..].trim();
-    (!artist.is_empty() && !title.is_empty()).then(|| (artist.to_owned(), title.to_owned()))
-}
-
 fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     let provider_id = info["id"].as_str().unwrap_or_default().trim().to_owned();
     let provided_artist =
@@ -2786,10 +2790,15 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
         .clone()
         .or_else(|| metadata_text(&info["title"]))
         .unwrap_or_default();
+    // YouTube upload captions use both artist-first and title-first order.
+    // Keep the caption intact when the extractor has no structured artist.
     let (artist, title, artist_source) = if let Some(artist) = provided_artist {
         (artist, raw_title, "metadata")
-    } else if let Some((artist, title)) = split_source_credit_title(&raw_title) {
-        (artist, title, "inferred_from_title")
+    } else if let Some((artist, title)) = (candidate.provider != "youtube")
+        .then(|| crate::metadata_normalization::split_source_credit_title(&raw_title))
+        .flatten()
+    {
+        (artist.to_owned(), title.to_owned(), "inferred_from_title")
     } else {
         (String::new(), raw_title, "unknown")
     };
@@ -2831,6 +2840,35 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     }
     crate::recording_identity::hydrate_identifiers(&mut track);
     track
+}
+
+fn exact_youtube_url_id(raw: &str) -> Option<String> {
+    let url = validate_source_url(raw, "youtube").ok()?;
+    if url.fragment().is_some() {
+        return None;
+    }
+    let mut id = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "v" if id.is_none() => id = Some(value.into_owned()),
+            "si" | "feature" => {}
+            // Leave playlist, start/end, and unknown URL semantics to the
+            // existing search path. This shortcut returns one whole video.
+            _ => return None,
+        }
+    }
+    let path = url.path().split('/').collect::<Vec<_>>();
+    let id = match (url.host_str()?, path.as_slice(), id) {
+        ("www.youtube.com" | "youtube.com" | "music.youtube.com", ["", "watch"], Some(id)) => id,
+        ("www.youtube.com" | "youtube.com", ["", "shorts", id], None)
+        | ("youtu.be", ["", id], None) => (*id).to_owned(),
+        _ => return None,
+    };
+    (id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)))
+    .then_some(id)
 }
 
 fn youtube_search_results_url(query: &str) -> String {
@@ -4876,7 +4914,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-7:result-limit-{}:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-8:result-limit-{}:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
         crate::recording_match::EVALUATOR_VERSION,
@@ -6348,7 +6386,7 @@ fn preview_access_retry_delay(status: reqwest::StatusCode) -> Option<Duration> {
     }
 }
 
-fn preview_audio_from_metadata(
+pub(super) fn preview_audio_from_metadata(
     candidate: &Candidate,
     info: &Value,
 ) -> Result<PreviewAudio, String> {
@@ -6418,6 +6456,31 @@ fn preview_audio_from_metadata(
     let duration_seconds = info["duration"]
         .as_f64()
         .filter(|duration| duration.is_finite() && *duration > 0.0);
+    let source_metadata = if candidate.provider == "youtube" {
+        // Topic status must come from this extraction response. Search
+        // hints and remembered candidates can be stale or have no
+        // uploader at all, so they cannot select the richer proof path.
+        let richer_metadata = if fresh_youtube_topic_identity(info) {
+            topic_identity_metadata(candidate, info)
+        } else {
+            verified_youtube_channel_metadata(candidate, info)
+        };
+        resolved_extractor_identity_metadata(
+            candidate,
+            info,
+            richer_metadata.or_else(|| youtube_identity_only_metadata(candidate, info)),
+        )
+    } else if candidate.provider == "soundcloud" {
+        resolved_extractor_identity_metadata(candidate, info, None)
+    } else {
+        None
+    };
+    let resolved_title = source_metadata
+        .as_ref()
+        .filter(|metadata| metadata["youtubeGeneratedComposer"].is_string())
+        .and_then(|metadata| metadata["track"].as_str())
+        .or_else(|| info["title"].as_str())
+        .map(str::to_owned);
     Ok(PreviewAudio {
         provider_session: None,
         url: stream_url.into(),
@@ -6429,26 +6492,8 @@ fn preview_audio_from_metadata(
         duration_seconds,
         selected_format_id: safe_extractor_format_id(info["format_id"].as_str()),
         selected_format_has_video: info["vcodec"].as_str().is_some_and(|codec| codec != "none"),
-        source_metadata: if candidate.provider == "youtube" {
-            // Topic status must come from this extraction response. Search
-            // hints and remembered candidates can be stale or have no
-            // uploader at all, so they cannot select the richer proof path.
-            let richer_metadata = if fresh_youtube_topic_identity(info) {
-                topic_identity_metadata(candidate, info)
-            } else {
-                verified_youtube_channel_metadata(candidate, info)
-            };
-            resolved_extractor_identity_metadata(
-                candidate,
-                info,
-                richer_metadata.or_else(|| youtube_identity_only_metadata(candidate, info)),
-            )
-        } else if candidate.provider == "soundcloud" {
-            resolved_extractor_identity_metadata(candidate, info, None)
-        } else {
-            None
-        },
-        resolved_title: info["title"].as_str().map(str::to_owned),
+        source_metadata,
+        resolved_title,
         resolved_provider_id: info["id"].as_str().map(str::to_owned),
         chapters: Some(parse_source_chapters(info).unwrap_or_default()),
         expected_content_length: info["filesize"]
@@ -6626,10 +6671,20 @@ fn playback_music_catalog_candidate_for_search(
     };
     // Retrieval retains same-title locators without making a performer/version
     // acceptance decision. The shared evaluator applies current evidence later.
-    std::iter::once(&track.title)
-        .chain(alternate_titles)
-        .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title))
-        .then_some(candidate)
+    let movement = crate::spotify_catalog_identity::spotify_artist_credit_fingerprint(track)
+        .zip(candidate.duration_seconds)
+        .is_some_and(|(fingerprint, duration)| {
+            crate::spotify_catalog_identity::numbered_movement_caption_matches(
+                &fingerprint,
+                &candidate.title,
+                duration,
+            )
+        });
+    (movement
+        || std::iter::once(&track.title)
+            .chain(alternate_titles)
+            .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title)))
+    .then_some(candidate)
 }
 
 /// Retain the narrowly useful, fresh YouTube channel identity exposed by the
@@ -6868,6 +6923,22 @@ fn resolved_extractor_identity_metadata(
             .then(|| value.to_owned())
         })
     };
+    if candidate.provider == "soundcloud"
+        && info["webpage_url"].as_str() == Some(candidate.url.as_str())
+    {
+        if let (Some(release_id), Some(uploader), Some(title)) = (
+            crate::recording_match::soundcloud_purchase_release_id(info),
+            safe_text("uploader", 256),
+            safe_text("track", 512),
+        ) {
+            metadata.insert("uploader".into(), Value::String(uploader));
+            metadata.insert("track".into(), Value::String(title));
+            metadata.insert(
+                "soundcloudBeatportReleaseId".into(),
+                Value::String(release_id),
+            );
+        }
+    }
     let mut uncertain = false;
     let fresh_artist_names = match info.get("artists") {
         Some(Value::Array(values)) if values.len() <= 32 => {
@@ -7044,6 +7115,48 @@ fn resolved_extractor_identity_metadata(
         metadata.remove("artistNames");
         metadata.remove("artist");
         metadata.remove("artistCount");
+    } else if let Some((distributor, artists)) =
+        crate::youtube_recording_metadata::generated_recording_credits(candidate, info)
+    {
+        metadata.insert(
+            "youtubeGeneratedDistributor".into(),
+            serde_json::json!(distributor),
+        );
+        metadata.insert(
+            "youtubeGeneratedArtistCredits".into(),
+            serde_json::json!(artists),
+        );
+        // The verified distributor and recording credit occupy the first two
+        // non-empty lines. The release must be the next line of the same block.
+        let release = info["description"].as_str().and_then(|description| {
+            description
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .nth(2)
+        });
+        if let Some(album) = safe_text("album", 512).filter(|album| release == Some(album.as_str()))
+        {
+            metadata.insert("youtubeGeneratedAlbum".into(), Value::String(album));
+            if let Some((date, roles)) =
+                crate::youtube_recording_metadata::generated_remix_role_rows(info, &artists)
+            {
+                metadata.insert("youtubeGeneratedReleaseDate".into(), Value::String(date));
+                metadata.insert("youtubeGeneratedArtistRoles".into(), Value::Array(roles));
+            }
+        }
+    } else if let Some((album, composer, credits)) =
+        crate::youtube_recording_metadata::corroborated_topic_credits(candidate, info, &metadata)
+    {
+        metadata.insert("youtubeGeneratedAlbum".into(), serde_json::json!(album));
+        metadata.insert(
+            "youtubeGeneratedComposer".into(),
+            serde_json::json!(composer),
+        );
+        metadata.insert(
+            "youtubeGeneratedArtistCredits".into(),
+            serde_json::json!(credits),
+        );
     }
     Some(Value::Object(metadata))
 }
@@ -7333,6 +7446,7 @@ struct Inner {
     store: Arc<Store>,
     connections: Arc<ConnectionManager>,
     monochrome_playback: Mutex<Option<Arc<crate::monochrome_playback::MonochromePlaybackService>>>,
+    subsonic: std::sync::OnceLock<Arc<crate::subsonic::Service>>,
     remote_playlists: Mutex<Option<Arc<crate::remote_playlists::RemotePlaylistService>>>,
     analysis: Mutex<Option<Arc<crate::analysis::AnalysisManager>>>,
     autotag: Mutex<Option<Arc<crate::autotag::AutoTagger>>>,
@@ -7542,6 +7656,7 @@ impl AcquisitionManager {
                 store,
                 connections,
                 monochrome_playback: Mutex::new(None),
+                subsonic: std::sync::OnceLock::new(),
                 remote_playlists: Mutex::new(None),
                 analysis: Mutex::new(None),
                 autotag: Mutex::new(None),
@@ -7744,6 +7859,33 @@ impl AcquisitionManager {
         }
     }
 
+    pub(crate) async fn find_spotify_release_evidence(
+        &self,
+        title: &str,
+        release_date: &str,
+        label: &str,
+        cancel: watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> Result<
+        Option<Vec<crate::remote_playlists::spotify_release_evidence::IndependentAlbumEvidence>>,
+        String,
+    > {
+        let service = self
+            .inner
+            .remote_playlists
+            .lock()
+            .map_err(|_| "Catalog service unavailable")?
+            .clone();
+        match service {
+            Some(service) => {
+                service
+                    .find_spotify_release_candidates(title, release_date, label, cancel, deadline)
+                    .await
+            }
+            None => Ok(None),
+        }
+    }
+
     pub(crate) async fn prepare_catalog_duration_track(
         &self,
         track: &Track,
@@ -7844,6 +7986,12 @@ impl AcquisitionManager {
             *slot = Some(analysis);
         }
     }
+    pub(crate) fn set_subsonic_service(&self, service: Arc<crate::subsonic::Service>) {
+        let _ = self.inner.subsonic.set(service);
+    }
+    pub(crate) fn subsonic_service(&self) -> Option<&Arc<crate::subsonic::Service>> {
+        self.inner.subsonic.get()
+    }
     pub fn set_autotag_manager(&self, manager: Arc<crate::autotag::AutoTagger>) {
         if let Ok(mut slot) = self.inner.autotag.lock() {
             *slot = Some(manager);
@@ -7897,6 +8045,52 @@ impl AcquisitionManager {
             .get_or_search(key, || search_audio_tracks_raw(query, &providers, settings))
             .await
     }
+    pub(crate) async fn search_exact_youtube_url(
+        &self,
+        query: &str,
+        settings: &Settings,
+    ) -> Option<Track> {
+        if !uses_managed_ytdlp(&settings.yt_dlp_path) {
+            return None;
+        }
+        let id = exact_youtube_url_id(query)?;
+        let key = serde_json::json!(["exact-public-youtube-video-v1", id]).to_string();
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_millis(650));
+        let probe = self
+            .inner
+            .raw_audio_search_cache
+            .get_or_search(key, || async {
+                let (_sender, cancel) = idle_cancel();
+                let metadata =
+                    crate::youtube_web_search::search_exact_video(&id, cancel, deadline).await?;
+                let row = metadata.row;
+                let info = serde_json::json!({
+                    "id": row.video_id,
+                    "title": row.title,
+                    "duration": row.duration_seconds,
+                    "uploader": row.uploader,
+                    "view_count": metadata.views,
+                    "url": format!("https://www.youtube.com/watch?v={id}"),
+                    "thumbnail": format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"),
+                });
+                let mut candidate = candidate_from_json(&info, "youtube");
+                candidate.url = youtube_search_video_url(&info, &candidate)
+                    .ok_or("YouTube WEB returned an inconsistent locator")?;
+                candidate.score = 0.8;
+                candidate.confidence = "review".into();
+                candidate.reasons = vec![
+                    "Direct source result; track identity has not been verified".into(),
+                    "Download permission has not been established".into(),
+                ];
+                Ok(vec![raw_search_track(candidate, &info)])
+            });
+        let tracks = tokio::time::timeout_at(deadline.instant(), probe)
+            .await
+            .ok()?
+            .ok()?;
+        tracks.into_iter().next()
+    }
+
     pub async fn search_audio_tracks_page(
         &self,
         query: &str,
@@ -8893,31 +9087,75 @@ impl AcquisitionManager {
                                     &alternate_titles,
                                     settings,
                                 );
-                                collect_optional_playback_catalog_candidates(
-                                    queries,
+                                let classical_album =
+                                    crate::spotify_catalog_identity::numbered_movement_album_request(&search_track);
+                                let mut queries = queries.into_iter();
+                                let first_pass = if classical_album.is_some() {
+                                    queries.by_ref().take(1).collect()
+                                } else {
+                                    queries.by_ref().collect()
+                                };
+                                let mut search = |query: String, query_cancel| {
+                                    let query_track = search_track.clone();
+                                    let alternate_titles = &alternate_titles;
+                                    async move {
+                                        let items =
+                                            crate::youtube_music::search_playback_candidates(
+                                                &query,
+                                                PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT,
+                                                query_cancel,
+                                                deadline,
+                                            )
+                                            .await?;
+                                        Ok(playback_music_catalog_candidates_with_title_alternatives(
+                                            &query_track,
+                                            items,
+                                            alternate_titles,
+                                        ))
+                                    }
+                                };
+                                let mut result = collect_optional_playback_catalog_candidates(
+                                    first_pass,
                                     cancel.clone(),
                                     catalog_research_deadline,
-                                    |query, query_cancel| {
-                                        let query_track = search_track.clone();
-                                        let alternate_titles = &alternate_titles;
-                                        async move {
-                                            let items =
-                                                crate::youtube_music::search_playback_candidates(
-                                                    &query,
-                                                    PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT,
-                                                    query_cancel,
-                                                    deadline,
-                                                )
-                                                .await?;
-                                            Ok(playback_music_catalog_candidates_with_title_alternatives(
-                                                &query_track,
-                                                items,
-                                                alternate_titles,
-                                            ))
+                                    &mut search,
+                                ).await?;
+                                if let Some((album, fingerprint)) = classical_album {
+                                    if !result.candidates.iter().any(|candidate| {
+                                        crate::youtube_recording_metadata::preferred_album_locator(&search_track, candidate)
+                                    }) {
+                                        let album_rows = tokio::select! {
+                                            biased;
+                                            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+                                            result = tokio::time::timeout_at(
+                                                catalog_research_deadline,
+                                                crate::youtube_music::numbered_movement_album_tracks(
+                                                    album, &fingerprint, cancel.clone(), deadline,
+                                                ),
+                                            ) => result,
+                                        };
+                                        if let Ok(Ok(items)) = album_rows {
+                                            result.candidates = merge_playback_candidate_rows(
+                                                result.candidates,
+                                                playback_music_catalog_candidates_with_title_alternatives(
+                                                    &search_track, items, &alternate_titles,
+                                                ),
+                                            );
+                                        } else {
+                                            result.complete = false;
                                         }
-                                    },
-                                )
-                                .await
+                                    }
+                                    if !result.candidates.iter().any(|candidate| {
+                                        crate::youtube_recording_metadata::preferred_album_locator(&search_track, candidate)
+                                    }) {
+                                        let rest = collect_optional_playback_catalog_candidates(
+                                            queries.collect(), cancel.clone(), catalog_research_deadline, &mut search,
+                                        ).await?;
+                                        result.complete &= rest.complete;
+                                        result.candidates = merge_playback_candidate_rows(result.candidates, rest.candidates);
+                                    }
+                                }
+                                Ok(result)
                             },
                             observe_flat_batch,
                             settings.matching_level,
@@ -15661,6 +15899,177 @@ mod tests {
     }
 
     #[test]
+    fn official_generated_remix_roles_from_full_extractor_respect_flat_credit_evidence() {
+        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
+
+        let id = "RJaQjFrqvXQ";
+        let title = "Plástico (Bugz In The Attic Remix)";
+        let album = "I Like It Like That: Fania Remixed";
+        let description = format!(
+            "Provided to YouTube by Universal Music Group
+
+{title} · Willie Colón · Rubén Blades · Bugz in the Attic
+
+{album}
+
+℗ 2010 Craft Recordings
+
+Released on: 2008-05-06
+
+Vocalist: Willie Colón
+Vocalist, Composer Lyricist: Rubén Blades
+Remixer: Bugz in the Attic
+
+Auto-generated by YouTube."
+        );
+        let info = serde_json::json!({
+            "id": id, "title": title, "track": title, "album": album, "release_date": "20080506",
+            "artist":"Willie Colón, Rubén Blades, Bugz in the Attic",
+            "artists":["Willie Colón", "Rubén Blades", "Bugz in the Attic"],
+            "channel":"Willie Colón", "uploader":"Willie Colón",
+            "channel_id":"UCZ7rjHAj_eNbsrKTFkBQbAQ", "channel_is_verified":true,
+            "duration":369, "description":description,
+            "url":"https://example.googlevideo.com/videoplayback",
+            "protocol":"https", "vcodec":"none", "acodec":"mp4a.40.2", "ext":"m4a"
+        });
+        let original = Candidate {
+            provider: "youtube".into(),
+            id: format!("youtube:{id}"),
+            url: format!("https://www.youtube.com/watch?v={id}"),
+            ..Candidate::default()
+        };
+        let resolve = |raw: &Value| -> Result<Candidate, String> {
+            let audio = preview_audio_from_metadata(&original, raw)?;
+            let mut source = original.clone();
+            source.title = audio.resolved_title.unwrap();
+            source.duration_seconds = audio.duration_seconds;
+            source.source_metadata = audio.source_metadata;
+            Ok(source)
+        };
+        let requested = Track {
+            provider: "traxsource".into(),
+            title: title.into(),
+            artist: "Willie Colón, Ruben Blades".into(),
+            album: Some(album.into()),
+            duration_seconds: Some(369.360),
+            provenance: serde_json::json!({"artistCredits":[
+                {"name":"Willie Colón", "role":"artist"},
+                {"name":"Ruben Blades", "role":"artist"}
+            ]}),
+            ..Track::default()
+        };
+        let evaluate = |source: &Candidate| {
+            assess(
+                &requested,
+                source,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            )
+        };
+        let source = resolve(&info).unwrap();
+        let metadata = source.source_metadata.as_ref().unwrap();
+        assert_eq!(source.title, title);
+        assert_eq!(metadata["artists"], info["artists"]);
+        assert_eq!(metadata["youtubeGeneratedReleaseDate"], "2008-05-06");
+        assert_eq!(
+            metadata["youtubeGeneratedArtistRoles"],
+            serde_json::json!([
+                {"name":"Willie Colón","role":"artist"},
+                {"name":"Rubén Blades","role":"artist"},
+                {"name":"Bugz in the Attic","role":"remixer"}
+            ])
+        );
+        let accepted = evaluate(&source);
+        assert_eq!(accepted.action, MatchAction::Accept, "{accepted:?}");
+
+        for (field, value) in [
+            ("channel_is_verified", serde_json::json!(false)),
+            ("artist", serde_json::json!("Willie Colón, Someone Else")),
+            (
+                "artists",
+                serde_json::json!(["Willie Colón", "Rubén Blades", "Someone Else"]),
+            ),
+            ("release_date", serde_json::json!("20140909")),
+            (
+                "description",
+                serde_json::json!(description.replace(
+                    "Remixer: Bugz in the Attic",
+                    "Vocalist, Remixer: Bugz in the Attic"
+                )),
+            ),
+            (
+                "description",
+                serde_json::json!(description.replace(
+                    "Remixer: Bugz in the Attic",
+                    "Vocalist: Unlisted Name
+Remixer: Bugz in the Attic"
+                )),
+            ),
+            (
+                "description",
+                serde_json::json!(
+                    description.replace("Auto-generated by YouTube.", "Published by uploader.")
+                ),
+            ),
+        ] {
+            let mut raw = info.clone();
+            raw[field] = value;
+            let rejected = resolve(&raw).unwrap();
+            assert!(
+                rejected.source_metadata.as_ref().unwrap()["youtubeGeneratedArtistRoles"].is_null(),
+                "{field}"
+            );
+            assert_ne!(evaluate(&rejected).action, MatchAction::Accept, "{field}");
+        }
+        let mut spoofed = info.clone();
+        spoofed["id"] = serde_json::json!("ZZZZZZZZZZZ");
+        assert!(resolve(&spoofed).is_err());
+
+        for (field, value) in [
+            (
+                "artistNames",
+                serde_json::json!(["Willie Colón", "Rubén Blades"]),
+            ),
+            ("artist", serde_json::json!("Different Performer")),
+            ("album", serde_json::json!("A different edition")),
+            ("mix", serde_json::json!("Original Mix")),
+            ("duration", serde_json::json!(369.9)),
+        ] {
+            let mut contrary = source.clone();
+            contrary.source_metadata.as_mut().unwrap()[field] = value;
+            assert_ne!(evaluate(&contrary).action, MatchAction::Accept, "{field}");
+        }
+    }
+
+    #[test]
+    fn soundcloud_beatport_release_observation_must_come_from_same_fresh_page() {
+        let page = "https://soundcloud.com/klub-record/danidance-maaura-like-dat-ape";
+        let info = serde_json::json!({
+            "id":"2411098299", "webpage_url":page, "duration":425.635,
+            "title":"DANIDANE, MAAURA - LIKE DAT (APE DRUMS REMIX 2.0)",
+            "track":"DANIDANE, MAAURA - LIKE DAT (APE DRUMS REMIX 2.0)",
+            "uploader":"KLUB RECORD", "artists":["KLUB RECORD"], "artist":"KLUB RECORD",
+            "description":"BUY THE TRACK: https://www.beatport.com/release/like-dat-ape-drums-remix-20-extended/7587008"
+        });
+        let flat = candidate_from_json(&info, "soundcloud");
+        assert_eq!(
+            flat.source_metadata.as_ref().unwrap()["soundcloudBeatportReleaseId"],
+            "7587008"
+        );
+        let fresh = resolved_extractor_identity_metadata(&flat, &info, None).unwrap();
+        assert_eq!(fresh["soundcloudBeatportReleaseId"], "7587008");
+        assert_eq!(fresh["sourceMetadataOrigin"], "ytDlpFullInfo");
+        assert_eq!(fresh["uploader"], "KLUB RECORD");
+        assert_ne!(fresh["identityMetadataUncertain"], true);
+        for field in ["description", "webpage_url"] {
+            let mut changed = info.clone();
+            changed[field] = Value::Null;
+            let full = resolved_extractor_identity_metadata(&flat, &changed, None).unwrap();
+            assert!(full["soundcloudBeatportReleaseId"].is_null());
+        }
+    }
+
+    #[test]
     fn soundcloud_full_info_artist_fields_are_kept_only_for_the_resolved_id() {
         let candidate = Candidate {
             id: "soundcloud:12345".into(),
@@ -16033,11 +16442,11 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-7:result-limit-20"));
+        assert!(key.contains("playback-source-search-retrieval-8:result-limit-20"));
         assert_ne!(
             key,
             key.replace(
-                "playback-source-search-retrieval-7",
+                "playback-source-search-retrieval-8",
                 "playback-source-search-retrieval-3"
             )
         );
@@ -17882,11 +18291,13 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn playback_flat_search_retains_bare_and_missing_urls_but_rejects_id_mismatch() {
+    async fn playback_flat_search_validates_urls_and_deduplicates_identical_rows() {
         let output = serde_json::json!({"entries":[
+            {"id":"XW9ycmy4CQA","url":"XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"XW9ycmy4CQA","url":"XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"5OdVxV30Ids","title":"Fixture Artist - Fixture Song","duration":180},
+            {"id":"5OdVxV30Ids","title":"Fixture Artist - Fixture Song","duration":181},
             {"id":"short","url":"short","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://www.youtube.com/watch?v=XW9ycmy4CQA","title":"Fixture Artist - Fixture Song","duration":180},
             {"id":"A1G8kgXWzig","url":"https://other.invalid/watch?v=A1G8kgXWzig","title":"Fixture Artist - Fixture Song","duration":180}
@@ -17908,7 +18319,14 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(found.len(), 3);
+        assert_eq!(found.len(), 4);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|candidate| candidate.id == "youtube:5OdVxV30Ids")
+                .count(),
+            2
+        );
         let bare = found
             .iter()
             .find(|candidate| candidate.id == "youtube:XW9ycmy4CQA")
@@ -19097,6 +19515,27 @@ mod tests {
         }
     }
     #[test]
+    fn raw_youtube_caption_keeps_ambiguous_artist_and_title_together() {
+        let info = serde_json::json!({
+            "id": "LSHM_bkSYQI",
+            "title": "No Viviré - Gipsy Kings",
+            "uploader": "nov1812",
+            "duration": 246,
+            "webpage_url": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+        });
+        let candidate = candidate_from_json(&info, "youtube");
+        let track = raw_search_track(candidate, &info);
+        assert_eq!(track.title, "No Viviré - Gipsy Kings");
+        assert!(track.artist.is_empty());
+        assert_eq!(track.provenance["artistSource"], "unknown");
+        assert_eq!(track.provenance["uploader"], "nov1812");
+        assert_eq!(
+            track.provenance["audioCandidate"]["title"],
+            "No Viviré - Gipsy Kings"
+        );
+    }
+
+    #[test]
     fn raw_search_track_recognizes_single_spaced_credit_separators() {
         for separator in [" — ", " – ", " - "] {
             let info = serde_json::json!({
@@ -19110,7 +19549,8 @@ mod tests {
             assert_eq!(track.title, "Song Title");
             assert_eq!(track.provenance["artistSource"], "inferred_from_title");
         }
-        let ambiguous = split_source_credit_title("Artist - Song – Subtitle");
+        let ambiguous =
+            crate::metadata_normalization::split_source_credit_title("Artist - Song – Subtitle");
         assert!(ambiguous.is_none());
     }
     #[test]
@@ -19172,6 +19612,34 @@ mod tests {
         .unwrap();
         assert_eq!(direct.len(), 1);
         assert_eq!(direct[0].url, found[0].source_url);
+    }
+
+    #[test]
+    fn an_exact_youtube_url_must_name_a_single_whole_video() {
+        let id = "UT4KozFa7KY";
+        for url in [
+            format!("https://www.youtube.com/watch?v={id}"),
+            format!("https://music.youtube.com/watch?v={id}"),
+            format!("https://www.youtube.com/shorts/{id}"),
+            format!("https://youtu.be/{id}?si=share"),
+        ] {
+            assert_eq!(exact_youtube_url_id(&url).as_deref(), Some(id), "{url}");
+        }
+        for value in [
+            id.into(),
+            "Like Dat (Remix)".into(),
+            format!("https://example.com/watch?v={id}"),
+            format!("https://www.youtube.com:8443/watch?v={id}"),
+            format!("https://user@www.youtube.com/watch?v={id}"),
+            format!("https://www.youtube.com/playlist?v={id}"),
+            format!("https://www.youtube.com/watch?v={id}&list=RD{id}"),
+            format!("https://www.youtube.com/watch?v={id}&t=20"),
+            format!("https://www.youtube.com/watch?v={id}&v=IkS6rgmwwLc"),
+            format!("https://youtu.be/{id}#t=20"),
+            format!("https://www.youtube.com/shorts/{id}/extra"),
+        ] {
+            assert!(exact_youtube_url_id(&value).is_none(), "{value}");
+        }
     }
 
     #[test]

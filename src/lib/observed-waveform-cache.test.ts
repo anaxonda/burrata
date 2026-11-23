@@ -412,6 +412,30 @@ describe("ObservedWaveformCache", () => {
     expect(cache.persistedEntryCount).toBeLessThan(OBSERVED_WAVEFORM_CACHE_MAX_ENTRIES);
   });
 
+  it("bounds database restores even when the active track is the oldest observation", async () => {
+    const bindings = await Promise.all(Array.from({ length: OBSERVED_WAVEFORM_CACHE_MAX_ENTRIES + 1 }, (_, index) =>
+      prepareObservedWaveformBinding(binding({
+        resourceKey: `database-resource-${index}`,
+        identity: { kind: "stream", provider: "youtube", sourceId: `database-video-${index}`, audioVariant: null },
+      })),
+    ));
+    let observedAt = Date.now();
+    const original = new ObservedWaveformCache(new MemoryStorage(), () => observedAt);
+    const records = bindings.map(item => {
+      original.record(item!, partial(item, [{ min: -0.2, max: 0.2 }, null, null, null]));
+      observedAt++;
+      return original.exportPersistedRecord(item!);
+    });
+    const restored = new ObservedWaveformCache(new MemoryStorage(), () => observedAt);
+    for (let index = bindings.length - 1; index >= 0; index--) {
+      expect(restored.restorePersistedRecord(bindings[index]!, records[index])?.bins[0])
+        .toEqual({ min: -0.2, max: 0.2 });
+      expect(restored.persistedEntryCount).toBeLessThanOrEqual(OBSERVED_WAVEFORM_CACHE_MAX_ENTRIES);
+    }
+    expect(restored.restore(bindings[0]!)).not.toBeNull();
+    expect(restored.restore(bindings[1]!)).toBeNull();
+  });
+
   it("bounds memory-only sessions by estimated bytes as well as entry count", async () => {
     const cache = new ObservedWaveformCache(null);
     const bins = Array.from({ length: 4096 }, () => ({ min: -0.1, max: 0.1 }));

@@ -401,12 +401,8 @@ impl ManagedProviderSession {
                 *pending = None;
             }
         }
-        let packaged_worker = crate::release_resource_root(&self.app)
-            .ok()
-            .map(|path| path.join("native-provider-session"));
         stage_native_worker_snapshot(
             &self.data_dir.join("managed-provider-session/native-worker"),
-            packaged_worker.as_deref(),
             NATIVE_WORKER_FILES,
         )?;
         let data_directory = self
@@ -916,12 +912,8 @@ impl ManagedProviderSession {
         }
         // Content-addressed snapshots are immutable: a running job keeps using the exact
         // worker tree it started with even when a newer app build stages refreshed code.
-        let packaged_worker = crate::release_resource_root(&self.app)
-            .ok()
-            .map(|path| path.join("native-provider-session"));
         let worker_root = stage_native_worker_snapshot(
             &self.data_dir.join("managed-provider-session/native-worker"),
-            packaged_worker.as_deref(),
             NATIVE_WORKER_FILES,
         )?;
         let worker_script = worker_root.join(match provider {
@@ -3134,6 +3126,17 @@ fn native_session_ready(mode: &str) -> bool {
     mode == NATIVE_MODE_READY
 }
 
+fn native_provider_operations_ready(
+    mode: &str,
+    session: &PersistedSession,
+    provider: &str,
+) -> bool {
+    matches!(provider, "spotify" | "youtube")
+        && native_session_ready(mode)
+        && session.accounts.contains_key(provider)
+        && native_youtube_reconnect_gate(provider, session.youtube_reconnect_required).is_ok()
+}
+
 fn native_transport_requested(environment_override: Option<&str>, persisted_opt_in: bool) -> bool {
     match environment_override {
         Some("1") => true,
@@ -3250,15 +3253,13 @@ fn native_operation_allowed(provider: &str, operation: &str) -> bool {
     }
 }
 
-fn stage_native_worker_snapshot(
-    root: &Path,
-    packaged_root: Option<&Path>,
-    embedded: &[(&str, &str)],
-) -> Result<PathBuf, String> {
+fn stage_native_worker_snapshot(root: &Path, embedded: &[(&str, &str)]) -> Result<PathBuf, String> {
     secure_create_dir(root)?;
     let mut assets = Vec::with_capacity(embedded.len());
     let mut digest = Sha256::new();
-    for (relative, fallback) in embedded {
+    // Use the worker assets compiled with this native protocol. Copies beside
+    // a development executable or in a bundle may belong to an older build.
+    for (relative, source) in embedded {
         let path = Path::new(relative);
         if path.is_absolute()
             || path
@@ -3267,14 +3268,10 @@ fn stage_native_worker_snapshot(
         {
             return Err("Provider worker asset path is invalid".into());
         }
-        let bytes = packaged_root
-            .map(|base| base.join(path))
-            .filter(|candidate| candidate.is_file())
-            .and_then(|candidate| fs::read(candidate).ok())
-            .unwrap_or_else(|| fallback.as_bytes().to_vec());
+        let bytes = source.as_bytes();
         digest.update(relative.as_bytes());
         digest.update((bytes.len() as u64).to_be_bytes());
-        digest.update(&bytes);
+        digest.update(bytes);
         assets.push((path.to_path_buf(), bytes));
     }
     let digest = digest.finalize();
@@ -3285,8 +3282,7 @@ fn stage_native_worker_snapshot(
     let target = root.join(format!("sha256-{version}"));
     let matches_snapshot = |directory: &Path| -> bool {
         assets.iter().all(|(relative, bytes)| {
-            fs::read(directory.join(relative))
-                .is_ok_and(|existing| existing.as_slice() == bytes.as_slice())
+            fs::read(directory.join(relative)).is_ok_and(|existing| existing.as_slice() == *bytes)
         })
     };
     if target.is_dir() {
@@ -3952,6 +3948,10 @@ impl ManagedProviderSession {
 
 #[async_trait::async_trait]
 impl ProviderTransport for ManagedProviderSession {
+    fn provider_session_revision(&self) -> Option<u64> {
+        Some(self.native_generation.load(Ordering::SeqCst))
+    }
+
     fn native_write_sync_enabled(&self) -> bool {
         self.native_transport_enabled()
     }
@@ -3991,6 +3991,18 @@ impl ProviderTransport for ManagedProviderSession {
             return self.bridge.provider_operations_supported();
         }
         self.bridge.provider_operations_supported()
+    }
+
+    fn provider_operations_supported_for(&self, provider: &str) -> bool {
+        if !native_runtime_open(&self.native_shutdown) {
+            return false;
+        }
+        if self.native_transport_enabled() {
+            return self.state.lock().ok().is_some_and(|state| {
+                native_provider_operations_ready(&state.mode, &state.persisted, provider)
+            });
+        }
+        matches!(provider, "spotify" | "youtube") && self.provider_operations_supported()
     }
 
     async fn provider_operation(
@@ -4309,28 +4321,55 @@ fn spotify_credential_fingerprint(key: &[u8; 32], credential: &[u8]) -> [u8; 32]
     outer.finalize().into()
 }
 
-fn load_or_create_session(data_dir: &Path) -> PersistedSession {
-    let path = data_dir.join("managed-provider-session/session.json");
-    if let Ok(bytes) = fs::read(&path) {
-        if let Ok(session) = serde_json::from_slice::<PersistedSession>(&bytes) {
-            if (16..=128).contains(&session.session_id.len())
-                && session
-                    .session_id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            {
-                return session;
-            }
-        }
+pub(crate) fn reset_profile_credentials(old_profile: &Path) -> Option<String> {
+    let root = old_profile.join("managed-provider-session");
+    let session = root.join("session.json");
+    let metadata = match fs::symlink_metadata(&session) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into()),
+    };
+    if !metadata.is_file() || metadata.len() > 64 * 1024 {
+        return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into());
     }
-    PersistedSession {
+    let Some(session) = read_persisted_session(old_profile) else {
+        return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into());
+    };
+    let failed = ["spotify", "youtube"]
+        .into_iter()
+        .filter(|provider| {
+            let name = format!("{provider}:{}", session.session_id);
+            !matches!(
+                keyring::Entry::new(NATIVE_KEYRING_SERVICE, &name)
+                    .and_then(|entry| entry.delete_credential()),
+                Ok(()) | Err(keyring::Error::NoEntry)
+            )
+        })
+        .count();
+    (failed > 0).then(|| "The system keyring could not remove an old managed provider credential. The new profile cannot use it. Unlock the keyring and remove Burrata's provider-session entries if needed.".into())
+}
+
+fn read_persisted_session(data_dir: &Path) -> Option<PersistedSession> {
+    let path = data_dir.join("managed-provider-session/session.json");
+    let bytes = fs::read(path).ok()?;
+    let session = serde_json::from_slice::<PersistedSession>(&bytes).ok()?;
+    ((16..=128).contains(&session.session_id.len())
+        && session
+            .session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
+    .then_some(session)
+}
+
+fn load_or_create_session(data_dir: &Path) -> PersistedSession {
+    read_persisted_session(data_dir).unwrap_or_else(|| PersistedSession {
         session_id: uuid::Uuid::new_v4().simple().to_string(),
         accounts: BTreeMap::new(),
         background_opt_in: false,
         native_transport_opt_in: false,
         native_stopped: false,
         youtube_reconnect_required: false,
-    }
+    })
 }
 
 fn persist_session(data_dir: &Path, session: &PersistedSession) -> Result<(), String> {
@@ -5100,23 +5139,24 @@ mod tests {
     }
 
     #[test]
-    fn native_worker_refresh_uses_immutable_content_addressed_snapshots() {
+    fn native_worker_refresh_uses_embedded_assets_and_preserves_prior_snapshots() {
         let temp = tempfile::tempdir().unwrap();
         let worker_root = temp.path().join("native-worker");
         let v1 = [("scripts/provider.mjs", "fixture-worker-v1")];
-        let first = stage_native_worker_snapshot(&worker_root, None, &v1).unwrap();
-        let repeated = stage_native_worker_snapshot(&worker_root, None, &v1).unwrap();
+        let first = stage_native_worker_snapshot(&worker_root, &v1).unwrap();
+        let repeated = stage_native_worker_snapshot(&worker_root, &v1).unwrap();
         assert_eq!(first, repeated);
         assert_eq!(
             fs::read_to_string(first.join("scripts/provider.mjs")).unwrap(),
             "fixture-worker-v1"
         );
 
-        let packaged = temp.path().join("packaged");
+        let packaged = temp.path().join("resources/native-provider-session");
         secure_create_dir(&packaged).unwrap();
         secure_create_dir(&packaged.join("scripts")).unwrap();
-        fs::write(packaged.join("scripts/provider.mjs"), "fixture-worker-v2").unwrap();
-        let second = stage_native_worker_snapshot(&worker_root, Some(&packaged), &v1).unwrap();
+        fs::write(packaged.join("scripts/provider.mjs"), "fixture-worker-v1").unwrap();
+        let v2 = [("scripts/provider.mjs", "fixture-worker-v2")];
+        let second = stage_native_worker_snapshot(&worker_root, &v2).unwrap();
         assert_ne!(first, second);
         assert_eq!(
             fs::read_to_string(first.join("scripts/provider.mjs")).unwrap(),
@@ -5126,6 +5166,72 @@ mod tests {
             fs::read_to_string(second.join("scripts/provider.mjs")).unwrap(),
             "fixture-worker-v2"
         );
+        assert_eq!(
+            fs::read_to_string(packaged.join("scripts/provider.mjs")).unwrap(),
+            "fixture-worker-v1"
+        );
+    }
+
+    #[test]
+    fn native_provider_readiness_checks_the_requested_account_and_reconnect_state() {
+        let mut session = PersistedSession {
+            session_id: "fixture-session".into(),
+            accounts: BTreeMap::new(),
+            background_opt_in: true,
+            native_transport_opt_in: true,
+            native_stopped: false,
+            youtube_reconnect_required: false,
+        };
+        let account = |id: &str| ConfirmedAccount {
+            account_id: id.to_owned(),
+            revision: 1,
+        };
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+
+        session
+            .accounts
+            .insert("spotify".into(), account("spotify-fixture"));
+        assert!(native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "spotify"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+
+        session.accounts.remove("spotify");
+        session
+            .accounts
+            .insert("youtube".into(), account("youtube-fixture"));
+        assert!(native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "spotify"
+        ));
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_CONFIRMED,
+            &session,
+            "youtube"
+        ));
+
+        session.youtube_reconnect_required = true;
+        assert!(!native_provider_operations_ready(
+            NATIVE_MODE_READY,
+            &session,
+            "youtube"
+        ));
     }
 
     #[test]

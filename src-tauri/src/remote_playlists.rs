@@ -2029,8 +2029,8 @@ impl RemotePlaylistService {
             *current = Some(notifier);
         }
     }
-    pub fn browser_connected(&self) -> bool {
-        self.bridge.provider_operations_supported()
+    pub fn provider_operations_ready(&self, provider: &str) -> bool {
+        self.bridge.provider_operations_supported_for(provider)
     }
     pub fn write_sync_enabled(&self, provider: &str) -> Result<bool> {
         validate_provider(provider)?;
@@ -2075,7 +2075,7 @@ impl RemotePlaylistService {
         };
         if let Some(cached) = cached_account {
             if now.signed_duration_since(cached.checked_at).num_seconds() < ACCOUNT_FRESH_SECS
-                && self.bridge.provider_operations_supported()
+                && self.provider_operations_ready(provider)
             {
                 if provider == "spotify" {
                     self.schedule_existing_spotify_duration_backfill(cached.id.clone());
@@ -2092,7 +2092,7 @@ impl RemotePlaylistService {
             }
         }
         let checked_at = now.to_rfc3339();
-        if !self.bridge.provider_operations_supported() {
+        if !self.provider_operations_ready(provider) {
             return Ok(RemoteProviderStatus {
                 provider: provider.into(),
                 connected: false,
@@ -2406,7 +2406,7 @@ impl RemotePlaylistService {
             return Err("Provider returned a playlist URL for a different ID".into());
         }
         let owner_id = bounded_optional_text(&metadata_value, "ownerId", 256);
-        let owner_name = bounded_optional_text(&metadata_value, "ownerName", 512);
+        let owner_name = playlist_owner_name(&metadata_value, provider);
         let owner_url = normalize_owner_url(
             provider,
             owner_id.as_deref(),
@@ -2501,18 +2501,7 @@ impl RemotePlaylistService {
         }
         validate_numeric_cursor(cursor, 100_000)?;
         let account = self.require_account("spotify").await?;
-        let artist_page = self
-            .bridge
-            .provider_operation("spotify", "getArtist", json!({"artistId":artist_id}))
-            .await?;
-        self.ensure_response_account("spotify", &artist_page, &account.id)?;
-        let artist_row = artist_page
-            .get("artist")
-            .ok_or("Spotify returned invalid artist details")?;
-        let artist = parse_spotify_artist(artist_row)?;
-        if artist.id != artist_id {
-            return Err("Spotify returned a different artist".into());
-        }
+        let artist = self.spotify_artist_identity(artist_id, &account.id).await?;
         let mut args = json!({"artistId":artist_id,"limit":REMOTE_BROWSE_PAGE_SIZE});
         if let Some(cursor) = cursor {
             args["cursor"] = json!(cursor);
@@ -2545,6 +2534,34 @@ impl RemotePlaylistService {
                 .map(|total| total as usize),
             top_tracks_unavailable: "Spotify's documented Web API no longer provides artist top tracks. Browse the artist's releases instead.".into(),
         })
+    }
+
+    async fn spotify_artist_identity(
+        &self,
+        artist_id: &str,
+        account_id: &str,
+    ) -> Result<RemoteSpotifyArtist> {
+        let page = self
+            .bridge
+            .provider_operation("spotify", "getArtist", json!({"artistId":artist_id}))
+            .await?;
+        self.ensure_response_account("spotify", &page, account_id)?;
+        let artist = parse_spotify_artist(&page["artist"])?;
+        if artist.id != artist_id {
+            return Err("Spotify returned a different artist".into());
+        }
+        Ok(artist)
+    }
+
+    pub async fn spotify_artist_artwork(&self, artist_id: &str) -> Result<Option<String>> {
+        if !valid_spotify_id(artist_id) {
+            return Err("Spotify artist ID is invalid".into());
+        }
+        let account = self.require_account("spotify").await?;
+        Ok(self
+            .spotify_artist_identity(artist_id, &account.id)
+            .await?
+            .artwork_url)
     }
     /// Read one bounded provider-ordered artist track page without persisting it.
     /// Inspect one authenticated artist-list response; return fixed counts/enums only.
@@ -3414,6 +3431,9 @@ impl RemotePlaylistService {
             .get("items")
             .and_then(Value::as_array)
             .ok_or("Provider returned an invalid playlist page")?;
+        if let Some(owner) = owner_id.filter(|_| provider == "youtube") {
+            verify_youtube_channel_playlist_scope(&value, owner, rows)?;
+        }
         let bindings = self.load_state()?.bindings;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
@@ -5424,7 +5444,7 @@ impl RemotePlaylistService {
         let title = required_text(&meta, "title", 256)?.to_owned();
         let url = validate_remote_url(required_text(&meta, "url", 2048)?, provider)?;
         let owner_id = bounded_optional_text(&meta, "ownerId", 256);
-        let owner_name = bounded_optional_text(&meta, "ownerName", 512);
+        let owner_name = playlist_owner_name(&meta, provider);
         let owner_url = normalize_owner_url(
             provider,
             owner_id.as_deref(),
@@ -5933,6 +5953,36 @@ fn validate_provider(provider: &str) -> Result<()> {
     } else {
         Err("Unsupported remote playlist provider".into())
     }
+}
+
+fn verify_youtube_channel_playlist_scope(value: &Value, owner: &str, rows: &[Value]) -> Result<()> {
+    let invalid = "YouTube did not confirm the requested channel’s public playlists.";
+    let scope = &value["channelScope"];
+    let channel_id = scope["channelId"]
+        .as_str()
+        .filter(|id| id.len() == 24 && id.starts_with("UC") && valid_remote_id(id))
+        .ok_or(invalid)?;
+    let owner_url = url::Url::parse(owner).ok();
+    let requested_id = owner.strip_prefix("UC").map(|_| owner).or_else(|| {
+        let mut segments = owner_url.as_ref()?.path_segments()?;
+        if segments.next()? == "channel" {
+            segments.next()
+        } else {
+            None
+        }
+    });
+    if scope["ownerId"].as_str() != Some(owner)
+        || requested_id.is_some_and(|expected| expected != channel_id)
+        || rows.iter().any(|row| {
+            row["ownerId"].as_str() != Some(channel_id)
+                || row["canEdit"].as_bool() != Some(false)
+                || row["isPublic"].as_bool() == Some(false)
+                || matches!(row["visibility"].as_str(), Some("private" | "unlisted"))
+        })
+    {
+        return Err(invalid.into());
+    }
+    Ok(())
 }
 fn provider_supports_write_sync(provider: &str) -> bool {
     matches!(provider, "spotify" | "youtube")
@@ -6627,6 +6677,21 @@ fn bounded_optional_text(value: &Value, key: &str, max: usize) -> Option<String>
         .filter(|text| !text.is_empty() && text.len() <= max)
         .map(str::to_owned)
 }
+fn playlist_owner_name(value: &Value, provider: &str) -> Option<String> {
+    bounded_optional_text(value, "ownerName", 512).filter(|name| {
+        if provider != "youtube" {
+            return true;
+        }
+        // Older YouTube adapters could send the playlist description as the
+        // owner name. Reject links here too while those companions are in use.
+        let lower = name.to_ascii_lowercase();
+        !lower.contains("</a>")
+            && !lower.contains("&lt;/a&gt;")
+            && !lower.contains("a href=")
+            && !lower.contains("a href =")
+    })
+}
+
 fn normalize_visibility(value: Option<&str>) -> Option<String> {
     match value?.trim().to_ascii_lowercase().as_str() {
         "public" => Some("public".into()),
@@ -6740,7 +6805,7 @@ fn parse_playlist_item(row: &Value, provider: &str) -> Result<RemotePlaylistItem
     }
     let url = validate_remote_url(required_text(row, "url", 2048)?, provider)?;
     let owner_id = bounded_optional_text(row, "ownerId", 256);
-    let owner_name = bounded_optional_text(row, "ownerName", 512);
+    let owner_name = playlist_owner_name(row, provider);
     let owner_url = normalize_owner_url(
         provider,
         owner_id.as_deref(),
@@ -7463,6 +7528,39 @@ fn reorder_plan(current: &[String], desired: &[String]) -> Result<Vec<RemoteMove
 mod tests {
     use super::*;
 
+    #[test]
+    fn youtube_public_channel_playlist_pages_require_proof_and_noneditable_rows() {
+        let channel = "UC8TZwtZ17WKFJSmwTZQpBTA";
+        let owner = format!("https://www.youtube.com/channel/{channel}");
+        let scope = json!({"channelScope":{"ownerId":owner,"channelId":channel}});
+        let public_row = json!({"ownerId":channel,"canEdit":false});
+        assert!(verify_youtube_channel_playlist_scope(&scope, &owner, &[]).is_ok());
+        assert!(verify_youtube_channel_playlist_scope(&scope, &owner, &[public_row]).is_ok());
+        assert!(verify_youtube_channel_playlist_scope(&json!({}), &owner, &[]).is_err());
+        assert!(verify_youtube_channel_playlist_scope(
+            &scope,
+            &owner,
+            &[json!({"ownerId":channel,"canEdit":true})]
+        )
+        .is_err());
+        assert!(verify_youtube_channel_playlist_scope(
+            &scope,
+            &owner,
+            &[json!({"ownerId":channel,"canEdit":false,"visibility":"private"})]
+        )
+        .is_err());
+        assert!(verify_youtube_channel_playlist_scope(
+            &scope,
+            &owner,
+            &[json!({"ownerId":"UCaaaaaaaaaaaaaaaaaaaaaa","canEdit":false})]
+        )
+        .is_err());
+        let wrong_channel = json!({
+            "channelScope":{"ownerId":owner,"channelId":"UCaaaaaaaaaaaaaaaaaaaaaa"}
+        });
+        assert!(verify_youtube_channel_playlist_scope(&wrong_channel, &owner, &[]).is_err());
+    }
+
     fn youtube_inspection_shape_fixture() -> Value {
         let renderers = [
             "playlistVideoListRenderer",
@@ -7539,6 +7637,18 @@ mod tests {
         })
         .collect();
         json!({"version":1,"continuation":false,"counts":counts,"appendTargets":{"absent":0,"playlistList":1,"requestedPlaylist":0,"other":0,"malformed":0},"recognizedSections":1,"recognizedCursor":true,"ambiguous":false,"truncated":false,"membership":{"allResponse":{"ordinaryRows":1,"recommendedRows":2,"unavailableRows":0,"rowsWithOccurrenceId":1},"recognizedSections":{"ordinaryRows":1,"recommendedRows":0,"unavailableRows":0,"rowsWithOccurrenceId":1}},"cursorLocations":{"namedListDirect":1,"namedListItemSection":0,"sectionListDirect":1,"sectionListOtherItemSection":0,"other":0},"retainedRuleCandidatePresent":true,"retainedRuleEqualsSelected":false})
+    }
+
+    #[test]
+    fn older_youtube_adapters_cannot_display_a_description_as_the_owner() {
+        let description =
+            json!({"ownerName":"Follow <a href=\"https://example.invalid\">Instagram</a>"});
+        assert_eq!(playlist_owner_name(&description, "youtube"), None);
+        let plain_owner = json!({"ownerName":"Café & Noël"});
+        assert_eq!(
+            playlist_owner_name(&plain_owner, "youtube").as_deref(),
+            Some("Café & Noël")
+        );
     }
 
     #[test]
@@ -12844,3 +12954,6 @@ mod alias_hydration_tests {
 #[path = "catalog_duration_proof.rs"]
 pub(crate) mod catalog_duration_proof;
 pub(crate) use catalog_duration_proof::PreparedCatalogDuration;
+
+#[path = "spotify_release_evidence.rs"]
+pub(crate) mod spotify_release_evidence;

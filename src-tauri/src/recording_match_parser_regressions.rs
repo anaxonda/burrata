@@ -1417,3 +1417,475 @@ fn dash_in_title_does_not_turn_a_guest_name_into_a_remix() {
         crate::recording_identity::AnnotationKind::FeaturedCredit
     );
 }
+
+#[test]
+fn chart_clock_version_preserves_the_title_edition_without_implying_original_mix() {
+    let title = "Scream & Shout (Extended Mix)";
+    let (mut request, mut candidate) = pair(title, title);
+    request.provider = "traxsource".into();
+    request.artist = "Jewel Kid".into();
+    request.version = Some("(6:41)".into());
+    request.duration_seconds = Some(401.0);
+    candidate.duration_seconds = Some(401.0);
+    let metadata = candidate.source_metadata.as_mut().unwrap();
+    metadata["artistNames"] = json!(["Jewel Kid"]);
+    metadata["duration"] = json!(401);
+    assert_same_recording(&request, &candidate);
+
+    request.version = Some("Original Mix".into());
+    assert_ne!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept
+    );
+}
+
+fn bind_chart_capture(track: &mut Track, provider: &str, id: &str, url: &str) {
+    track.provider = provider.into();
+    track.provider_id = id.into();
+    track.id = format!("{provider}:{id}");
+    track.source_url = url.into();
+    track.provenance["browserImport"] = json!(true);
+    track.provenance["captureProvider"] = json!(provider);
+    track.provenance["rawCaptures"] = json!([{
+        "providerId": id, "sourceUrl": url, "title": track.title, "version": track.version
+    }]);
+}
+
+#[test]
+fn captured_traxsource_repeated_title_keeps_specific_mix_over_the_release_heading() {
+    let title = "(I'm Sick) I've Been Infected Wit House Musick";
+    let mix = "Terry Hunter Sick Wit It Mix";
+    let mut request = traxsource_mix(
+        &format!("{title} (Remix)"),
+        &format!("I'm Sick I've Been Infected Wit House Musick [{mix}] (7:44)"),
+        464.0,
+        &["Mike Dunn", "Terry Hunter"],
+    );
+    bind_chart_capture(
+        &mut request,
+        "traxsource",
+        "15057928",
+        "https://www.traxsource.com/track/15057928/im-sick",
+    );
+    let corrected = crate::matching::chart_playback_identity(&request);
+    assert_eq!(corrected.title, title);
+    assert_eq!(corrected.version.as_deref(), Some(mix));
+
+    let (_, mut candidate) = pair(title, &format!("{title} [{mix}]"));
+    candidate.duration_seconds = Some(464.0);
+    let meta = candidate.source_metadata.as_mut().unwrap();
+    meta["artistNames"] = json!(["Mike Dunn", "Terry Hunter"]);
+    meta["duration"] = json!(464);
+    assert_same_recording(&request, &candidate);
+
+    let wrong = format!("{title} [Terry Hunter Sick Wit It Instrumental]");
+    candidate.title = wrong.clone();
+    candidate.source_metadata.as_mut().unwrap()["catalogTitle"] = json!(wrong);
+    assert_ne!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept
+    );
+
+    request.provenance["manualFields"]["version"] = json!(true);
+    assert!(matches!(
+        crate::matching::chart_playback_identity(&request),
+        std::borrow::Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn captured_traxsource_clock_rollover_cannot_override_the_named_remix() {
+    let title = "Plastico (Bugz In The Attic Remix)";
+    let mut request = traxsource_mix(title, "(6:90)", 450.0, &["Willie Colon", "Ruben Blades"]);
+    bind_chart_capture(
+        &mut request,
+        "traxsource",
+        "1494176",
+        "https://www.traxsource.com/track/1494176/plastico-bugz-in-the-attic-remix",
+    );
+    let corrected = crate::matching::chart_playback_identity(&request);
+    assert_eq!(corrected.version, None);
+    assert_eq!(corrected.duration_seconds, None);
+    assert_eq!(corrected.title, title);
+    assert_eq!(request.version.as_deref(), Some("(6:90)"));
+    assert_eq!(request.duration_seconds, Some(450.0));
+    let mut upload = Candidate {
+        title: format!("Willie Colon, Ruben Blades - {title}"),
+        duration_seconds: Some(369.0),
+        ..Candidate::default()
+    };
+    crate::matching::score_candidate(&request, &mut upload);
+    assert!(upload
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("duration is unavailable")));
+    assert!(upload
+        .reasons
+        .iter()
+        .all(|reason| !reason.contains("version conflicts")));
+    assert_ne!(upload.confidence, "high");
+    request.duration_seconds = Some(400.0);
+    assert!(matches!(
+        crate::matching::chart_playback_identity(&request),
+        std::borrow::Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn captured_traxsource_vocal_remix_keeps_its_edition_and_literal_subtitle() {
+    use crate::recording_match::Comparison;
+
+    let title = "Victory (Are You Ready For The Drums?)";
+    let mix = "Original Man Remix Vocal";
+    let artists = ["Cherita", "K'Ture", "DJ Oji", "DJ Oji aka Original Man"];
+    let mut request = traxsource_mix(
+        &format!("{title} Remix"),
+        &format!("{mix} (6:48)"),
+        408.,
+        &artists,
+    );
+    request.provenance["artistCredits"] = serde_json::Value::Null;
+    bind_chart_capture(
+        &mut request,
+        "traxsource",
+        "15086879",
+        "https://www.traxsource.com/track/15086879/victory-are-you-ready-for-the-drums-remix-original-man-remix-vocal",
+    );
+
+    let corrected = crate::matching::chart_playback_identity(&request);
+    assert_eq!(corrected.title, title);
+    assert_eq!(corrected.version.as_deref(), Some(mix));
+    assert_eq!(corrected.duration_seconds, Some(408.));
+    for (caption, expected) in [
+        (format!("{title} ({mix})"), true),
+        (format!("{title} - {mix}"), true),
+        (format!("{title} (Original Man Remix Dubstrumental)"), false),
+        (format!("{title} (Another DJ Remix Vocal)"), false),
+        (format!("{title} (Original Man Remix)"), false),
+        (title.into(), false),
+        (format!("Victory ({mix})"), false),
+    ] {
+        let mut candidate = youtube_mix("AaBbCcDdEe1", &caption, 408., MatchStage::Resolved);
+        candidate.uploader = Some("POJI Records".into());
+        candidate.source_metadata.as_mut().unwrap()["artists"] = json!(artists);
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            let result = assess(&request, &candidate, level, MatchStage::Resolved);
+            if expected {
+                assert_eq!(result.dimensions.title, Comparison::Agree, "{result:?}");
+                assert_eq!(result.dimensions.version, Comparison::Agree, "{result:?}");
+                if level != MatchLevel::Exact {
+                    assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+                }
+            } else {
+                assert_ne!(result.action, MatchAction::Accept, "{result:?}");
+                if caption.contains("Dubstrumental") {
+                    assert_eq!(
+                        result.dimensions.version,
+                        Comparison::Conflict,
+                        "{result:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    let mut mismatched = request.clone();
+    mismatched.provenance["rawCaptures"][0]["version"] =
+        json!("Original Man Remix Dubstrumental (6:48)");
+    assert!(matches!(
+        crate::matching::chart_playback_identity(&mismatched),
+        std::borrow::Cow::Borrowed(_)
+    ));
+    request.provenance["manualFields"]["title"] = json!(true);
+    assert!(matches!(
+        crate::matching::chart_playback_identity(&request),
+        std::borrow::Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn captured_traxsource_collaboration_edition_matches_literal_caption() {
+    use crate::recording_match::Comparison;
+
+    let title = "Right Here Right Now";
+    let caption = "Right Here Right Now (Jill Scott x Terry Hunter)";
+    let mut request = traxsource_mix(
+        title,
+        "Jill Scott x Terry Hunter (6:14)",
+        374.0,
+        &["Jill Scott", "Terry Hunter"],
+    );
+    // The live capture has separate artist text but no structured artist rows.
+    request.provenance["artistCredits"] = serde_json::Value::Null;
+    bind_chart_capture(
+        &mut request,
+        "traxsource",
+        "15081865",
+        "https://www.traxsource.com/track/15081865/right-here-right-now-jill-scott-x-terry-hunter",
+    );
+    let label = "Blues Babe Records / Human Re Sources / The Orchard";
+    request.label = Some(label.into());
+    request.provenance["rawCaptures"][0]["label"] = json!(label);
+    let mut candidate = youtube_mix("DQCXk4rQmCQ", caption, 374.0, MatchStage::Resolved);
+    candidate.uploader = Some("Jill Scott".into());
+    candidate.source_metadata.as_mut().unwrap()["artists"] = json!([
+        "Jill Scott",
+        "Terry Hunter",
+        "Om'Mas Keith",
+        "Yountie Strickland",
+        "Carvin Haggins",
+        "Malek Ben-Yisrael",
+        "Lamar Andrews"
+    ]);
+
+    for level in [
+        MatchLevel::Exact,
+        MatchLevel::Balanced,
+        MatchLevel::Flexible,
+    ] {
+        let resolved = assess(&request, &candidate, level, MatchStage::Resolved);
+        assert_eq!(resolved.dimensions.title, Comparison::Agree);
+        assert_eq!(resolved.dimensions.version, Comparison::Agree);
+        if level == MatchLevel::Flexible {
+            assert_eq!(resolved.dimensions.artists, Comparison::Agree);
+            assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
+        }
+    }
+
+    let artists = candidate.source_metadata.as_ref().unwrap()["artists"].clone();
+    let credit_line = artists
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|artist| artist.as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let info = json!({
+        "id": "DQCXk4rQmCQ",
+        "title": caption,
+        "track": caption,
+        "artists": artists,
+        "channel": "Jill Scott",
+        "channel_id": "UCYAoAgoEY3HPmybt1JxsT9Q",
+        "channel_is_verified": true,
+        "duration": 374.0,
+        "description": format!(
+            "Provided to YouTube by The Orchard Enterprises\n\n{caption} · {credit_line}\n\nProducer: Om'Mas Keith\n\nAuto-generated by YouTube."
+        ),
+    });
+    let (distributor, source_credits) =
+        crate::youtube_recording_metadata::generated_recording_credits(&candidate, &info).unwrap();
+    let metadata = candidate.source_metadata.as_mut().unwrap();
+    metadata["provider"] = json!("youtube");
+    metadata["channel"] = json!("Jill Scott");
+    metadata["channelId"] = json!("UCYAoAgoEY3HPmybt1JxsT9Q");
+    metadata["channelIsVerified"] = json!(true);
+    metadata["youtubeGeneratedArtistCredits"] = json!(source_credits);
+    metadata["youtubeGeneratedDistributor"] = json!(distributor);
+    let balanced = |track: &Track, source: &Candidate| {
+        assess(track, source, MatchLevel::Balanced, MatchStage::Resolved)
+    };
+    let resolved = balanced(&request, &candidate);
+    assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
+    assert_eq!(resolved.relationship, MatchRelationship::Probable);
+    assert_eq!(resolved.evidence.unwrap().extra_performers.len(), 5);
+    assert_eq!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Exact,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Inspect
+    );
+    for (field, value) in [
+        ("channel", json!("Different Channel")),
+        ("channelIsVerified", json!(false)),
+        ("resolvedProviderId", json!("unrelatedId")),
+        ("duration", json!(375.0)),
+        ("artistNames", json!(["Different Artist"])),
+        ("version", json!("Other Remix")),
+        ("youtubeGeneratedArtistCredits", json!(null)),
+        (
+            "youtubeGeneratedDistributor",
+            json!("Different Distributor"),
+        ),
+        ("sourceMetadataOrigin", json!("ytDlpCandidateMetadata")),
+    ] {
+        let mut changed = candidate.clone();
+        changed.source_metadata.as_mut().unwrap()[field] = value;
+        assert_ne!(
+            balanced(&request, &changed).action,
+            MatchAction::Accept,
+            "{field}"
+        );
+    }
+    let mut reordered = candidate.clone();
+    let metadata = reordered.source_metadata.as_mut().unwrap();
+    metadata["artists"].as_array_mut().unwrap().swap(1, 2);
+    metadata["youtubeGeneratedArtistCredits"] = metadata["artists"].clone();
+    assert_ne!(balanced(&request, &reordered).action, MatchAction::Accept);
+    let mut label_conflict = request.clone();
+    label_conflict.provenance["rawCaptures"][0]["label"] = json!("Different label");
+    assert_ne!(
+        balanced(&label_conflict, &candidate).action,
+        MatchAction::Accept
+    );
+
+    for (wrong_title, duration) in [
+        (title, 264.0),
+        (title, 374.0),
+        ("Right Here Right Now (E.Morelli Remix)", 374.0),
+        (
+            "Right Here Right Now (E.Morelli Remix) (Jill Scott x Terry Hunter)",
+            374.0,
+        ),
+    ] {
+        let mut unrelated = candidate.clone();
+        unrelated.title = wrong_title.into();
+        unrelated.duration_seconds = Some(duration);
+        let meta = unrelated.source_metadata.as_mut().unwrap();
+        meta["track"] = json!(wrong_title);
+        meta["catalogTitle"] = json!(wrong_title);
+        meta["duration"] = json!(duration);
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            assert_ne!(
+                assess(&request, &unrelated, level, MatchStage::Resolved).action,
+                MatchAction::Accept
+            );
+        }
+    }
+
+    request.provenance["manualFields"]["version"] = json!(true);
+    let edited = assess(
+        &request,
+        &candidate,
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+    );
+    assert_ne!(edited.dimensions.version, Comparison::Agree);
+    assert_ne!(edited.action, MatchAction::Accept);
+}
+
+#[test]
+fn captured_beatport_subtitle_does_not_override_a_real_remix_marker() {
+    let (mut request, _) = pair("Lady (Hear Me Tonight) - Remix", "");
+    request.version = Some("Hear Me Tonight".into());
+    bind_chart_capture(
+        &mut request,
+        "beatport",
+        "21628116",
+        "https://www.beatport.com/track/lady/21628116",
+    );
+    let corrected = crate::matching::chart_playback_identity(&request);
+    assert_eq!(corrected.title, request.title);
+    assert_eq!(corrected.version, None);
+    request.provenance["rawCaptures"][0]["providerId"] = json!("different");
+    assert!(matches!(
+        crate::matching::chart_playback_identity(&request),
+        std::borrow::Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn captured_mulemba_xangola_requires_verified_presenter_and_full_lineup() {
+    let title = "Mulemba Xangola";
+    let caption = "Africanism presents Bob Sinclar, Jesús Fernandez & Bonga ft. Lura - Mulemba Xangola (Visualizer)";
+    let request = Track {
+        provider: "spotify".into(),
+        provider_id: "6NWXqaeYRSqo788RsqKeXj".into(),
+        artist: "Africanism, Bob Sinclar, Jesús Fernández, Bonga, Lura".into(),
+        title: title.into(),
+        duration_seconds: Some(226.571),
+        provenance: json!({
+            "identity": "unverified browser capture",
+            "browserImport": true,
+            "captureProvider": "spotify",
+            "sourceKind": "playlist"
+        }),
+        ..Track::default()
+    };
+    let id = "o54MNSUAbq0";
+    let search = youtube_mix(id, caption, 227.0, MatchStage::Search);
+    let resolved = |caption: &str, duration: f64| {
+        let mut candidate = youtube_mix(id, caption, duration, MatchStage::Resolved);
+        candidate.uploader = Some("Africanism".into());
+        let metadata = candidate.source_metadata.as_mut().unwrap();
+        metadata["provider"] = json!("youtube");
+        metadata["channel"] = json!("Africanism");
+        metadata["channelId"] = json!("UCxGaEJiyyoKfCmQBlM8qp-A");
+        metadata["channelIsVerified"] = json!(true);
+        metadata["artists"] = serde_json::Value::Null;
+        candidate
+    };
+    let candidate = resolved(caption, 227.0);
+    for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+        assert_eq!(
+            assess(&request, &search, level, MatchStage::Search).action,
+            MatchAction::Inspect
+        );
+        let result = assess(&request, &candidate, level, MatchStage::Resolved);
+        assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+        assert_eq!(
+            result.dimensions.artists,
+            crate::recording_match::Comparison::Agree
+        );
+        for (field, value) in [
+            ("channel", json!("Other Channel")),
+            ("channelId", json!("invalid")),
+            ("channelIsVerified", json!(false)),
+            ("resolvedProviderId", json!("differentID")),
+            ("identityMetadataUncertain", json!(true)),
+            ("artists", json!(["Other Singer"])),
+        ] {
+            let mut wrong = candidate.clone();
+            wrong.source_metadata.as_mut().unwrap()[field] = value;
+            assert_ne!(
+                assess(&request, &wrong, level, MatchStage::Resolved).action,
+                MatchAction::Accept,
+                "{field}"
+            );
+        }
+        for (changed, duration) in [
+            (caption.replace("ft. Lura", "ft. Other Singer"), 227.0),
+            (caption.replace(" & Bonga", ""), 227.0),
+            (caption.replace("(Visualizer)", "(Live)"), 227.0),
+            (caption.to_owned(), 321.0),
+        ] {
+            let wrong = resolved(&changed, duration);
+            assert_ne!(
+                assess(&request, &wrong, level, MatchStage::Resolved).action,
+                MatchAction::Accept,
+                "{changed} {duration}"
+            );
+        }
+    }
+    assert_ne!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Exact,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept,
+        "the accent-folded caption does not satisfy the Exact credit requirement"
+    );
+}

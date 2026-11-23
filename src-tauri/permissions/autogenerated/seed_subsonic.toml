@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-seed-subsonic"
+description = "Enables the seed_subsonic command without any pre-configured scope."
+commands.allow = ["seed_subsonic"]
+
+[[permission]]
+identifier = "deny-seed-subsonic"
+description = "Denies the seed_subsonic command without any pre-configured scope."
+commands.deny = ["seed_subsonic"]

@@ -71,7 +71,8 @@ export function groupLibraryEntities(items: readonly LibraryEntity[]): LibraryEn
   return [...groups].map(([key, entries]) => ({ key, entries }));
 }
 export interface LibraryBrowserState {
-  tab: 'tracks' | 'artists' | 'albums';
+  tab: 'tracks' | 'artists' | 'albums' | 'works' | 'subsonic';
+  workKey?: string | null;
   entity: LibraryEntity | null;
   familyListingId: string | null;
   section: 'albums' | 'tracks';

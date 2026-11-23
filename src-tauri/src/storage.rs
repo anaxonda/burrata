@@ -1487,6 +1487,7 @@ impl Store {
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         settings.validate_playback_startup_timeout()?;
         settings.validate_playback_preferences()?;
+        crate::playlist_sync::validate_dj_xml_target_root(&settings.dj_xml_target_music_root)?;
         let mut settings = settings.clone();
         normalize_streaming_fallback_policy(&mut settings)?;
         let encoded = encode(&settings)?;
@@ -2349,6 +2350,31 @@ impl Store {
         tx.commit().map_err(err)?;
         Ok(result)
     }
+    /// Register recently browsed tracks for ID-based actions without promoting them
+    /// to the Library or replacing source metadata on an existing listing.
+    pub(crate) fn cache_missing_tracks(&self, tracks: &[Track]) -> Result<()> {
+        if tracks.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.lock_connection()?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        for track in tracks {
+            let cached: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM catalog_listings WHERE id=?1)",
+                    [&track.id],
+                    |row| row.get(0),
+                )
+                .map_err(err)?;
+            if !cached {
+                upsert_track(&tx, track, false)?;
+            }
+        }
+        tx.commit().map_err(err)
+    }
+
     /// Cache album/provider metadata and add all supplied tracks to the Library atomically.
     /// Manual recording metadata remains in `recordings.manual_metadata` and is never replaced.
     pub fn save_library_tracks(&self, tracks: &[Track]) -> Result<Vec<String>> {
@@ -3208,7 +3234,7 @@ impl Store {
             availability,
             provider,
             true,
-            offset == 0,
+            offset == 0 && view != "works",
             true,
         )
         .map(|(rows, total, sort_availability, sort_pending)| {
@@ -3588,6 +3614,17 @@ impl Store {
                 "l.rowid",
                 "NULL",
                 true,
+            ),
+            "works" => (
+                "FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id",
+                vec!["l.in_library=1 AND (
+                    (l.provider IN ('catalog','musicbrainz') AND json_extract(l.metadata,'$.provenance.classicalWork.classical')=1) OR
+                    (l.provider='local' AND json_extract(l.metadata,'$.provenance.embeddedClassical.version')=1)
+                )".to_string()],
+                vec![],
+                "l.rowid",
+                "NULL",
+                false,
             ),
             _ => (
                 "FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id",
@@ -4443,11 +4480,7 @@ impl Store {
     /// Safe to call during startup, even before the first asset is downloaded.
     pub fn ensure_downloads_collection(&self) -> Result<Collection> {
         let conn = self.lock_connection()?;
-        conn.execute(
-            "INSERT INTO collections(id,name) VALUES(?1,'Downloads') ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL",
-            [DOWNLOADS_COLLECTION_ID],
-        )
-        .map_err(err)?;
+        ensure_downloads_collection_row(&conn)?;
         self.active_collection(&conn, DOWNLOADS_COLLECTION_ID)
     }
     pub fn add_to_collection(&self, collection_id: &str, tracks: &[Track]) -> Result<()> {
@@ -4638,18 +4671,8 @@ impl Store {
     pub fn add_asset_to_downloads(&self, asset: &LocalAsset) -> Result<Collection> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
-        ensure_track(&tx, &asset.track)?;
-        promote_track(&tx, &asset.track.id)?;
-        tx.execute(
-            "INSERT INTO collections(id,name) VALUES(?1,'Downloads') ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL",
-            [DOWNLOADS_COLLECTION_ID],
-        )
-        .map_err(err)?;
-        tx.execute(
-            "INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position) SELECT ?1,recording_id,(SELECT COALESCE(MAX(position),0)+1 FROM collection_members WHERE collection_id=?1) FROM catalog_listings WHERE id=?2",
-            params![DOWNLOADS_COLLECTION_ID, asset.track.id],
-        )
-        .map_err(err)?;
+        ensure_downloads_collection_row(&tx)?;
+        add_downloads_track(&tx, &asset.track)?;
         tx.commit().map_err(err)?;
         self.active_collection(&conn, DOWNLOADS_COLLECTION_ID)
     }
@@ -4659,17 +4682,21 @@ impl Store {
         let mut added = 0;
         let mut before_rowid = None;
         loop {
-            let (assets, next_before_rowid) =
+            let (candidates, next_before_rowid) =
                 self.managed_download_candidates_page(before_rowid, 500)?;
-            for asset in assets {
-                if asset.track.provenance["publicationJobId"]
-                    .as_str()
-                    .is_some_and(|job_id| !job_id.is_empty())
-                    && Path::new(&asset.path).is_file()
-                {
-                    self.add_asset_to_downloads(&asset)?;
-                    added += 1;
+            let present = candidates
+                .into_iter()
+                .filter(|(path, _)| Path::new(path).is_file())
+                .collect::<Vec<_>>();
+            if !present.is_empty() {
+                let mut conn = self.lock_connection()?;
+                let tx = conn.transaction().map_err(err)?;
+                ensure_downloads_collection_row(&tx)?;
+                for (_, track) in &present {
+                    add_downloads_track(&tx, track)?;
                 }
+                tx.commit().map_err(err)?;
+                added += present.len();
             }
             let Some(next_before_rowid) = next_before_rowid else {
                 break;
@@ -4679,39 +4706,43 @@ impl Store {
         Ok(added)
     }
 
-    /// Stream asset payloads in stable rowid order, decode the small provenance
-    /// inputs needed to identify possible managed publications, and hydrate only
-    /// those candidates. Asset and manual-metadata decode errors still fail the
-    /// scan; unrelated selected analysis/autotag payloads are no longer touched.
-    /// Persisted analysis blobs are expected to be valid because Store writes
-    /// them through typed serialization; legacy corruption there is not a reason
-    /// to hydrate all unrelated recordings during this maintenance check.
+    /// Read publication candidates in descending asset rowid order. Membership
+    /// needs the asset's own path and the listing identity with manual overrides,
+    /// without selecting a playback file or decoding its display analysis.
     fn managed_download_candidates_page(
         &self,
         before_rowid: Option<i64>,
         limit: usize,
-    ) -> Result<(Vec<LocalAsset>, Option<i64>)> {
+    ) -> Result<(Vec<(String, Track)>, Option<i64>)> {
         let conn = self.lock_connection()?;
         let limit = limit.clamp(1, 500);
         let raw_rows = {
             let sql = if before_rowid.is_some() {
-                "SELECT a.rowid,a.payload FROM local_assets a
+                "SELECT a.rowid,a.id,a.payload FROM local_assets a
                  WHERE a.rowid<?1 ORDER BY a.rowid DESC LIMIT ?2"
             } else {
-                "SELECT a.rowid,a.payload FROM local_assets a
+                "SELECT a.rowid,a.id,a.payload FROM local_assets a
                  ORDER BY a.rowid DESC LIMIT ?1"
             };
             let mut stmt = conn.prepare(sql).map_err(err)?;
             let collected = if let Some(before_rowid) = before_rowid {
                 stmt.query_map(params![before_rowid, limit as i64], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
                 })
                 .map_err(err)?
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(err)?
             } else {
                 stmt.query_map([limit as i64], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
                 })
                 .map_err(err)?
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -4719,13 +4750,13 @@ impl Store {
             };
             collected
         };
-        let Some((last_rowid, _)) = raw_rows.last() else {
+        let Some((last_rowid, _, _)) = raw_rows.last() else {
             return Ok((Vec::new(), None));
         };
         let next_before_rowid = (raw_rows.len() == limit).then_some(*last_rowid);
-        let mut decoded_assets = raw_rows
+        let decoded_assets = raw_rows
             .into_iter()
-            .map(|(rowid, payload)| Ok((rowid, decode::<LocalAsset>(payload)?)))
+            .map(|(_, id, payload)| Ok((id, decode::<LocalAsset>(payload)?)))
             .collect::<Result<Vec<_>>>()?;
         let listing_ids = decoded_assets
             .iter()
@@ -4739,42 +4770,50 @@ impl Store {
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!(
-                "SELECT l.id,r.manual_metadata FROM catalog_listings l
+                "SELECT l.id,r.favorite,r.disposition,r.manual_metadata FROM catalog_listings l
                  JOIN recordings r ON r.id=l.recording_id WHERE l.id IN ({placeholders})"
             );
             let mut stmt = conn.prepare(&sql).map_err(err)?;
             let mapped = stmt
                 .query_map(rusqlite::params_from_iter(listing_ids.iter()), |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    let values: RecordingHydration = (row.get(1)?, row.get(2)?, row.get(3)?);
+                    Ok((row.get::<_, String>(0)?, values))
                 })
                 .map_err(err)?;
             let rows = mapped
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(err)?;
             rows.into_iter()
-                .map(|(listing_id, raw_manual)| {
-                    Ok((listing_id, decode::<serde_json::Value>(raw_manual)?))
+                .map(|(listing_id, values)| {
+                    let manual = decode::<serde_json::Value>(values.2.clone())?;
+                    Ok((listing_id, (values, manual)))
                 })
                 .collect::<Result<std::collections::HashMap<_, _>>>()?
         };
         let mut candidates = Vec::new();
-        for (_, asset) in decoded_assets.drain(..) {
-            let Some(manual_metadata) = manual_by_listing.get(&asset.track.id) else {
+        for (id, asset) in decoded_assets {
+            let Some((values, manual)) = manual_by_listing.get(&asset.track.id) else {
                 // Preserve the legacy missing-recording failure path.
                 hydrate_asset(&conn, asset)?;
                 continue;
             };
-            if !managed_publication_marker_is_effective(&asset.track, manual_metadata) {
+            if !managed_publication_marker_is_effective(&asset.track, manual) {
                 continue;
             }
-            // Keep the original full hydration and final marker check for every
-            // candidate so preferred-asset and manual-field semantics stay intact.
-            let asset = hydrate_asset(&conn, asset)?;
-            if asset.track.provenance["publicationJobId"]
-                .as_str()
-                .is_some_and(|job_id| !job_id.is_empty())
-            {
-                candidates.push(asset);
+            let identity_overridden = ["id", "provider", "providerId"]
+                .iter()
+                .any(|field| manual.get(field).is_some());
+            let (path, track) = if id == asset.id && !identity_overridden {
+                let (track, _) = apply_hydration_metadata(asset.track, values.clone())?;
+                (asset.path, track)
+            } else {
+                // Historical identity overrides can redirect membership or
+                // require a new listing. Retain full hydration for those rows.
+                let asset = hydrate_asset(&conn, asset)?;
+                (asset.path, asset.track)
+            };
+            if managed_publication_marker_is_effective(&track, &serde_json::Value::Null) {
+                candidates.push((path, track));
             }
         }
         Ok((candidates, next_before_rowid))
@@ -7361,6 +7400,30 @@ fn validate_portable_source_targets(
     Ok(())
 }
 
+fn ensure_downloads_collection_row(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO collections(id,name) VALUES(?1,'Downloads')
+         ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL
+         WHERE collections.name<>'Downloads' OR collections.deleted_at IS NOT NULL",
+        [DOWNLOADS_COLLECTION_ID],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+fn add_downloads_track(conn: &Connection, track: &Track) -> Result<()> {
+    ensure_track(conn, track)?;
+    promote_track(conn, &track.id)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position)
+         SELECT ?1,l.recording_id,(SELECT COALESCE(MAX(position),0)+1 FROM collection_members WHERE collection_id=?1)
+         FROM catalog_listings l WHERE l.id=?2 AND NOT EXISTS (
+             SELECT 1 FROM collection_members m WHERE m.collection_id=?1 AND m.recording_id=l.recording_id
+         )",
+        params![DOWNLOADS_COLLECTION_ID, track.id],
+    ).map_err(err)?;
+    Ok(())
+}
 fn ensure_track(conn: &Connection, track: &Track) -> Result<()> {
     if track.id != format!("{}:{}", track.provider, track.provider_id) {
         return Err("Invalid track identity".into());
@@ -7441,6 +7504,7 @@ fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
     )
     .map_err(err)?;
     let mut metadata = serde_json::to_value(track).map_err(err)?;
+    crate::metadata_normalization::repair_legacy_youtube_caption(&mut metadata);
     let old: Option<String> = conn
         .query_row(
             "SELECT metadata FROM catalog_listings WHERE provider=?1 AND provider_id=?2",
@@ -7450,8 +7514,13 @@ fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
         .ok();
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(old) = old {
-        let old: serde_json::Value = decode(old)?;
+        let mut old: serde_json::Value = decode(old)?;
+        crate::metadata_normalization::repair_legacy_youtube_caption(&mut old);
         crate::import_metadata::merge_evidence(&old, &mut metadata);
+        crate::metadata_normalization::preserve_structured_youtube_search_fields(
+            &old,
+            &mut metadata,
+        );
         if let (Some(new), Some(old)) = (metadata.as_object_mut(), old.as_object()) {
             if old.get("dateAdded").is_some_and(|v| !v.is_null()) {
                 new.insert("dateAdded".into(), old["dateAdded"].clone());
@@ -7808,10 +7877,11 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
         }
     }
     let matching_settings = current_matching_settings(conn);
-    let selected = recordings
+    // Recordings with no assets cannot contribute a preferred local file.
+    // Avoid searching the track batch again for every remote-only recording.
+    let selected = assets
         .iter()
-        .map(|recording| {
-            let rows = assets.get(recording).map(Vec::as_slice).unwrap_or(&[]);
+        .map(|(recording, rows)| {
             let preferred = preferences.get(recording).and_then(Option::as_deref);
             let request = tracks
                 .iter()
@@ -7819,7 +7889,7 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
                 .map(|(track, _)| track);
             let rows = request
                 .map(|track| eligible_hydration_rows(rows, track, &matching_settings))
-                .unwrap_or_else(|| rows.to_vec());
+                .unwrap_or_else(|| rows.clone());
             (recording.clone(), select_hydration_asset(&rows, preferred))
         })
         .collect::<HashMap<_, _>>();
@@ -7912,9 +7982,12 @@ fn apply_hydration_metadata(
     track.disposition = values.1;
     let manual: serde_json::Value = decode(values.2)?;
     let mut metadata = serde_json::to_value(&track).map_err(err)?;
+    crate::metadata_normalization::repair_legacy_youtube_caption(&mut metadata);
     if let (Some(obj), Some(overrides)) = (metadata.as_object_mut(), manual.as_object()) {
         for (k, v) in overrides {
-            obj.insert(k.clone(), v.clone());
+            if k != library::LIBRARY_ARTIST_CREDITS {
+                obj.insert(k.clone(), v.clone());
+            }
         }
     }
     track = serde_json::from_value(metadata).map_err(err)?;
@@ -7930,7 +8003,12 @@ fn apply_hydration_metadata(
             manual_fields.insert(key.clone(), serde_json::json!(true));
         }
     }
-    track.provenance["manualFields"] = serde_json::Value::Object(manual_fields.clone());
+    track.provenance["manualFields"] = serde_json::Value::Object(manual_fields);
+    let provenance = track.provenance.as_object_mut().unwrap();
+    provenance.remove(library::LIBRARY_ARTIST_CREDITS);
+    if let Some(credits) = manual.get(library::LIBRARY_ARTIST_CREDITS) {
+        provenance.insert(library::LIBRARY_ARTIST_CREDITS.to_owned(), credits.clone());
+    }
     if let Some(artist) = crate::artist_credit_aliases::recovered_discogs_performer_artist(&track) {
         track.artist = artist;
     }
@@ -8470,6 +8548,131 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn channel_cache_registers_missing_uploads_without_overwriting_existing_listings() {
+        let (_dir, store) = db();
+        let channel_upload = |video_id: &str| Track {
+            id: format!("youtube:{video_id}"),
+            provider: "youtube".into(),
+            provider_id: video_id.into(),
+            source_url: format!("https://www.youtube.com/watch?v={video_id}"),
+            title: "Raw upload title".into(),
+            artwork_url: Some(format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")),
+            provenance: serde_json::json!({
+                "sourceKind": "youtubeChannelUpload",
+                "playbackMode": "source",
+                "uploaderChannelId": "UC8TZwtZ17WKFJSmwTZQpBTA",
+            }),
+            ..Track::default()
+        };
+        let duplicate = channel_upload("LSHM_bkSYQI");
+        let saved = Track {
+            title: "Library title".into(),
+            artist: "Library artist".into(),
+            provenance: serde_json::json!({"sourceKind": "audioSearch"}),
+            ..duplicate.clone()
+        };
+        store.save_library_tracks(&[saved]).unwrap();
+        let original = store.get_library_track(&duplicate.id).unwrap().unwrap();
+        let upload = channel_upload("Jnm-TY4WzXY");
+        assert!(store.get_track(&upload.id).unwrap().is_none());
+
+        store
+            .cache_missing_tracks(&[duplicate.clone(), upload.clone()])
+            .unwrap();
+
+        let cached = store.get_track(&upload.id).unwrap().unwrap();
+        assert_eq!(cached.id, upload.id);
+        assert_eq!(cached.source_url, upload.source_url);
+        assert_eq!(cached.artwork_url, upload.artwork_url);
+        assert_eq!(cached.provenance["sourceKind"], "youtubeChannelUpload");
+        assert_eq!(cached.provenance["playbackMode"], "source");
+        assert!(store.get_library_track(&upload.id).unwrap().is_none());
+        let existing = store.get_library_track(&duplicate.id).unwrap().unwrap();
+        assert_eq!(existing.title, original.title);
+        assert_eq!(existing.artist, original.artist);
+        assert_eq!(existing.provenance, original.provenance);
+    }
+
+    fn youtube_caption_fixture() -> Track {
+        let id = "youtube:LSHM_bkSYQI";
+        let url = "https://www.youtube.com/watch?v=LSHM_bkSYQI";
+        Track {
+            id: id.into(),
+            provider: "youtube".into(),
+            provider_id: "LSHM_bkSYQI".into(),
+            source_url: url.into(),
+            artist: "No Viviré".into(),
+            title: "Gipsy Kings".into(),
+            duration_seconds: Some(246.0),
+            provenance: serde_json::json!({
+                "sourceKind": "audioSearch",
+                "artistSource": "inferred_from_title",
+                "weakFields": {"artist": true, "title": true},
+                "audioCandidate": {
+                    "id": id, "provider": "youtube", "url": url,
+                    "title": "No Viviré - Gipsy Kings"
+                }
+            }),
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn youtube_caption_repairs_existing_search_listing_and_keeps_manual_edits() {
+        let (_dir, store) = db();
+        let legacy = youtube_caption_fixture();
+        store.save_library_tracks(&[legacy.clone()]).unwrap();
+        store
+            .lock_connection()
+            .unwrap()
+            .execute(
+                "UPDATE catalog_listings SET metadata=?1 WHERE id=?2",
+                params![encode(&legacy).unwrap(), legacy.id],
+            )
+            .unwrap();
+
+        let mut repaired = store.get_library_track(&legacy.id).unwrap().unwrap();
+        assert_eq!(repaired.title, "No Viviré - Gipsy Kings");
+        assert!(repaired.artist.is_empty());
+        assert_eq!(repaired.source_url, legacy.source_url);
+        assert_eq!(repaired.duration_seconds, legacy.duration_seconds);
+        assert_eq!(repaired.provenance["artistSource"], "unknown");
+
+        repaired.title = "No Viviré".into();
+        repaired.artist = "Gipsy Kings".into();
+        store.update_track(&repaired).unwrap();
+        let refreshed = store.cache_track(&legacy).unwrap();
+        assert_eq!(refreshed.title, repaired.title);
+        assert_eq!(refreshed.artist, repaired.artist);
+        assert_eq!(refreshed.provenance["manualFields"]["artist"], true);
+        assert_eq!(refreshed.provenance["manualFields"]["title"], true);
+    }
+
+    #[test]
+    fn youtube_caption_refresh_preserves_structured_playlist_fields() {
+        let (_dir, store) = db();
+        let legacy = youtube_caption_fixture();
+        let mut structured = legacy.clone();
+        structured.title = "No Viviré".into();
+        structured.artist = "Gipsy Kings".into();
+        structured.provenance = serde_json::json!({
+            "remotePlaylist": true,
+            "artistCredits": [{"name": "Gipsy Kings", "role": "artist"}],
+        });
+        store.cache_track(&structured).unwrap();
+
+        let refreshed = store.cache_track(&legacy).unwrap();
+        assert_eq!(refreshed.title, structured.title);
+        assert_eq!(refreshed.artist, structured.artist);
+        assert_eq!(
+            refreshed.provenance["artistCredits"],
+            structured.provenance["artistCredits"]
+        );
+        assert_eq!(refreshed.provenance["weakFields"]["artist"], false);
+        assert_eq!(refreshed.provenance["weakFields"]["title"], false);
     }
 
     #[test]
@@ -11180,6 +11383,52 @@ mod tests {
             store.list_tracks("library", None).unwrap()[0].id,
             musicbrainz.id
         );
+    }
+
+    #[test]
+    fn works_view_returns_only_saved_catalog_and_tagged_classical_listings() {
+        let (_dir, store) = db();
+        let mbid = "00000000-0000-4000-8000-000000000001";
+        let catalog = Track {
+            id: format!("musicbrainz:{mbid}"),
+            provider: "musicbrainz".into(),
+            provider_id: mbid.into(),
+            source_url: format!("https://musicbrainz.org/recording/{mbid}"),
+            provenance: serde_json::json!({"classicalWork":{"classical":true}}),
+            ..track("work-catalog", "")
+        };
+        let mut local = track("work-tagged", "");
+        local.id = "local:work-tagged".into();
+        local.provider = "local".into();
+        local.provider_id = "work-tagged".into();
+        local.source_url = "local:work-tagged".into();
+        local.provenance = serde_json::json!({"embeddedClassical":{"version":1,"work":"Symphony"}});
+        let mut cached = catalog.clone();
+        cached.id = "musicbrainz:00000000-0000-4000-8000-000000000002".into();
+        cached.provider_id = "00000000-0000-4000-8000-000000000002".into();
+        store
+            .save_library_tracks(&[catalog.clone(), local.clone(), track("ordinary", "")])
+            .unwrap();
+        store.save_track(&cached).unwrap();
+        store
+            .lock_connection()
+            .unwrap()
+            .execute(
+                "UPDATE catalog_listings SET in_library=0 WHERE id=?1",
+                [&cached.id],
+            )
+            .unwrap();
+        let page = store
+            .list_tracks_page_with_sort_state(
+                "works", None, 200, 0, None, None, None, None, None, None, None,
+            )
+            .unwrap();
+        assert_eq!(page.1, 2);
+        assert_eq!(
+            page.0.into_iter().map(|row| row.id).collect::<Vec<_>>(),
+            [catalog.id, local.id]
+        );
+        assert!(page.2.is_none());
     }
 
     #[test]
@@ -17113,8 +17362,22 @@ mod tests {
             before = next;
         }
         assert_eq!(
-            serde_json::to_value(&paged_candidates).unwrap(),
-            serde_json::to_value(&legacy_candidates).unwrap()
+            paged_candidates
+                .iter()
+                .map(|(path, track)| (
+                    path.as_str(),
+                    track.id.as_str(),
+                    track.provenance["publicationJobId"].as_str()
+                ))
+                .collect::<Vec<_>>(),
+            legacy_candidates
+                .iter()
+                .map(|asset| (
+                    asset.path.as_str(),
+                    asset.track.id.as_str(),
+                    asset.track.provenance["publicationJobId"].as_str()
+                ))
+                .collect::<Vec<_>>()
         );
         let expected_added = legacy_candidates
             .iter()
@@ -17132,6 +17395,73 @@ mod tests {
         assert!(rows.iter().any(|row| row.id == remapped.id));
         assert!(!rows.iter().any(|row| row.id == suppressed.id));
         assert!(!rows.iter().any(|row| row.id == missing.id));
+
+        let membership = || {
+            let conn = store.connection.lock().unwrap();
+            let mut statement = conn
+                .prepare(
+                    "SELECT recording_id,position FROM collection_members
+                 WHERE collection_id=?1 ORDER BY position",
+                )
+                .unwrap();
+            let results = statement
+                .query_map([DOWNLOADS_COLLECTION_ID], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .unwrap();
+            results.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+        };
+        let initial = vec![
+            (remapped.id.clone(), 1),
+            (manual.id.clone(), 2),
+            (duplicate.id.clone(), 3),
+        ];
+        assert_eq!(membership(), initial);
+        assert_eq!(store.backfill_managed_downloads().unwrap(), expected_added);
+        assert_eq!(membership(), initial);
+
+        // Keep repairing membership and promotion when a managed publication
+        // was absent from the playlist or its file was previously unavailable.
+        store
+            .remove_from_collection(DOWNLOADS_COLLECTION_ID, std::slice::from_ref(&manual.id))
+            .unwrap();
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE catalog_listings
+             SET in_library=0,metadata=json_remove(metadata,'$.dateAdded') WHERE id=?1",
+                [&remapped.id],
+            )
+            .unwrap();
+        std::fs::write(music.join("absent.flac"), b"formerly missing fixture").unwrap();
+        assert_eq!(
+            store.backfill_managed_downloads().unwrap(),
+            expected_added + 1
+        );
+        assert_eq!(
+            membership(),
+            vec![
+                (remapped.id.clone(), 1),
+                (duplicate.id, 3),
+                (missing.id, 4),
+                (manual.id, 5)
+            ]
+        );
+        let promoted: (bool, Option<String>) = store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT in_library,json_extract(metadata,'$.dateAdded')
+             FROM catalog_listings WHERE id=?1",
+                [&remapped.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(promoted.0);
+        assert!(promoted.1.is_some());
     }
     #[test]
     fn ordered_playlist_positions_follow_reordered_duplicate_entries_without_rewriting_source() {

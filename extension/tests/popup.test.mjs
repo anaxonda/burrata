@@ -6,13 +6,13 @@ import vm from 'node:vm';
 const source=readFileSync(new URL('../popup.js',import.meta.url),'utf8');
 const markup=readFileSync(new URL('../popup.html',import.meta.url),'utf8');
 
-function popup(){
+function popup(statusResult){
   const ids=['status','enable','import','show-settings','show-import','import-view','settings-view','import-heading','settings-heading','youtube-pairing-code','youtube-consent','youtube-check-account','youtube-account','youtube-account-consent-label','youtube-account-consent','youtube-handoff','diagnostic','context-playlist-select','refresh-target-playlists','context-playlist-status'];
   const elements=Object.fromEntries(ids.map(id=>[id,{id,disabled:false,checked:false,hidden:false,value:'',textContent:'',onclick:null,oninput:null,onchange:null,focus(){this.focused=true;}}]));
   elements['context-playlist-select'].options=[];elements['context-playlist-select'].appendChild=function(option){this.options.push(option);};elements['context-playlist-select'].replaceChildren=function(){this.options=[];};
   elements['settings-view'].hidden=true;
   const messages=[],permissionRequests=[];
-  const api={runtime:{sendMessage:async message=>{messages.push(message);if(message.type==='youtubeCheckHandoffAccount')return {ok:true,account:{accountId:'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:'Fixture Channel'}};if(message.type==='youtubeSessionHandoff')return {ok:true,account:{displayName:'Fixture Channel'}};if(message.type==='listTargetCollections')return {ok:true,collections:[{id:'collection-1',name:'Morning Mix'}]};if(message.type==='setTargetCollection')return {ok:true,targetCollectionId:message.collectionId};return {ok:true,enabled:message.type==='enable'?message.enabled:false,connected:true,targetCollectionId:'',lastContextAction:''};}},tabs:{query:async()=>[{id:1,url:'https://www.youtube.com/feed/playlists'}]},permissions:{contains:async()=>true,request:async request=>{permissionRequests.push(request);return true;}}};
+  const api={runtime:{sendMessage:async message=>{messages.push(message);if(message.type==='status'&&statusResult)return {ok:true,...statusResult};if(message.type==='youtubeCheckHandoffAccount')return {ok:true,account:{accountId:'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:'Fixture Channel'}};if(message.type==='youtubeSessionHandoff')return {ok:true,account:{displayName:'Fixture Channel'}};if(message.type==='listTargetCollections')return {ok:true,collections:[{id:'collection-1',name:'Morning Mix'}]};if(message.type==='setTargetCollection')return {ok:true,targetCollectionId:message.collectionId};return {ok:true,enabled:message.type==='enable'?message.enabled:false,connected:true,targetCollectionId:'',lastContextAction:''};}},tabs:{query:async()=>[{id:1,url:'https://www.youtube.com/feed/playlists'}]},permissions:{contains:async()=>true,request:async request=>{permissionRequests.push(request);return true;}}};
   const context=vm.createContext({browser:api,URL,console,Blob,setTimeout,document:{querySelector:selector=>elements[selector.slice(1)],createElement:()=>({value:'',textContent:''})}});
   vm.runInContext(source,context);
   return {elements,messages,permissionRequests};
@@ -90,4 +90,18 @@ test('YouTube popup rejects malformed pairing codes before account lookup',async
   e['youtube-consent'].checked=true;e['youtube-consent'].onchange();
   assert.equal(e['youtube-check-account'].disabled,true);
   assert.equal(messages.filter(message=>message.type==='youtubeCheckHandoffAccount').length,0);
+});
+
+
+test('missing Chromium native host shows installation guidance while leaving import accessible', async()=>{
+  const {elements}=popup({connected:false,enabled:false,error:'Specified native messaging host not found.'});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(elements.status.textContent,'Companion unavailable. Open Burrata and install the browser host.');
+  assert.equal(elements.import.disabled,false);
+});
+
+test('native host status preserves other useful errors', async()=>{
+  const {elements}=popup({connected:false,enabled:false,error:'Start Burrata to connect.'});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(elements.status.textContent,'Start Burrata to connect.');
 });

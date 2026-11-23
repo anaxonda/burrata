@@ -396,15 +396,33 @@ async fn search_playback_candidates_at(
     cancel: watch::Receiver<bool>,
     deadline: crate::playback_sources::PlaybackDeadline,
 ) -> Result<Vec<YouTubeMusicItem>, String> {
+    if !(1..=30).contains(&limit) {
+        return Err("YouTube Music playback search limit must be between 1 and 30".into());
+    }
+    let body = playback_search_json(
+        endpoint,
+        query,
+        Some("EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"),
+        cancel,
+        deadline,
+    )
+    .await?;
+    Ok(parse_search_response(&body, limit))
+}
+
+async fn playback_search_json(
+    endpoint: &str,
+    query: &str,
+    params: Option<&str>,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<Value, String> {
     let query = query.trim();
     if query.is_empty()
         || query.len() > MAX_PLAYBACK_SEARCH_QUERY_BYTES
         || query.chars().any(char::is_control)
     {
         return Err("YouTube Music playback search query is invalid".into());
-    }
-    if !(1..=30).contains(&limit) {
-        return Err("YouTube Music playback search limit must be between 1 and 30".into());
     }
     if *cancel.borrow() {
         return Err("YouTube Music playback search cancelled".into());
@@ -422,7 +440,7 @@ async fn search_playback_candidates_at(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "Could not initialize YouTube Music playback search".to_owned())?;
-    let payload = json!({
+    let mut payload = json!({
         "context": {
             "client": {
                 "clientName": "WEB_REMIX",
@@ -432,8 +450,10 @@ async fn search_playback_candidates_at(
             }
         },
         "query": query,
-        "params": "EgWKAQIIAWoKEAkQChADEAQQBQ%3D%3D"
     });
+    if let Some(params) = params {
+        payload["params"] = json!(params);
+    }
     let cancel_wait = wait_for_cancel(cancel.clone());
     let response = tokio::select! {
         biased;
@@ -500,9 +520,188 @@ async fn search_playback_candidates_at(
         }
         body.extend_from_slice(&chunk);
     }
-    let body: Value = serde_json::from_slice(&body)
-        .map_err(|_| "YouTube Music playback search returned invalid JSON".to_owned())?;
-    Ok(parse_search_response(&body, limit))
+    serde_json::from_slice(&body)
+        .map_err(|_| "YouTube Music playback search returned invalid JSON".to_owned())
+}
+
+/// Resolve only an exact, uniquely identified album with the complete linked
+/// roster. The album's tracks are still locators for fresh audio verification.
+pub(crate) async fn numbered_movement_album_tracks(
+    title: &str,
+    fingerprint: &crate::spotify_catalog_identity::SpotifyArtistCreditFingerprint,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<Vec<YouTubeMusicItem>, String> {
+    let lead = album_search_lead(title, fingerprint).unwrap_or(&fingerprint.artist);
+    let query_title = title
+        .split_once(" (")
+        .map_or(title, |(main, _)| main)
+        .replace(';', " ");
+    let query = format!("{lead} {query_title}");
+    let body =
+        playback_search_json(PLAYBACK_SEARCH_ENDPOINT, &query, None, cancel, deadline).await?;
+    let Some((browse_id, artists)) = exact_numbered_movement_album(&body, title, fingerprint)
+    else {
+        return Ok(Vec::new());
+    };
+    let key = crate::matching::normalize_single_artist_name;
+    let roster_matches = |credits: &[YouTubeMusicArtist]| {
+        credits.len() == fingerprint.artists.len()
+            && credits.iter().all(|credit| {
+                credit
+                    .provider_id
+                    .as_deref()
+                    .is_some_and(crate::youtube_recording_metadata::channel_id)
+            })
+            && fingerprint.artists.iter().all(|expected| {
+                credits
+                    .iter()
+                    .any(|credit| key(&credit.name) == key(&expected.name))
+            })
+    };
+    let mut results = Vec::new();
+    for mut item in album_tracks(&browse_id).await? {
+        if !item.duration_seconds.is_some_and(|duration| {
+            crate::spotify_catalog_identity::numbered_movement_caption_matches(
+                fingerprint,
+                &item.title,
+                duration,
+            )
+        }) {
+            continue;
+        }
+        if item.artist_credits.is_empty() && item.artist.is_none() {
+            // Some shelves display the linked album credits only once. The
+            // extractor still has to corroborate every movement credit.
+            if !roster_matches(&artists) {
+                continue;
+            }
+            item.artist_credits = artists.clone();
+            item.artist = Some(
+                artists
+                    .iter()
+                    .map(|row| row.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        if !roster_matches(&item.artist_credits) {
+            continue;
+        }
+        item.album = Some(title.to_owned());
+        item.album_browse_id = Some(browse_id.clone());
+        results.push(item);
+    }
+    Ok(results)
+}
+
+fn album_search_lead<'a>(
+    title: &str,
+    fingerprint: &'a crate::spotify_catalog_identity::SpotifyArtistCreditFingerprint,
+) -> Option<&'a str> {
+    let prefix = title.split_once(": ").map(|(prefix, _)| prefix);
+    fingerprint
+        .artists
+        .iter()
+        .find(|artist| {
+            prefix.is_none_or(|prefix| {
+                !crate::spotify_catalog_identity::name_matches_caption_prefix(prefix, &artist.name)
+            })
+        })
+        .map(|artist| artist.name.as_str())
+}
+
+fn exact_numbered_movement_album(
+    body: &Value,
+    title: &str,
+    fingerprint: &crate::spotify_catalog_identity::SpotifyArtistCreditFingerprint,
+) -> Option<(String, Vec<YouTubeMusicArtist>)> {
+    fn collect<'a>(value: &'a Value, rows: &mut Vec<&'a Value>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(row) = map.get("musicResponsiveListItemRenderer") {
+                    rows.push(row);
+                } else {
+                    for child in map.values() {
+                        collect(child, rows);
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| collect(item, rows)),
+            _ => {}
+        }
+    }
+    let mut rows = Vec::new();
+    collect(body, &mut rows);
+    let key = crate::matching::normalize_single_artist_name;
+    let expected = fingerprint
+        .artists
+        .iter()
+        .map(|row| key(&row.name))
+        .collect::<std::collections::HashSet<_>>();
+    let lead = album_search_lead(title, fingerprint).map(key)?;
+    let mut exact = std::collections::BTreeMap::new();
+    let mut lead_matches = std::collections::BTreeMap::new();
+    for row in rows {
+        if run_page_type(row) != Some("MUSIC_PAGE_TYPE_ALBUM") {
+            continue;
+        }
+        let Some(columns) = row["flexColumns"].as_array() else {
+            continue;
+        };
+        if columns.first().and_then(renderer_text).as_deref() != Some(title) {
+            continue;
+        }
+        let Some(browse_id) = row
+            .pointer("/navigationEndpoint/browseEndpoint/browseId")
+            .and_then(Value::as_str)
+            .filter(|id| valid_playback_album_id(id))
+        else {
+            continue;
+        };
+        let mut ids = std::collections::HashSet::new();
+        let mut names = std::collections::HashSet::new();
+        let artists = columns
+            .iter()
+            .skip(1)
+            .flat_map(flex_runs)
+            .filter(|run| run_page_type(run) == Some("MUSIC_PAGE_TYPE_ARTIST"))
+            .map(|run| {
+                let name = run_label(run)?;
+                let id = run
+                    .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                    .and_then(Value::as_str)
+                    .filter(|id| crate::youtube_recording_metadata::channel_id(id))?;
+                (ids.insert(id) && names.insert(key(&name))).then(|| YouTubeMusicArtist {
+                    name,
+                    provider_id: Some(id.to_owned()),
+                })
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(artists) = artists else { continue };
+        let editions = if names == expected {
+            &mut exact
+        } else if names.contains(&lead) {
+            &mut lead_matches
+        } else {
+            continue;
+        };
+        if editions
+            .get(browse_id)
+            .is_some_and(|existing| existing != &artists)
+        {
+            return None;
+        }
+        editions.insert(browse_id.to_owned(), artists);
+    }
+    let editions = if exact.is_empty() {
+        lead_matches
+    } else {
+        exact
+    };
+    (editions.len() == 1)
+        .then(|| editions.into_iter().next())
+        .flatten()
 }
 
 async fn wait_for_cancel(mut cancel: watch::Receiver<bool>) {
@@ -780,6 +979,47 @@ mod tests {
         sync::oneshot,
         task::JoinHandle,
     };
+
+    #[test]
+    fn numbered_movement_album_search_requires_one_exact_linked_edition() {
+        let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let fingerprint =
+            crate::spotify_catalog_identity::spotify_artist_credit_fingerprint(&track).unwrap();
+        let link = |id: &str, page_type: &str| {
+            json!({
+                "browseEndpoint": {"browseId":id,
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {"pageType":page_type}
+                    }
+                }
+            })
+        };
+        let title = "Original album";
+        let row = |id: &str, arranger: &str| {
+            json!({
+                "musicResponsiveListItemRenderer": {
+                    "navigationEndpoint":link(id, "MUSIC_PAGE_TYPE_ALBUM"),
+                    "flexColumns":[
+                        {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":title}]}}},
+                        {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                            {"text":"Album"},
+                            {"text":"Choir Alpha","navigationEndpoint":link("UC1111111111111111111111", "MUSIC_PAGE_TYPE_ARTIST")},
+                            {"text":arranger,"navigationEndpoint":link("UC2222222222222222222222", "MUSIC_PAGE_TYPE_ARTIST")}
+                        ]}}}
+                    ]
+                }
+            })
+        };
+        let good = row("MPREb_Original", "Choir Beta");
+        let wrong = row("MPREb_OtherPerformance", "Choir Gamma");
+        let body = json!({"contents":[good.clone(), wrong]});
+        let (id, artists) = exact_numbered_movement_album(&body, title, &fingerprint).unwrap();
+        assert_eq!(id, "MPREb_Original");
+        assert_eq!(artists[1].name, "Choir Beta");
+        let duplicate = json!({"contents":[good, row("MPREb_OtherEdition", "Choir Beta")]});
+        assert!(exact_numbered_movement_album(&duplicate, title, &fingerprint).is_none());
+        assert!(exact_numbered_movement_album(&body, "Other album", &fingerprint).is_none());
+    }
 
     async fn fixture_server(
         response: Option<Vec<u8>>,
@@ -1266,12 +1506,7 @@ mod tests {
 /// Read one complete, bounded album shelf. Recommendations and continuation
 /// pages cannot establish an album timeline.
 pub(crate) async fn album_tracks(browse_id: &str) -> Result<Vec<YouTubeMusicItem>, String> {
-    if !browse_id.starts_with("MPREb_")
-        || browse_id.len() > 128
-        || !browse_id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-    {
+    if !valid_playback_album_id(browse_id) {
         return Err("Invalid YouTube Music album identity".into());
     }
     let client = Client::builder()
@@ -1299,6 +1534,15 @@ pub(crate) async fn album_tracks(browse_id: &str) -> Result<Vec<YouTubeMusicItem
         serde_json::from_slice(&bytes).map_err(|_| "Invalid YouTube album metadata")?;
     complete_album_shelf(&body)
         .ok_or_else(|| "YouTube did not return one complete album tracklist".into())
+}
+
+fn valid_playback_album_id(id: &str) -> bool {
+    id.starts_with("MPREb_")
+        && id.len() > "MPREb_".len()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
 }
 
 fn complete_album_shelf(body: &Value) -> Option<Vec<YouTubeMusicItem>> {

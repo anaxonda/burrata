@@ -12,9 +12,11 @@ const fixtureYoutubeChannel='UC8TZwtZ17WKFJSmwTZQpBTA';
 const fixtureYoutubePlaylistParams='EglwbGF5bGlzdHO4AQCSAwDyBgQKAkIA';
 const fixtureYoutubeOwnerUrl=`https://www.youtube.com/channel/${fixtureYoutubeChannel}`;
 const fixturePlaylistCard=(id,title)=>({lockupViewModel:{contentType:'LOCKUP_CONTENT_TYPE_PLAYLIST',contentId:id,metadata:{lockupMetadataViewModel:{title:{content:title}}}}});
-const fixtureChannelPlaylistBody=(items,extraSelected=[],unselected=[])=>({contents:{twoColumnBrowseResultsRenderer:{tabs:[
+const fixtureChannelPlaylistBody=(items,extraSelected=[],unselected=[])=>({
+ metadata:{channelMetadataRenderer:{externalId:fixtureYoutubeChannel,title:'Public channel'}},
+ contents:{twoColumnBrowseResultsRenderer:{tabs:[
  {tabRenderer:{selected:false,content:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{gridRenderer:{targetId:'unselected-home-grid',items:unselected}}]}}]}}}},
- {tabRenderer:{selected:true,content:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{gridRenderer:{targetId:'channel-playlists-grid',items,continuations:extraSelected}}]}}]}}}},
+ {tabRenderer:{selected:true,endpoint:{browseEndpoint:{browseId:fixtureYoutubeChannel,params:fixtureYoutubePlaylistParams},commandMetadata:{webCommandMetadata:{url:`/channel/${fixtureYoutubeChannel}/playlists`}}},content:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{gridRenderer:{targetId:'channel-playlists-grid',items,continuations:extraSelected}}]}}]}}}},
 ]}}});
 function makeYoutubeSessionContext(fetchImpl){
  const context=vm.createContext({fetch:fetchImpl,crypto:webcrypto,URL,URLSearchParams,TextEncoder,AbortController,Headers,setTimeout,clearTimeout});
@@ -119,7 +121,7 @@ test('Spotify artist ListPlatform duration preserves fractional nanoseconds and 
 
 test('Spotify artist releases and rich album tracks use pinned Pathfinder queries with offset pages',async()=>{
  const artistId='artist1234567890123456',albumId='album12345678901234567',secondAlbumId='otherAlbum123456789012',trackA='track12345678901234567',trackB='anotherTrack1234567890',calls=[];
- const release=(id,name)=>({__typename:'Album',uri:`spotify:album:${id}`,name,type:'ALBUM',date:{year:2024,isoString:'2024-01-01'},artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},coverArt:{sources:[{url:`https://i.scdn.co/image/${id}`,maxWidth:640,maxHeight:640}]},sharingInfo:{shareUrl:`https://open.spotify.com/album/${id}`},tracks:{totalCount:0}});
+ const release=(id,name)=>({__typename:'Album',uri:`spotify:album:${id}`,name,type:'ALBUM',date:{year:2024,isoString:'2024-01-01'},label:'Fixture Label',externalIds:{upc:'123456789012',ean:'invalid'},artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},coverArt:{sources:[{url:`https://i.scdn.co/image/${id}`,maxWidth:640,maxHeight:640}]},sharingInfo:{shareUrl:`https://open.spotify.com/album/${id}`},tracks:{totalCount:0}});
  const artistUnion={__typename:'Artist',uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'},visuals:{avatarImage:{sources:[{url:'https://i.scdn.co/image/artist',maxWidth:640,maxHeight:640}]}},stats:{followers:0},discography:{all:{totalCount:3}}};let discographyIdentityMode='omitted',albumIdentityMode='match';
  const track=(id,name,duration,number)=>({__typename:'Track',uri:`spotify:track:${id}`,name,artists:{items:[{uri:`spotify:artist:${artistId}`,profile:{name:'Fixture Artist'}}]},duration:{totalMilliseconds:duration},albumOfTrack:{uri:`spotify:album:${albumId}`,name:'First release',coverArt:{sources:[{url:'https://i.scdn.co/image/cover',maxWidth:640,maxHeight:640}]}},discNumber:1,trackNumber:number,playability:{playable:true},contentRating:{label:'EXPLICIT'},saved:false,...(number===1?{playcount:'0'}:number===2?{playCount:'1,234'}:number===3?{plays:'9007199254740992'}:{}),relinkingInformation:{linkedTrack:{__typename:'Track',uri:`spotify:track:${id}`}},associationsV3:{videoAssociations:{totalCount:number===4?999:0}}});
  const fetch=async(url,options={})=>{
@@ -129,6 +131,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
   if(target.includes('/pathfinder/v2/query')){
    if(request.operationName==='profileAttributes')return {ok:true,status:200,text:async()=>JSON.stringify({data:{me:{profile:{uri:'spotify:user:account-123',name:'Fixture account'}}}})};
    if(request.operationName==='queryArtistMinimal')return {ok:true,status:200,text:async()=>JSON.stringify({data:{artistUnion}})};
+   if(request.operationName==='searchDesktop')return {ok:true,status:200,text:async()=>JSON.stringify({data:{searchV2:{albumsV2:{totalCount:1,items:[{item:{data:release(albumId,'First release')}}]}}}})};
    if(request.operationName==='queryArtistDiscographyAll'){
     const items=variables.offset===0?[{releases:{items:[{...release(albumId,'First release'),tracks:{totalCount:51}}]}},{releases:{items:[]}}]:[{releases:{items:[release(secondAlbumId,'Second release')]}}];
     const {uri:omittedArtistUri,...discographyArtistUnion}=artistUnion;
@@ -147,7 +150,9 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch,crypto:webcrypto,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'open.spotify.com',origin:'https://open.spotify.com'},setInterval(){},setTimeout,clearTimeout});vm.runInContext(source,context);vm.runInContext(sharedSpotifySource,context);
- const hashes={profileAttributes:{hash:'a'.repeat(64)},totp:{code:'123456',version:61}};
+ const hashes={profileAttributes:{hash:'a'.repeat(64)},searchDesktop:{hash:'b'.repeat(64)},totp:{code:'123456',version:61}};
+ const search=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','search',{query:'First release',kind:'album'},hashes)));
+ assert.equal(search.total,1);assert.equal(search.rawCount,1);assert.equal(search.nextCursor,null);
  const artist=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtist',{artistId},hashes)));
  assert.equal(artist.artist?.title,'Fixture Artist',JSON.stringify(artist));assert.equal(artist.artist.artworkUrl,'https://i.scdn.co/image/artist');assert.equal(artist.artist.data.followers,0);
  const pageOne=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtistAlbums',{artistId,limit:30},hashes)));
@@ -161,6 +166,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
  assert.equal(emptyAlbum.album.data.totalTracks,0);
  assert.equal(Object.hasOwn(emptyAlbum.album.data,'plays'),false);
  const firstTrackPage=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getAlbumTracks',{albumId,limit:50},hashes)));
+ assert.equal(firstTrackPage.rawCount,50);assert.equal(firstTrackPage.reportedTotal,51);assert.equal(firstTrackPage.album.data.label,'Fixture Label');assert.deepEqual(firstTrackPage.album.data.productCodes,['123456789012']);
  assert.equal(firstTrackPage.items.length,49);assert.equal(firstTrackPage.items[0].durationSeconds,183.25);assert.equal(firstTrackPage.items[1].durationSeconds,183.333);assert.equal(firstTrackPage.items[0].position,1);assert.equal(firstTrackPage.items[0].trackNumber,1);assert.equal(firstTrackPage.items[0].isExplicit,true);assert.equal(firstTrackPage.items[0].plays,0);assert.equal(firstTrackPage.items[1].plays,1234);assert.equal(Object.hasOwn(firstTrackPage.items[2],'plays'),false);assert.equal(Object.hasOwn(firstTrackPage.items[3],'plays'),false);assert.equal(firstTrackPage.items[3].hasAssociatedVideo,true);assert.equal(firstTrackPage.total,51);assert.equal(firstTrackPage.nextCursor,'50');assert.equal(firstTrackPage.unrecognizedCount,1);assert.equal(Object.hasOwn(firstTrackPage,'complete'),false);assert.equal(Object.hasOwn(firstTrackPage,'pagingQualification'),false);
  const secondTrackPage=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getAlbumTracks',{albumId,limit:50,cursor:firstTrackPage.nextCursor},hashes)));
  assert.equal(secondTrackPage.items[0].trackId,trackB);assert.equal(secondTrackPage.nextCursor,null);assert.equal(secondTrackPage.pagingQualification,'experimental-offset');
@@ -337,6 +343,13 @@ test('modern YouTube lockup view models decode public playlists and channels',as
   const request=JSON.parse(options.body);calls.push(request);
   const isChannel=request.params==='EgIQAg%3D%3D';
   const result=lockup(isChannel?'LOCKUP_CONTENT_TYPE_CHANNEL':'LOCKUP_CONTENT_TYPE_PLAYLIST',isChannel?'UCmodernChannel123':'VLPLmodernPlaylist123',isChannel?'Public channel':'Public playlist',isChannel?'14K subscribers':'42 videos',`https://i.ytimg.com/${isChannel?'channel':'playlist'}.jpg`);
+  if (!isChannel) {
+    result.lockupViewModel.metadata.lockupMetadataViewModel.metadata.contentMetadataViewModel.metadataRows.push(
+      { metadataParts: [{ text: { content: 'One of the tracks · 3:40' } }] },
+      { metadataParts: [{ text: { content: 'View full playlist' } }] },
+      { metadataParts: [{ text: { content: 'Discover house music.│a href="https://example.com/"Follow us/a' } }] },
+    );
+  }
   return {ok:true,status:200,text:async()=>JSON.stringify({contents:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[result]}}]}}})};
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
@@ -352,6 +365,14 @@ test('modern YouTube lockup view models decode public playlists and channels',as
  assert.equal(channel.items[0].kind,'channel');
  assert.equal(channel.items[0].subtitle,'14K subscribers');
  assert.equal(calls.length,2);
+ const bootstrap = youtubeChannelFetch({ browseResponse: {} }).fetchImpl;
+ const fetchNative = async (url, options = {}) => String(url).includes('/youtubei/v1/search')
+   ? { ...await fetch(url, options), headers: new Headers() }
+   : bootstrap(url, options);
+ const native = await makeYoutubeSessionContext(fetchNative).BurrataYouTubeSessionProvider.run(
+   'search', { query: 'Gipsy Kings', kind: 'playlist' }, youtubeSessionFixture, { fetchImpl: fetchNative },
+ );
+ assert.equal(native.items[0].subtitle, '42 videos');
 });
 
 test('signed-in YouTube status binds identity from studio channel link and DATASYNC_ID fallback',async()=>{
@@ -378,15 +399,24 @@ test('modern YouTube playlist browse decodes lockup video rows, page header, and
  const continuation={continuationItemViewModel:{trigger:'CONTINUATION_TRIGGER_ON_ITEM_SHOWN',continuationCommand:{innertubeCommand:{continuationCommand:{token:'next-playlist-page',request:'CONTINUATION_REQUEST_TYPE_NEXT'}}}}};
  const body={
   pageHeaderRenderer:{pageTitle:'Legacy playlist title',content:{pageHeaderViewModel:{title:{dynamicTextViewModel:{text:{content:'Modern playlist title'}}},heroImage:{contentPreviewImageViewModel:{thumbnail:{sources:[{url:'https://i.ytimg.com/playlist-art.jpg'}]}}}}}},
-  playlistMetadataRenderer:{title:'Metadata playlist title'},
   contents:{sectionListRenderer:{contents:[{musicPlaylistShelfRenderer:{contents:[row,unavailable,continuation]}}]}},
-  playlistMetadataRenderer:{title:'Metadata playlist title',videoCount:'2'},
+  playlistMetadataRenderer:{title:'Metadata playlist title',videoCount:'2',description:'Follow <a href="https://example.invalid/artist">Instagram</a>'},
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch:async(_url,options)=>{request.push(JSON.parse(options.body));return {ok:true,status:200,text:async()=>JSON.stringify(body)};},URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'music.youtube.com',origin:'https://music.youtube.com'},document:{cookie:'',querySelector:()=>null},ytcfg:{data_:{INNERTUBE_API_KEY:'public-api-key',INNERTUBE_CLIENT_NAME:'WEB_REMIX',INNERTUBE_CLIENT_VERSION:'1.20261001.00.00'}},setInterval(){},setTimeout,clearTimeout});
  vm.runInContext(source,context);
  const result=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','getPlaylist',{playlistId:'PLmodernPlaylist123'},{})));
  assert.equal(result.playlist.title,'Modern playlist title');
+ assert.equal(result.playlist.ownerName,null);
+ const {fetchImpl}=youtubeChannelFetch({browseResponse:body});
+ const managed=makeYoutubeSessionContext(fetchImpl);
+ const readManaged=()=>managed.BurrataYouTubeSessionProvider.run('getPlaylist',{playlistId:'PLmodernPlaylist123'},youtubeSessionFixture,{fetchImpl});
+ assert.equal((await readManaged()).playlist.ownerName,null);
+ body.sidebar={playlistSidebarRenderer:{items:[{playlistSidebarSecondaryInfoRenderer:{videoOwner:{videoOwnerRenderer:{title:{runs:[{text:'Real Artist'}]}}}}}]}};
+ const withOwner=await context.runProviderPageOperation('youtube','getPlaylist',{playlistId:'PLmodernPlaylist123'},{});
+ assert.equal(withOwner.playlist.ownerName,'Real Artist');
+ assert.equal((await readManaged()).playlist.ownerName,'Real Artist');
+ delete body.sidebar;
  assert.equal(result.playlist.artworkUrl,'https://i.ytimg.com/playlist-art.jpg');
  assert.equal(result.entries.length,2);
  assert.deepEqual(result.entries[0],{entryId:null,trackId:'videoModern123',title:'Bamboleo',artist:'',channelName:'Gipsy Kings',album:'',durationSeconds:206,url:'https://www.youtube.com/watch?v=videoModern123',artworkUrl:'https://i.ytimg.com/track.jpg',available:true});
@@ -493,23 +523,34 @@ test('Spotify own library preserves unnamed playlists with a safe display title'
  profileOverride={uri:'spotify:user:owner123',total_public_playlists_count:1,public_playlists:[{uri:'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M',image_url:'http://insecure.example/art.jpg'}]};const unsafeArtwork=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','listPlaylists',{ownerId:'owner123'},hashes)));assert.equal(unsafeArtwork.items[0].artworkUrl,null);
 });
 
-test('YouTube own library parses the fixed playlist feed and resolves public handles',async()=>{
+test('YouTube browser companion separates the signed-in library from public channel playlists',async()=>{
  const calls=[];
  const response=body=>({ok:true,status:200,text:async()=>JSON.stringify(body)});
  const playlistResult={header:{menu:{continuationItemRenderer:{continuationEndpoint:{continuationCommand:{token:'unrelated-menu-token'}}}}},contents:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{lockupViewModel:{contentId:'PLuserPlaylist123',contentType:'LOCKUP_CONTENT_TYPE_PLAYLIST',metadata:{lockupMetadataViewModel:{title:{content:'User playlist'}}}}}] }},{continuationItemViewModel:{continuationCommand:{innertubeCommand:{continuationCommand:{token:'next-own-library'}}}}}]}}};
+ let channelResult=fixtureChannelPlaylistBody([fixturePlaylistCard('PLchannelPlaylist001','Channel playlist')],[],[fixturePlaylistCard('PLuserPlaylist123','User playlist')]);
  const fetch=async(url,options={})=>{
   calls.push({url:String(url),options,body:options.body?JSON.parse(options.body):null});
   if(String(url)==='/feed/playlists')return {ok:true,status:200,text:async()=>`var ytInitialData = ${JSON.stringify(playlistResult)};`};
-  return String(url).includes('navigation/resolve_url')?response({endpoint:{browseEndpoint:{browseId:'UCresolvedPublicChannel'}}}):response(playlistResult);
+  return String(url).includes('navigation/resolve_url')?response({endpoint:{browseEndpoint:{browseId:fixtureYoutubeChannel,params:fixtureYoutubePlaylistParams}}}):response(channelResult);
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch,crypto:globalThis.crypto,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'www.youtube.com',origin:'https://www.youtube.com'},document:{cookie:'SAPISID=browser-session-cookie',querySelector:()=>null},ytcfg:{data_:{INNERTUBE_API_KEY:'account-api-key',INNERTUBE_CLIENT_NAME:'WEB',INNERTUBE_CLIENT_VERSION:'1.20261001.00.00',LOGGED_IN:true,DATASYNC_ID:'V1-user-account||opaque-token'}},setInterval(){},setTimeout,clearTimeout});vm.runInContext(source,context);
  const own=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','listPlaylists',{},{})));
  assert.equal(calls[0].url,'/feed/playlists');assert.equal(calls[0].options.credentials,'include');assert.equal(calls[0].body,null);assert.equal(own.items[0].title,'User playlist');assert.equal(own.accountId,'V1-user-account');assert.equal(own.nextCursor,'next-own-library');
  calls.length=0;
- const publicList=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','listPlaylists',{ownerId:'https://www.youtube.com/@publichandle/playlists'},{})));
- assert.match(calls[0].url,/navigation\/resolve_url/);assert.equal(calls[1].body.browseId,'UCresolvedPublicChannel');
- assert.equal(publicList.items[0].ownerId,'https://www.youtube.com/@publichandle/playlists');assert.equal(publicList.items[0].title,'User playlist');
+ const ownerId='https://www.youtube.com/@publichandle/playlists';
+ const browseChannel=async()=>JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','listPlaylists',{ownerId},{})));
+ const publicList=await browseChannel();
+ assert.match(calls[0].url,/navigation\/resolve_url/);
+ assert.equal(calls[0].body.url,ownerId);
+ assert.equal(calls[1].body.browseId,fixtureYoutubeChannel);
+ assert.equal(calls[1].body.params,fixtureYoutubePlaylistParams);
+ assert.deepEqual(publicList.channelScope,{ownerId,channelId:fixtureYoutubeChannel});
+ assert.deepEqual(publicList.items.map(item=>[item.title,item.ownerId]),[['Channel playlist',fixtureYoutubeChannel]]);
+ channelResult=playlistResult;
+ const wrongScope=await browseChannel();
+ assert.equal(wrongScope.__burrataProviderError.code,'PROVIDER_CHANGED');
+ assert.equal(wrongScope.items,undefined);
 });
 
 test('YouTube public channel browse preserves safe HTTP status without exposing response details',async()=>{
@@ -547,7 +588,11 @@ test('YouTube public channel browse preserves safe HTTP status without exposing 
 
 test('YouTube public channel playlists use resolved selected-tab params and exclude home/recommendation rows',async()=>{
  const continuation={continuationItemViewModel:{continuationCommand:{innertubeCommand:{continuationCommand:{token:'channel-playlists-next'}}}}};
- const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLselectedPlaylist00001','Selected channel playlist'),continuation],[],[fixturePlaylistCard('PLhomeRecommendation00001','Home recommendation')]);
+ const selectedCard=fixturePlaylistCard('PLselectedPlaylist00001','Selected channel playlist');
+ selectedCard.lockupViewModel.menu=fixturePlaylistCard('PLnestedRecommendation0001','Nested recommendation');
+ const privateCard=fixturePlaylistCard('PLnonPublicPlaylist0001','Private playlist');
+ privateCard.lockupViewModel.privacy='PRIVATE';
+ const body=fixtureChannelPlaylistBody([selectedCard,privateCard,continuation],[],[fixturePlaylistCard('PLhomeRecommendation00001','Home recommendation')]);
  body.contents.twoColumnBrowseResultsRenderer.tabs[1].tabRenderer.content.sectionListRenderer.contents.push({shelfRenderer:{content:{gridRenderer:{items:[fixturePlaylistCard('PLshelfRecommendation00001','Shelf recommendation')]}}}});
  const {calls,fetchImpl}=youtubeChannelFetch({browseResponse:body,continuationResponse:{onResponseReceivedActions:[{appendContinuationItemsAction:{targetId:'channel-playlists-grid',continuationItems:[fixturePlaylistCard('PLnextChannelPlaylist0001','Next channel playlist')]}}]}});
  const first=JSON.parse(JSON.stringify(await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,fetchImpl)));
@@ -563,7 +608,8 @@ test('YouTube public channel playlists use resolved selected-tab params and excl
  const continuationBrowse=calls.filter(call=>call.endpoint==='browse').at(-1);
  assert.deepEqual(continuationBrowse.body,{context:continuationBrowse.body.context,continuation:'channel-playlists-next'});
  assert.deepEqual(second.items.map(item=>item.title),['Next channel playlist']);
- assert.equal(second.items[0].ownerId,fixtureYoutubeOwnerUrl);
+ assert.equal(second.items[0].ownerId,fixtureYoutubeChannel);
+ assert.deepEqual(second.channelScope,{ownerId:fixtureYoutubeOwnerUrl,channelId:fixtureYoutubeChannel});
  assert.equal(second.complete,true);
 });
 
@@ -590,6 +636,16 @@ test('YouTube public channel playlist browse rejects a resolver that returns a d
   return true;
  });
  assert.equal(calls.some(call=>call.endpoint==='browse'),false);
+});
+
+test('YouTube public channel playlist browse rejects a signed-in library grid and a different selected tab',async()=>{
+ const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLsignedInLibrary0001','Signed-in library playlist')]);
+ const selected=body.contents.twoColumnBrowseResultsRenderer.tabs[1].tabRenderer;
+ selected.endpoint.commandMetadata.webCommandMetadata.url='/feed/playlists';
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,youtubeChannelFetch({browseResponse:body}).fetchImpl),/public Playlists tab/);
+ selected.endpoint.commandMetadata.webCommandMetadata.url=`/channel/${fixtureYoutubeChannel}/playlists`;
+ body.metadata.channelMetadataRenderer.externalId='UCaaaaaaaaaaaaaaaaaaaaaa';
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,youtubeChannelFetch({browseResponse:body}).fetchImpl),/public Playlists tab/);
 });
 
 test('YouTube public channel playlist browse distinguishes explicit empty grid from sparse failure',async()=>{

@@ -59,7 +59,7 @@ test('packaged MCP CJS bridge registers and calls a tool through the SDK', async
     client = new Client({ name: 'burrata-mcp-bundle-test', version: '1.0.0' });
     await client.connect(clientTransport);
     const listing = await client.listTools();
-    assert.deepEqual(listing.tools.map((tool) => tool.name), ['bundle_probe']);
+    assert.deepEqual(listing.tools.map((tool) => tool.name), ['bundle_probe', 'get_bridge_status']);
     const result = await client.callTool({ name: 'bundle_probe', arguments: { value: 'packaged' } });
     assert.equal(result.content[0].text, 'received packaged');
     assert.deepEqual(result.structuredContent, { value: 'packaged' });

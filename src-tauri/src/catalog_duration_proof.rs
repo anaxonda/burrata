@@ -20,6 +20,10 @@ pub(crate) struct PreparedCatalogDuration {
 fn identity(track: &Track) -> Value {
     alias_hydration_identity(track)
 }
+fn matches_normalized_traxsource_request(saved: &Track, requested_identity: &Value) -> bool {
+    crate::traxsource_duration_proof::is_eligible(saved)
+        && identity(crate::matching::chart_playback_identity(saved).as_ref()) == *requested_identity
+}
 fn key(track: &Track) -> String {
     format!(
         "{:x}",
@@ -763,22 +767,28 @@ impl RemotePlaylistService {
                 Err(_) => { trace_stage("account_unavailable", started, json!({})); return Ok(None); },
             };
             trace_stage("account_ready", started, json!({}));
-            let saved_at_start = self
-                .store
-                .get_track(&original.id)?
-                .map(|saved| identity(&saved));
-            if saved_at_start
+            let saved_at_start = self.store.get_track(&original.id)?.map(Box::new);
+            let saved_identity = saved_at_start.as_deref().map(identity);
+            let requested_identity = identity(original);
+            let normalized_legacy = saved_identity
                 .as_ref()
-                .is_some_and(|saved| *saved != identity(original))
+                .is_some_and(|saved| *saved != requested_identity);
+            if normalized_legacy
+                && !saved_at_start.as_deref().is_some_and(|saved| {
+                    matches_normalized_traxsource_request(saved, &requested_identity)
+                })
             {
                 return Ok(None);
             }
             let source_unchanged = || -> Result<bool> {
-                Ok(self
-                    .store
-                    .get_track(&original.id)?
-                    .map(|saved| identity(&saved))
-                    == saved_at_start)
+                let saved = self.store.get_track(&original.id)?;
+                // The repair used an exact raw capture. Keep that evidence and
+                // all manual fields stable until the independent lookup finishes.
+                Ok(if normalized_legacy {
+                    saved.as_ref() == saved_at_start.as_deref()
+                } else {
+                    saved.as_ref().map(identity) == saved_identity
+                })
             };
             if !source_unchanged()? {
                 return Ok(None);
@@ -1355,6 +1365,54 @@ mod tests {
     fn proof(track: &Track, rows: Vec<Value>) -> Value {
         json!({"version":1,"original":identity(track),"accountId":"account","checkedAt":chrono::Utc::now().timestamp(),"page":{"provider":"spotify","nextCursor":null,"rawCount":rows.len(),"unrecognizedCount":0,"items":rows}})
     }
+    #[test]
+    fn malformed_chart_runtime_lookup_requires_the_exact_saved_capture() {
+        let mut saved = Track {
+            id: "traxsource:123".into(),
+            provider: "traxsource".into(),
+            provider_id: "123".into(),
+            source_url: "https://www.traxsource.com/track/123/exact-recording".into(),
+            title: "Exact Recording (Another DJ Remix)".into(),
+            artist: "First Artist & Guest Artist".into(),
+            version: Some("(6:90)".into()),
+            duration_seconds: Some(450.0),
+            ..Track::default()
+        };
+        let credits = json!([
+            {"name":"First Artist","role":"artist"},{"name":"Guest Artist","role":"artist"}
+        ]);
+        saved.provenance = json!({
+            "browserImport":true,"captureProvider":"traxsource","sourceKind":"chart",
+            "artistCredits":credits,
+            "rawCaptures":[{"providerId":saved.provider_id,"sourceUrl":saved.source_url,
+                "title":saved.title,"artist":saved.artist,"version":saved.version,
+                "durationSeconds":saved.duration_seconds,"artistCredits":credits}]
+        });
+        let normalized = crate::matching::chart_playback_identity(&saved).into_owned();
+        assert!(eligible(&normalized));
+        assert!(matches_normalized_traxsource_request(
+            &saved,
+            &identity(&normalized)
+        ));
+        let mut other = normalized.clone();
+        other.title = "Exact Recording (Wrong Remix)".into();
+        assert!(!matches_normalized_traxsource_request(
+            &saved,
+            &identity(&other)
+        ));
+        saved.provenance["manualFields"]["durationSeconds"] = json!(true);
+        assert!(!matches_normalized_traxsource_request(
+            &saved,
+            &identity(&normalized)
+        ));
+        saved.provenance["manualFields"]["durationSeconds"] = json!(false);
+        saved.provenance["rawCaptures"][0]["durationSeconds"] = json!(400.0);
+        assert!(!matches_normalized_traxsource_request(
+            &saved,
+            &identity(&normalized)
+        ));
+    }
+
     #[test]
     fn weak_import_uses_independent_catalog_runtime_and_shared_version_parsing() {
         let original = Track {

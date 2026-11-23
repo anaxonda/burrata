@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remember-track-album-choice"
+description = "Enables the remember_track_album_choice command without any pre-configured scope."
+commands.allow = ["remember_track_album_choice"]
+
+[[permission]]
+identifier = "deny-remember-track-album-choice"
+description = "Denies the remember_track_album_choice command without any pre-configured scope."
+commands.deny = ["remember_track_album_choice"]

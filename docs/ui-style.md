@@ -36,7 +36,7 @@ In Settings, size forms against the settings pane. Keep label and help text with
 - Respect reduced motion preferences. Keep loading text visible while work is pending. For a recoverable failure, name the failed action and provide the available next step.
 - Try a 320 CSS pixel viewport and increased text size. Keep supporting text near its control and give long labels room to wrap.
 
-App-wide action feedback appears in the upper-right notification stack. Use a polite status for confirmations and an alert for errors that need attention. Keep field validation beside its field and persistent playback diagnostics with the player.
+App-wide action feedback appears in the right-aligned notification region below the page header and workspace tabs. Let visible messages take up space so page content and navigation remain accessible. Use a polite status for confirmations and an alert for errors that need attention. Playback failures and skipped-track notices use the same region. Keep field validation beside its field.
 
 ## Checking a change
 

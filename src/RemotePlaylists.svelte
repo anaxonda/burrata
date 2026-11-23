@@ -54,6 +54,7 @@
     paused?: boolean;
   } = $props();
   const providerReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
+  const pinnedProfile = $derived(profileOnly || (initialProvider === "youtube" && Boolean(initialOwner.trim())));
 
   let provider = $state<Provider>("spotify");
   let channelTab = $state<"videos" | "playlists">("videos");
@@ -112,7 +113,7 @@
   const RESTORE_BUDGET_MS = 120_000;
   const MAX_IMPORT_SELECTION = 500;
 
-  $effect(() => { provider; channelTab; if (!(profileOnly && provider === "youtube" && channelTab === "videos")) void loadBindings(); });
+  $effect(() => { provider; channelTab; if (!(pinnedProfile && provider === "youtube" && channelTab === "videos")) void loadBindings(); });
   $effect(() => { provider = initialProvider; });
   onMount(() => { provider = initialProvider; void restoreOrBrowse(); });
   onDestroy(() => {
@@ -134,7 +135,7 @@
     if (!isCurrent()) return;
     accountScope = scope;
     const saved = providerNavigationSnapshots.get<PlaylistsSnapshot>("playlists", routeKey, accountScope);
-    if (saved && isCurrent() && (!profileOnly || saved.sourceMode === "profile")) {
+    if (saved && isCurrent() && (!pinnedProfile || (saved.sourceMode === "profile" && saved.profileUrl.trim() === initialOwner.trim()))) {
       if (initialOwner.trim() && initialProvider === "youtube" && saved.channelTab === "videos") {
         provider = "youtube"; sourceMode = "profile"; profileUrl = initialOwner.trim(); channelTab = "videos";
         void browseYoutubeChannelVideos(true);
@@ -305,6 +306,9 @@
   }
 
   function getBrowseDescriptor(): BrowseDescriptor {
+    if (initialProvider === "youtube" && initialOwner.trim()) {
+      return { provider: "youtube", mode: "profile", profileUrl: initialOwner.trim(), query: "", searchKind: "playlist" };
+    }
     return { provider, mode: sourceMode, profileUrl: profileUrl.trim(), query: query.trim(), searchKind };
   }
   function sameBrowseDescriptor(a: BrowseDescriptor, b: BrowseDescriptor) {
@@ -322,7 +326,8 @@
       if (!descriptor.query) throw new Error("Enter a playlist or channel to search for.");
       return await providerReads.read<BrowseResult>("search_remote_playlists", { provider: descriptor.provider, query: descriptor.query, kind: descriptor.searchKind, ...(pageCursor ? { cursor: pageCursor } : {}) });
     }
-    const ownerId = descriptor.mode === "profile" ? descriptor.profileUrl : undefined;
+    const profile = descriptor.mode === "profile" ? descriptor.profileUrl : undefined;
+    const ownerId = descriptor.provider === "youtube" && profile ? youtubeChannelOwner(profile) ?? profile : profile;
     if (descriptor.mode === "profile" && !ownerId) throw new Error("Enter a public profile or channel URL.");
     if (descriptor.mode === "profile" && descriptor.provider === "spotify" && !isSpotifyProfileReference(ownerId!)) throw new Error("For a Spotify display name, use Search profiles and choose a result. Browse directly with an official Spotify profile URL or user ID.");
     return await providerReads.read<BrowseResult>("list_remote_playlists", { provider: descriptor.provider, ...(ownerId ? { ownerId } : {}), ...(pageCursor ? { cursor: pageCursor } : {}) });
@@ -598,7 +603,7 @@
 </script>
 
 <section class="remote-playlists" aria-label={provider === "youtube" && initialOwner.trim() ? "YouTube channel" : provider === "spotify" ? "Spotify playlists" : "YouTube playlists"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
-  {#if profileOnly}
+  {#if pinnedProfile}
     {@const channelUrl = provider === "youtube" ? safeYoutubeChannelUrl(profileUrl) : null}
     <header class="remote-profile-heading"><div><span>{provider === "youtube" ? "YouTube channel" : "Public playlists by"}</span><strong title={profileUrl}>{provider === "youtube" ? channelPage?.title || profileUrl : profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || channelLoading || selectingAll || importing} onclick={() => channelTab === "videos" && provider === "youtube" ? void browseYoutubeChannelVideos(true) : void browse()}>{channelTab === "videos" && provider === "youtube" ? "Refresh videos" : "Refresh"}</button></header>
   {:else}<nav class="remote-provider-tabs section-switcher" aria-label="Playlist provider">
@@ -606,10 +611,6 @@
     <button class:active={provider === "youtube"} aria-pressed={provider === "youtube"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "youtube"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>YouTube</button>
     <button class="remote-close" aria-label="Close remote playlist picker" onclick={onClose}>×</button>
   </nav>{/if}
-  {#if !profileOnly && provider === "youtube" && initialOwner.trim()}
-    {@const channelUrl = safeYoutubeChannelUrl(profileUrl)}
-    <header class="remote-profile-heading"><div><span>YouTube channel</span><strong title={profileUrl}>{channelPage?.title || profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || channelLoading || selectingAll || importing} onclick={() => channelTab === "videos" ? void browseYoutubeChannelVideos(true) : void browse()}>{channelTab === "videos" ? "Refresh videos" : "Refresh"}</button></header>
-  {/if}
 
   <div class="remote-picker-grid">
     {#if provider === "youtube" && initialOwner.trim()}
@@ -635,14 +636,14 @@
       </section>
     {:else}
     <section class="remote-picker-main" aria-label="Browse remote playlists">
-      {#if !profileOnly}<div class="remote-source-tabs section-switcher" aria-label="Playlist source">
+      {#if !pinnedProfile}<div class="remote-source-tabs section-switcher" aria-label="Playlist source">
         <button class:active={sourceMode === "mine"} aria-pressed={sourceMode === "mine"} disabled={selectingAll || importing} onclick={() => changeSourceMode("mine")}>Mine</button>
         <button class:active={sourceMode === "profile"} aria-pressed={sourceMode === "profile"} disabled={selectingAll || importing} onclick={() => changeSourceMode("profile")}>Public profile / channel</button>
         <button class:active={sourceMode === "search"} aria-pressed={sourceMode === "search"} disabled={selectingAll || importing} onclick={() => changeSourceMode("search")}>Search</button>
         <button class:active={sourceMode === "url"} aria-pressed={sourceMode === "url"} disabled={selectingAll || importing} onclick={() => changeSourceMode("url")}>Playlist URL</button>
       </div>{/if}
-      {#if profileOnly}
-        <p class="remote-profile-scope">{providerName(provider)} profile · playlist pages stay scoped to this profile.</p>
+      {#if pinnedProfile}
+        <p class="remote-profile-scope">{provider === "youtube" ? "Public playlists from this YouTube channel" : "Public playlists from this Spotify profile"}</p>
       {:else if sourceMode === "profile"}
         <form class="remote-search-form" onsubmit={event => { event.preventDefault(); void browse(); }}>
           <input aria-label={provider === "spotify" ? "Spotify profile name, URL, or user ID" : "YouTube channel URL or ID"} bind:value={profileUrl} oninput={invalidateBrowseContext} disabled={selectingAll || importing} placeholder={provider === "spotify" ? "Spotify profile name, URL, or user ID" : "YouTube channel URL or ID"} />
@@ -701,7 +702,7 @@
             {#if importedIds.includes(item.id) || item.imported}<span class="remote-imported">Imported</span>{/if}
           </li>
         {/each}
-        {:else if !loading && !error}<li class="remote-empty">{profileOnly ? `No public playlists found for ${provider === "youtube" ? "this YouTube channel" : "this profile"}.` : "No playlists shown. Choose a source and browse."}</li>
+        {:else if !loading && !error}<li class="remote-empty">{pinnedProfile ? `No public playlists found for ${provider === "youtube" ? "this YouTube channel" : "this profile"}.` : "No playlists shown. Choose a source and browse."}</li>
         {/if}
       </ul>
       {#if cursor}<button class="remote-more" disabled={loading || selectingAll} onclick={() => void browse(false)}>Load more</button>{/if}

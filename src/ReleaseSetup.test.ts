@@ -3,8 +3,8 @@
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { callMock } = vi.hoisted(() => ({ callMock: vi.fn() }));
-vi.mock("./lib/api", () => ({ call: callMock, desktop: () => true }));
+const { callMock, listenMock } = vi.hoisted(() => ({ callMock: vi.fn(), listenMock: vi.fn(async (_event: string, _callback: (event: { payload: unknown }) => void) => () => {}) }));
+vi.mock("./lib/api", () => ({ call: callMock, desktop: () => true, listen: listenMock }));
 // @ts-expect-error Match the browser runtime used by the direct import above.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import ReleaseSetup from "./ReleaseSetup.svelte";
@@ -16,7 +16,7 @@ const setup = (overrides: Record<string, unknown> = {}) => ({
 });
 const youtube = { bundledVersion: "2026.01", managedVersion: null, activeVersion: "2026.01", activeSource: "bundled", updateAvailable: null, recommendedUpdate: "Not checked", advancedUpdate: "Official nightly", provider: { version: "2.0.2", available: true, helperRunning: false, message: "Anonymous provider is available." } };
 let destroy: (() => void) | undefined;
-afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; callMock.mockReset(); });
+afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; callMock.mockReset(); listenMock.mockClear(); });
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); }
 function render(props: Record<string, unknown> = {}) {
   const target = document.createElement("div"); document.body.append(target);
@@ -110,23 +110,128 @@ describe("ReleaseSetup", () => {
     const advanced = [...target.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Advanced options")!;
     expect(advanced.open).toBe(false);
     expect(target.textContent).not.toContain("needs attention");
+    expect(target.textContent).toContain(`yt-dlp ${youtube.activeVersion} · Included with Burrata`);
+    expect(target.textContent).toContain("Installs a newer stable release when available.");
     expect(button(target, "Update yt-dlp").closest("details")).toBeNull();
-    expect(advanced.contains(button(target, "Install nightly build"))).toBe(true);
+    expect(advanced.contains(button(target, "Install latest nightly build"))).toBe(true);
     expect(advanced.contains(button(target, "Check YouTube audio access"))).toBe(true);
     expect(callMock.mock.calls.some(([command]) => command === "youtube_support_diagnose" || command === "youtube_support_update")).toBe(false);
+  });
+
+  it.each([
+    ["managed", "Installed version: yt-dlp 2026.10.26", "recorded during installation"],
+    ["bundled", "Installed version: Unknown", "couldn’t verify the yt-dlp version"],
+  ])("labels the installed version when the %s executable probe fails", async (activeSource, label, note) => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") {
+        return { ...youtube, activeSource, activeVersion: null, managedVersion: "2026.10.26" };
+      }
+      if (command === "youtube_support_check") return { version: "2026.11.21.232659", available: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    expect(target.querySelector(".tool-version")?.textContent).toContain(label);
+    expect(target.textContent).toContain(note);
   });
 
   it.each([youtube.activeVersion, "2026.10.26"])("updates the stable yt-dlp channel in one click (%s)", async (activeVersion) => {
     callMock.mockImplementation(async (command: string) => {
       if (command === "get_release_setup") return setup({ setupComplete: true });
       if (command === "youtube_support_status") return youtube;
-      if (command === "youtube_support_update") return { ...youtube, activeVersion, activeSource: "managed" };
+      if (command === "youtube_support_update") return activeVersion === youtube.activeVersion ? youtube : { ...youtube, activeVersion, activeSource: "managed" };
       throw new Error(`Unexpected command ${command}`);
     });
     const target = render({ category: "advanced" }); await settle();
     button(target, "Update yt-dlp").click(); await settle();
-    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable" });
-    expect(target.textContent).toContain(activeVersion === youtube.activeVersion ? "yt-dlp is up to date." : `Updated yt-dlp to ${activeVersion}.`);
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable", operationId: expect.any(String) });
+    expect(target.textContent).toContain(activeVersion === youtube.activeVersion
+      ? "Your yt-dlp is already as recent as the latest stable release."
+      : `Installed yt-dlp ${activeVersion} (stable release).`);
+  });
+
+  it("opts into the latest nightly and can restore the previously active version", async () => {
+    const activeVersion = "2026.11.20.232656";
+    let finishUpdate!: (value: unknown) => void;
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status" || command === "youtube_support_rollback") return youtube;
+      if (command === "youtube_support_update") return new Promise(resolve => { finishUpdate = resolve; });
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    const nightly = button(target, "Install latest nightly build");
+    nightly.closest("details")!.open = true;
+    nightly.click(); await settle();
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "nightly", operationId: expect.any(String) });
+    expect(button(target, "Update yt-dlp").disabled).toBe(true);
+    expect(target.textContent).toContain("Installing the latest yt-dlp nightly…");
+    finishUpdate({ ...youtube, activeVersion, managedVersion: activeVersion, activeSource: "managed" });
+    await settle();
+    expect(target.textContent).toContain(`yt-dlp ${activeVersion} · Installed update`);
+    expect(target.textContent).toContain(`Installed yt-dlp ${activeVersion} (nightly build).`);
+    button(target, "Restore previous version").click(); await settle();
+    expect(callMock).toHaveBeenCalledWith("youtube_support_rollback");
+    expect(target.textContent).toContain(`Restored yt-dlp ${youtube.activeVersion}.`);
+    expect(target.textContent).toContain("Included with Burrata");
+  });
+
+  it("shows an update failure while keeping the active version visible", async () => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_update") throw new Error("Compatibility probe failed");
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    button(target, "Update yt-dlp").click(); await settle();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Compatibility probe failed");
+    expect(target.textContent).toContain(`yt-dlp ${youtube.activeVersion} · Included with Burrata`);
+    expect(button(target, "Update yt-dlp").disabled).toBe(false);
+  });
+
+  it("shows available stable releases and scoped byte progress through verification", async () => {
+    const activeVersion = "2026.10.26";
+    const stop = vi.fn();
+    let operationId = "";
+    let finishUpdate!: (value: unknown) => void;
+    let onProgress!: (event: { payload: unknown }) => void;
+    listenMock.mockImplementationOnce(async (_event, callback) => {
+      onProgress = callback;
+      return stop;
+    });
+    callMock.mockImplementation(async (command: string, args?: { operationId: string }) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_check") return { version: activeVersion, available: !operationId };
+      if (command === "youtube_support_update") {
+        operationId = args!.operationId;
+        return new Promise(resolve => { finishUpdate = resolve; });
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    expect(target.textContent).toContain(`yt-dlp ${activeVersion} is available (stable release).`);
+    button(target, "Update yt-dlp").click(); await settle();
+    const event = (op: string, progress: unknown) => onProgress({ payload: { operationId: op, progress } });
+    event("old deferred operation", { stage: "downloading", receivedBytes: 50, totalBytes: 100 });
+    await settle();
+    expect(target.querySelector("progress")).toBeNull();
+    event(operationId, { stage: "downloading", receivedBytes: 50, totalBytes: 100 });
+    await settle();
+    expect(target.querySelector("progress")?.value).toBe(50);
+    expect(target.textContent).toContain("50%");
+    event(operationId, { stage: "downloading", receivedBytes: 1_048_576, totalBytes: null });
+    await settle();
+    expect(target.querySelector("progress")?.hasAttribute("value")).toBe(false);
+    expect(target.textContent).toContain("1.0 MiB downloaded");
+    event(operationId, { stage: "verifying" });
+    await settle();
+    expect(target.textContent).toContain("Verifying the download");
+    finishUpdate({ ...youtube, activeVersion, activeSource: "managed" });
+    await settle();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(target.textContent).toContain(`Latest stable release is ${activeVersion}.`);
   });
 
   it("keeps system or custom yt-dlp under its owner's control", async () => {
@@ -136,7 +241,7 @@ describe("ReleaseSetup", () => {
     const target = render({ category: "advanced" }); await settle();
     expect(target.textContent).toContain("Update your configured yt-dlp outside Burrata.");
     expect(button(target, "Update yt-dlp")).toBeUndefined();
-    expect(button(target, "Install nightly build")).toBeUndefined();
+    expect(button(target, "Install latest nightly build")).toBeUndefined();
   });
 
   it("keeps audio diagnosis independent of updates", async () => {
@@ -151,6 +256,6 @@ describe("ReleaseSetup", () => {
     expect(callMock).toHaveBeenCalledWith("youtube_support_diagnose", {});
     expect(target.textContent).toContain("Try the check again. If it still fails, update yt-dlp.");
     expect(target.textContent).toContain("Public audio could not be reached.");
-    expect(callMock.mock.calls.some(([command]) => ["youtube_support_update", "youtube_support_check"].includes(command))).toBe(false);
+    expect(callMock.mock.calls.some(([command]) => command === "youtube_support_update")).toBe(false);
   });
 });

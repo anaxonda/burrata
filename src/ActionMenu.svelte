@@ -2,9 +2,10 @@
   import { onMount, type Snippet } from "svelte";
   import { positionContextMenu, type MenuAnchorRect } from "./lib/menu-geometry";
 
-  let { label, title, subtitle, closeLabel = "Close actions", anchor = null, anchorRect = null, playerHeight = 90, role = "dialog", class: className = "", children, badge, onClose }: {
+  let { label, title, subtitle, closeLabel = "Close actions", anchor = null, anchorRect = null, anchorAlign = "end", playerHeight = 90, role = "dialog", class: className = "", children, badge, onClose }: {
     label: string; title?: string; subtitle?: string; closeLabel?: string;
     anchor?: { x: number; y: number } | null; anchorRect?: MenuAnchorRect | null; playerHeight?: number;
+    anchorAlign?: "start" | "end";
     role?: "dialog" | "menu"; class?: string; children: Snippet; badge?: Snippet; onClose: () => void;
   } = $props();
   let dialog: HTMLDialogElement;
@@ -14,7 +15,7 @@
   const position = $derived.by(() => {
     const width = Math.min(menuWidth || 320, Math.max(0, viewportWidth - 16));
     const height = menuHeight || 240;
-    if (anchorRect) return positionContextMenu(anchorRect, { width, height }, { width: viewportWidth, height: viewportHeight }, playerHeight);
+    if (anchorRect) return positionContextMenu(anchorRect, { width, height }, { width: viewportWidth, height: viewportHeight }, playerHeight, 8, anchorAlign);
     const bottom = Math.max(8, viewportHeight - Math.max(0, playerHeight) - 8);
     return { left: Math.max(8, Math.min(anchor?.x ?? 8, viewportWidth - width - 8)), top: Math.max(8, Math.min(anchor?.y ?? 8, bottom - height)), maxHeight: Math.max(0, bottom - 8) };
   });

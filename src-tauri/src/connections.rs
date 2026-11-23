@@ -10,6 +10,48 @@ use std::{
 const KEYRING_SERVICE: &str = "burrata";
 const SETTINGS_KEY: &str = "connections";
 const SESSION_ONLY_KEY: &str = "connections_session_only";
+const APPLICATION_CREDENTIALS: &[&str] = &[
+    "slskd",
+    "discogs",
+    "lastfm",
+    "acoustid",
+    "lyrics_translation",
+];
+
+/// Reset only this application's five registered keyring identities. Isolated
+/// profiles suppress the shared credential lookup without deleting it.
+pub(crate) fn reset_profile_credentials(
+    store: &Store,
+    default_profile: bool,
+) -> Result<Vec<String>, String> {
+    reset_credentials(
+        store,
+        default_profile.then_some(&OsCredentialStore as &dyn CredentialStore),
+    )
+}
+
+fn reset_credentials(
+    store: &Store,
+    keyring: Option<&dyn CredentialStore>,
+) -> Result<Vec<String>, String> {
+    let failed: Vec<&str> = if let Some(keyring) = keyring {
+        APPLICATION_CREDENTIALS
+            .iter()
+            .copied()
+            .filter(|provider| keyring.delete(provider).is_err())
+            .collect()
+    } else {
+        APPLICATION_CREDENTIALS.to_vec()
+    };
+    if !failed.is_empty() {
+        store.set_json_preference(SESSION_ONLY_KEY, &serde_json::json!(failed))?;
+    }
+    Ok(if keyring.is_some() && !failed.is_empty() {
+        vec!["The system keyring could not remove every Burrata API credential. Burrata has disabled access to those entries. Unlock the keyring and remove Burrata's entries before reconnecting.".into()]
+    } else {
+        Vec::new()
+    })
+}
 
 trait CredentialStore: Send + Sync {
     fn get(&self, provider: &str) -> Result<Option<String>, String>;
@@ -645,6 +687,34 @@ mod tests {
             self.0.lock().unwrap().remove(provider);
             Ok(())
         }
+    }
+
+    #[test]
+    fn factory_reset_scopes_deletion_and_suppresses_unremoved_credentials() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let keyring = Arc::new(MemoryKeyring::default());
+        keyring.set("discogs", "recorded-token").unwrap();
+        keyring.set("unrelated", "keep").unwrap();
+        let manager = ConnectionManager::with_keyring(store.clone(), keyring.clone());
+        assert!(reset_credentials(&store, None).unwrap().is_empty());
+        assert_eq!(
+            keyring.get("discogs").unwrap().as_deref(),
+            Some("recorded-token")
+        );
+        assert_eq!(manager.credential("discogs").unwrap(), None);
+        assert_eq!(
+            reset_credentials(&store, Some(&FailingKeyring))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(manager.credential("discogs").unwrap(), None);
+        assert!(reset_credentials(&store, Some(keyring.as_ref()))
+            .unwrap()
+            .is_empty());
+        assert_eq!(keyring.get("discogs").unwrap(), None);
+        assert_eq!(keyring.get("unrelated").unwrap().as_deref(), Some("keep"));
     }
 
     #[test]

@@ -3,6 +3,9 @@
 //! The source files remain user-owned. This module records canonical source bindings,
 //! keeps immutable content snapshots in the application database, and writes app-owned
 //! mirrors atomically under `Music/Playlists`.
+
+#[path = "dj_playlist_xml.rs"]
+mod dj_playlist_xml;
 use crate::{
     models::{Candidate, Settings, Track},
     playlist_files,
@@ -242,13 +245,14 @@ fn sync_incremental(
     history: Option<&crate::playback_history::PlaybackHistory>,
     force: bool,
 ) -> Result<PlaylistSyncStatus> {
-    if !settings.playlist_mirroring_enabled {
-        return Ok(PlaylistSyncStatus::default());
-    }
     let _library_write = store.try_library_write()?;
     let _guard = PLAYLIST_SYNC_LOCK
         .lock()
         .map_err(|_| "Playlist sync lock is unavailable")?;
+    let policy = crate::playlist_mirror_options::get_playlist_mirror_policy(store)?;
+    if !settings.playlist_mirroring_enabled {
+        return sync_dj_xml_only(store, settings, &policy);
+    }
     if force {
         *store
             .playlist_incremental
@@ -273,14 +277,18 @@ fn sync_incremental(
         crate::playlist_incremental::stamp_path(&mut dependency_hash, Path::new(&path));
     }
     let files = format!("{:x}", dependency_hash.finalize());
+    let mut dj_playlists = dj_playlist_ids(&policy).collect::<Vec<_>>();
+    dj_playlists.sort_unstable();
     let token = format!(
-        "{}:{}:{:?}:{}:{:?}:{:?}",
+        "{}:{}:{:?}:{}:{:?}:{:?}:{:?}:{:?}",
         revisions.generation,
         revisions.external,
         history_revision,
         files,
         roots,
-        chrono::Utc::now().date_naive()
+        chrono::Utc::now().date_naive(),
+        dj_playlists,
+        settings.dj_xml_target_music_root
     );
     {
         let mut cache = store
@@ -359,13 +367,14 @@ fn sync_playlists_with_scan_and_history(
     scan: playlist_files::LocalPlaylistScan,
     history: Option<&crate::playback_history::PlaybackHistory>,
 ) -> Result<PlaylistSyncStatus> {
-    if !settings.playlist_mirroring_enabled {
-        return Ok(PlaylistSyncStatus::default());
-    }
     let _library_write = store.try_library_write()?;
     let _guard = PLAYLIST_SYNC_LOCK
         .lock()
         .map_err(|_| "Playlist sync lock is unavailable")?;
+    if !settings.playlist_mirroring_enabled {
+        let policy = crate::playlist_mirror_options::get_playlist_mirror_policy(store)?;
+        return sync_dj_xml_only(store, settings, &policy);
+    }
     reconcile_scan(store, settings, scan, history)
 }
 
@@ -624,6 +633,7 @@ fn reconcile_scan(
     } else {
         status.mirrors_directory =
             write_mirrors(store, settings, &mut state, &mut status.warnings, history)?;
+        update_dj_xml(store, settings, &mirror_policy, &mut status.warnings);
     }
     if perf_trace {
         eprintln!(
@@ -3107,6 +3117,154 @@ fn relative_path_resource(mirror_directory: &Path, asset: &Path) -> Result<Strin
 
 /// Export available local files to a deterministic Mixxx-compatible M3U8 location.
 /// Remote and unavailable entries are reported and never emitted as stream URLs.
+pub(crate) fn validate_dj_xml_target_root(value: &str) -> Result<()> {
+    dj_playlist_xml::target_root(value).map(|_| ())
+}
+
+fn dj_xml_path(settings: &Settings) -> Option<PathBuf> {
+    mirrors_dir(settings).map(|root| root.join(dj_playlist_xml::ITUNES_NAME))
+}
+
+fn dj_playlist_ids(
+    policy: &crate::playlist_mirror_options::PlaylistMirrorPolicy,
+) -> impl Iterator<Item = &str> {
+    policy
+        .playlists
+        .iter()
+        .filter(|(id, options)| id.as_str() != "history" && options.include_dj_xml)
+        .map(|(id, _)| id.as_str())
+}
+
+pub(crate) fn automatic_mirrors_enabled(store: &Store, settings: &Settings) -> Result<bool> {
+    if settings.playlist_mirroring_enabled {
+        return Ok(true);
+    }
+    let policy = crate::playlist_mirror_options::get_playlist_mirror_policy(store)?;
+    Ok(dj_playlist_ids(&policy).next().is_some()
+        || dj_xml_path(settings).is_some_and(|path| path.is_file()))
+}
+
+fn sync_dj_xml_only(
+    store: &Store,
+    settings: &Settings,
+    policy: &crate::playlist_mirror_options::PlaylistMirrorPolicy,
+) -> Result<PlaylistSyncStatus> {
+    let mut status = PlaylistSyncStatus::default();
+    if dj_playlist_ids(policy).next().is_none()
+        && dj_xml_path(settings).is_none_or(|path| !path.is_file())
+    {
+        return Ok(status);
+    }
+    if read_runtime_state(store)?.writes_paused {
+        status.warnings.push("DJ XML updates are paused after restore. Review and resume playlist sync on this device.".into());
+    } else {
+        update_dj_xml(store, settings, policy, &mut status.warnings);
+    }
+    Ok(status)
+}
+
+fn update_dj_xml(
+    store: &Store,
+    settings: &Settings,
+    policy: &crate::playlist_mirror_options::PlaylistMirrorPolicy,
+    warnings: &mut Vec<String>,
+) {
+    match write_dj_xml(store, settings, policy) {
+        Ok(skipped) if skipped > 0 => warnings.push(format!(
+            "DJ XML skipped {skipped} playlist entries without an available local file"
+        )),
+        Ok(_) => {}
+        Err(error) => warnings.push(format!("Could not update DJ XML: {error}")),
+    }
+}
+
+fn write_dj_xml(
+    store: &Store,
+    settings: &Settings,
+    policy: &crate::playlist_mirror_options::PlaylistMirrorPolicy,
+) -> Result<usize> {
+    let mut selected = dj_playlist_ids(policy).collect::<HashSet<_>>();
+    let Some(root) = mirrors_dir(settings) else {
+        return if selected.is_empty() {
+            Ok(0)
+        } else {
+            Err("Choose a music directory first".into())
+        };
+    };
+    let target = root.join(dj_playlist_xml::ITUNES_NAME);
+    let existing = match fs::symlink_metadata(&target) {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                return if selected.is_empty() {
+                    Ok(0)
+                } else {
+                    Err("The DJ XML target is not a regular file".into())
+                };
+            }
+            use std::io::Read;
+            let mut prefix = Vec::new();
+            fs::File::open(&target)
+                .and_then(|file| file.take(256).read_to_end(&mut prefix))
+                .map_err(|error| format!("Cannot inspect the DJ XML file: {error}"))?;
+            if !prefix
+                .split(|byte| *byte == b'\n')
+                .any(|line| line == dj_playlist_xml::OWNER.as_bytes())
+            {
+                return if selected.is_empty() {
+                    Ok(0)
+                } else {
+                    Err("The DJ XML filename is already used by an unmanaged file".into())
+                };
+            }
+            Some(metadata)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if selected.is_empty() {
+                return Ok(0);
+            }
+            None
+        }
+        Err(error) => return Err(format!("Cannot inspect the DJ XML file: {error}")),
+    };
+    let favorites = selected.remove("favorites");
+    let mut playlists = Vec::new();
+    if !selected.is_empty() {
+        let mut collections = store.list_collections()?;
+        collections.sort_unstable_by(|left, right| left.id.cmp(&right.id));
+        for collection in collections {
+            if selected.contains(collection.id.as_str()) {
+                let tracks = current_collection_tracks(store, &collection.id)?;
+                playlists.push((collection.id, collection.name, tracks));
+            }
+        }
+    }
+    if favorites {
+        playlists.push((
+            "favorites".into(),
+            "Liked Songs".into(),
+            store.list_tracks("favorites", None)?,
+        ));
+    }
+    if playlists.is_empty() && existing.is_none() {
+        return Ok(0);
+    }
+    let destination = dj_playlist_xml::target_root(&settings.dj_xml_target_music_root)?;
+    let document = dj_playlist_xml::render(
+        playlists,
+        Path::new(&settings.music_directory),
+        destination.as_ref(),
+    )?;
+    if existing.is_some_and(|metadata| metadata.len() == document.body.len() as u64)
+        && fs::read(&target).is_ok_and(|current| current == document.body.as_bytes())
+    {
+        return Ok(document.skipped);
+    }
+    fs::create_dir_all(&root)
+        .map_err(|error| format!("Cannot create playlist mirror folder: {error}"))?;
+    atomic_write(&target, document.body.as_bytes())?;
+    Ok(document.skipped)
+}
+
 pub fn export_mixxx_playlist(
     store: &Store,
     settings: &Settings,
@@ -3998,7 +4156,9 @@ pub fn resume_reviewed_restored_playlist_sync(
     settings: &Settings,
     expected_review_token: &str,
 ) -> Result<()> {
-    require_playlist_mirroring_enabled(settings)?;
+    if !automatic_mirrors_enabled(store, settings)? {
+        return Err("Turn on M3U8 copies or select a playlist for DJ XML first".into());
+    }
     let _library_write = store.try_library_write()?;
     let _guard = PLAYLIST_SYNC_LOCK
         .lock()
@@ -4499,6 +4659,7 @@ fn effective_render_options(
         && legacy_mirror_search_fallback_in_state(settings, state, collection_id)?;
     Ok(crate::playlist_mirror_options::PlaylistMirrorOptions {
         included: options.included,
+        include_dj_xml: options.include_dj_xml,
         include_media_links: Some(options.include_media_links.unwrap_or(default_media_links)),
         include_ytdlp_search: Some(options.include_ytdlp_search.unwrap_or(default_ytdlp_search)),
     })
@@ -8306,6 +8467,88 @@ mod tests {
             })
             .unwrap();
         track
+    }
+
+    #[test]
+    fn dj_xml_syncs_without_m3u_and_clears_deselected_playlists() {
+        use crate::playlist_mirror_options::{set_playlist_mirror_options, PlaylistMirrorOptions};
+
+        let directory = tempfile::tempdir().unwrap();
+        let music = directory.path().join("Music");
+        fs::create_dir(&music).unwrap();
+        let store = Store::open(&directory.path().join("db.sqlite")).unwrap();
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_mirroring_enabled: false,
+            ..Settings::default()
+        };
+        let collection = store.create_collection("Selected & Local").unwrap();
+        let other = store.create_collection("Omitted").unwrap();
+        let first = save_local(&store, &music.join("one.mp3"), "first", "Artist", "First");
+        let second = save_local(&store, &music.join("two.mp3"), "second", "Artist", "Second");
+        store
+            .replace_playlist_entries(&collection.id, &[second.clone(), first, second])
+            .unwrap();
+        store.replace_playlist_entries(&other.id, &[]).unwrap();
+
+        let target = dj_xml_path(&settings).unwrap();
+        assert!(!automatic_mirrors_enabled(&store, &settings).unwrap());
+        sync_playlists(&store, &settings).unwrap();
+        assert!(!target.exists());
+        set_playlist_mirror_options(
+            &store,
+            &collection.id,
+            PlaylistMirrorOptions {
+                included: false,
+                include_dj_xml: true,
+                include_media_links: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(automatic_mirrors_enabled(&store, &settings).unwrap());
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, b"unmanaged").unwrap();
+        assert!(sync_playlists(&store, &settings).unwrap().warnings[0].contains("unmanaged"));
+        assert_eq!(fs::read(&target).unwrap(), b"unmanaged");
+        fs::remove_file(&target).unwrap();
+
+        assert!(sync_playlists(&store, &settings)
+            .unwrap()
+            .warnings
+            .is_empty());
+        let original = fs::read_to_string(&target).unwrap();
+        assert!(original.contains("Selected &amp; Local"));
+        assert!(!original.contains("Omitted"));
+        assert_eq!(fs::read_dir(target.parent().unwrap()).unwrap().count(), 1);
+        let items = original
+            .split_once("<key>Playlist Items</key><array>")
+            .unwrap()
+            .1;
+        let ids = items
+            .split("<key>Track ID</key><integer>")
+            .skip(1)
+            .map(|row| row.split_once("</integer>").unwrap().0)
+            .collect::<Vec<_>>();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids[0], ids[2]);
+        assert_ne!(ids[0], ids[1]);
+
+        set_playlist_mirror_options(&store, &collection.id, PlaylistMirrorOptions::default())
+            .unwrap();
+        store
+            .save_playlist_sync_state(&restored_sync_state())
+            .unwrap();
+        assert!(
+            sync_playlists(&store, &settings).unwrap().warnings[0].contains("paused after restore")
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), original);
+        let review = preview_restored_playlist_sync(&store, &settings).unwrap();
+        resume_reviewed_restored_playlist_sync(&store, &settings, &review.review_token).unwrap();
+        sync_playlists(&store, &settings).unwrap();
+        assert!(fs::read_to_string(&target)
+            .unwrap()
+            .contains("<key>Playlists</key><array>\n</array>"));
     }
 
     #[test]

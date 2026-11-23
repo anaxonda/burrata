@@ -46,7 +46,7 @@ const TARGETS: ReadonlyArray<[PlaybackLayoutRole, string]> = [
   ["scrubber", "footer.player .player-scrubber"],
   ["right", "footer.player .player-right"],
   ["quality", "footer.player .now-playing .playback-quality"],
-  ["error", "footer.player .player-error[role='alert']"],
+  ["error", ".notification-stack .player-error[role='alert']"],
   ["queue_panel", "aside.playback-queue-panel"],
   ["queue_header", "aside.playback-queue-panel > header.queue-header"],
   ["queue_title", "aside.playback-queue-panel > header.queue-header h2"],

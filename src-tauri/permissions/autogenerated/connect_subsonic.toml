@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connect-subsonic"
+description = "Enables the connect_subsonic command without any pre-configured scope."
+commands.allow = ["connect_subsonic"]
+
+[[permission]]
+identifier = "deny-connect-subsonic"
+description = "Denies the connect_subsonic command without any pre-configured scope."
+commands.deny = ["connect_subsonic"]

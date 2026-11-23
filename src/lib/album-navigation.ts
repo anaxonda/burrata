@@ -1,6 +1,8 @@
 import type { Track } from "./types";
 import type { ArtistRef, ArtistReleaseRef } from "./artist-types";
 
+export const ALBUM_LOOKUP_PENDING = Symbol("album lookup pending");
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -54,17 +56,28 @@ export function albumLookupArtist(track: Track): string {
 
 /** Preserve exact catalog release identities instead of starting a new search. */
 export function directCatalogAlbumTarget(track: Track): { release: ArtistReleaseRef; artist: ArtistRef } | null {
-  if (track.provider !== "catalog") return null;
-  const provenance = record(track.provenance), provider = provenance.catalogProvider;
+  const provenance = record(track.provenance);
+  const recordingRow = track.provider === "musicbrainz";
+  if (track.provider !== "catalog" && !recordingRow) return null;
+  const provider = recordingRow ? "musicbrainz" : provenance.catalogProvider;
   if (provider !== "musicbrainz" && provider !== "discogs") return null;
   const validId = (value: unknown): value is string => typeof value === "string" && (provider === "musicbrainz"
     ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     : /^[1-9][0-9]{0,19}$/.test(value) && BigInt(value) <= 18446744073709551615n);
   if (!validId(provenance.releaseId)) return null;
+  const catalog = record(provenance.catalog);
+  if (recordingRow && (
+    catalog.verified !== true || catalog.provider !== "musicbrainz" ||
+    !validId(track.providerId) || catalog.recordingId !== track.providerId ||
+    track.id !== `musicbrainz:${track.providerId}` ||
+    track.sourceUrl !== `https://musicbrainz.org/recording/${track.providerId}` ||
+    ["title", "artist", "album", "version"].some(field => record(provenance.manualFields)[field] === true)
+  )) return null;
   const releaseId = provenance.releaseId;
   const sourceUrl = provider === "musicbrainz" ? `https://musicbrainz.org/release/${releaseId}` : `https://www.discogs.com/release/${releaseId}`;
-  const credits = (Array.isArray(provenance.artistCredits) ? provenance.artistCredits : []).flatMap(value => {
-    const credit = record(value), artist = record(credit.artist);
+  const sourceCredits = recordingRow ? catalog.artists : provenance.artistCredits;
+  const credits = (Array.isArray(sourceCredits) ? sourceCredits : []).flatMap(value => {
+    const credit = record(value), artist = recordingRow ? credit : record(credit.artist);
     if (artist.provider !== provider || !validId(artist.id) || typeof credit.name !== "string" || !credit.name.trim()) return [];
     return [{name: credit.name, artist: {provider, id: artist.id} as ArtistRef,
       role: typeof credit.role === "string" ? credit.role : "artist credit",

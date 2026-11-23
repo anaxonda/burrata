@@ -2620,20 +2620,63 @@ fn merge_lyric_tag(path: &Path, text: &str) -> Result<(), String> {
     ) {
         return Err("This audio format does not support embedded lyrics".into());
     }
-    if tagged.tag(tag_type).is_none() {
-        tagged.insert_tag(Tag::new(tag_type));
+    if tagged.file_type() == FileType::Mpeg {
+        use lofty::{
+            config::ParseOptions,
+            id3::v2::{Frame, FrameId, Id3v2Version, UnsynchronizedTextFrame},
+            mpeg::MpegFile,
+            tag::TagExt,
+            TextEncoding,
+        };
+        // Update only the native v2 frame. Rewriting the generic tag set can
+        // change existing comment frames or touch the independent ID3v1 tag.
+        let mut file = File::open(path).map_err(|error| error.to_string())?;
+        let mpeg = MpegFile::read_from(&mut file, ParseOptions::new())
+            .map_err(|error| error.to_string())?;
+        drop(file);
+        let mut id3 = mpeg.id3v2().cloned().unwrap_or_default();
+        drop(id3.remove(&FrameId::new("USLT").map_err(|error| error.to_string())?));
+        id3.insert(Frame::UnsynchronizedText(UnsynchronizedTextFrame::new(
+            TextEncoding::UTF8,
+            *b"und",
+            String::new(),
+            text.to_owned(),
+        )));
+        let options =
+            WriteOptions::default().use_id3v23(id3.original_version() == Id3v2Version::V3);
+        id3.save_to_path(path, options)
+            .map_err(|error| error.to_string())?;
+    } else {
+        if tagged.tag(tag_type).is_none() {
+            tagged.insert_tag(Tag::new(tag_type));
+        }
+        let tag = tagged.tag_mut(tag_type).ok_or("Audio tag unavailable")?;
+        tag.insert_text(ItemKey::Lyrics, text.to_owned());
+        tagged
+            .save_to_path(path, WriteOptions::default())
+            .map_err(|error| error.to_string())?;
     }
-    let tag = tagged.tag_mut(tag_type).ok_or("Audio tag unavailable")?;
-    tag.insert_text(ItemKey::Lyrics, text.to_owned());
-    tagged
-        .save_to_path(path, WriteOptions::default())
-        .map_err(|e| e.to_string())?;
     let checked = Probe::open(path)
         .map_err(|e| e.to_string())?
         .guess_file_type()
         .map_err(|e| e.to_string())?
         .read()
         .map_err(|e| e.to_string())?;
+    for tag in tagged.tags() {
+        if !checked.tags().iter().any(|stored| {
+            stored.tag_type() == tag.tag_type()
+                && tag
+                    .items()
+                    .filter(|item| item.key() != &ItemKey::Lyrics)
+                    .all(|item| stored.items().any(|saved| saved == item))
+                && tag
+                    .pictures()
+                    .iter()
+                    .all(|picture| stored.pictures().contains(picture))
+        }) {
+            return Err("Embedding lyrics would change existing audio metadata".into());
+        }
+    }
     if !checked
         .tags()
         .iter()
@@ -3898,6 +3941,86 @@ fn apply_local_library_tags(track: &mut Track, tag: Option<&Tag>) {
         }
         track.provenance["embeddedIdentifiers"] = serde_json::Value::Object(ids);
     }
+    if let Some(work) = local_classical_tags(tag) {
+        if !track.provenance.is_object() {
+            track.provenance = serde_json::json!({});
+        }
+        track.provenance["embeddedClassical"] = work;
+    }
+}
+
+/// These are display tags supplied by the owner of the file. They never
+/// establish a MusicBrainz identity or replace recording-level metadata.
+fn local_classical_tags(tag: &Tag) -> Option<serde_json::Value> {
+    let bounded = |value: &str| {
+        let value = value.trim();
+        (!value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control))
+            .then(|| value.to_owned())
+    };
+    let unique = |keys: &[ItemKey]| {
+        let mut values = keys
+            .iter()
+            .flat_map(|key| tag.get_strings(key))
+            .filter_map(bounded);
+        let first = values.next()?;
+        values.all(|value| value == first).then_some(first)
+    };
+    let work = unique(&[ItemKey::Work, ItemKey::Unknown("WORK".into())])?;
+    let movement = unique(&[ItemKey::Movement, ItemKey::Unknown("MOVEMENTNAME".into())]);
+    let ordinal = |value: &str| {
+        value
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|number| (1..=512).contains(number))
+    };
+    let number = unique(&[
+        ItemKey::MovementNumber,
+        ItemKey::Unknown("MOVEMENTNUMBER".into()),
+    ]);
+    let (movement_number, inline_total) = match number.as_deref() {
+        Some(value) if value.contains('/') => {
+            let (index, total) = value.split_once('/')?;
+            (ordinal(index), ordinal(total))
+        }
+        Some(value) => (ordinal(value), None),
+        None => (None, None),
+    };
+    let explicit_total = unique(&[
+        ItemKey::MovementTotal,
+        ItemKey::Unknown("MOVEMENTTOTAL".into()),
+    ])
+    .as_deref()
+    .and_then(ordinal);
+    let movement_total = match (explicit_total, inline_total) {
+        (Some(explicit), Some(inline)) if explicit != inline => None,
+        (explicit, inline) => explicit.or(inline),
+    };
+    let (movement_number, movement_total) = if movement_number
+        .zip(movement_total)
+        .is_some_and(|(number, total)| number > total)
+    {
+        (None, None)
+    } else {
+        (movement_number, movement_total)
+    };
+    let mut composers = Vec::new();
+    for name in tag
+        .get_strings(&ItemKey::Composer)
+        .filter_map(bounded)
+        .take(16)
+    {
+        if !composers.contains(&name) {
+            composers.push(name);
+        }
+    }
+    let work_id = unique(&[ItemKey::MusicBrainzWorkId])
+        .filter(|id| crate::spotify_mb_crosswalk::valid_mbid(id))
+        .map(|id| id.to_ascii_lowercase());
+    Some(serde_json::json!({
+        "version": 1, "work": work, "workId": work_id, "movement": movement,
+        "movementNumber": movement_number, "movementTotal": movement_total, "composers": composers,
+    }))
 }
 
 pub async fn inspect_local_file(path: &Path, settings: &Settings) -> Result<Track, String> {
@@ -3954,6 +4077,53 @@ pub async fn open_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_classical_tags_keep_work_and_movement_separate_from_recording_identity() {
+        use super::*;
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::Work, "Violin Concerto, Op. 61".into());
+        tag.insert_text(ItemKey::Movement, "II. Larghetto".into());
+        tag.insert_text(ItemKey::MovementNumber, "2/3".into());
+        tag.insert_text(ItemKey::Composer, "Ludwig van Beethoven".into());
+        tag.insert_text(
+            ItemKey::MusicBrainzWorkId,
+            "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA".into(),
+        );
+        let mut track = Track {
+            title: "File title".into(),
+            ..Track::default()
+        };
+        apply_local_library_tags(&mut track, Some(&tag));
+        assert_eq!(track.title, "File title");
+        assert_eq!(
+            track.provenance["embeddedClassical"]["work"],
+            "Violin Concerto, Op. 61"
+        );
+        assert_eq!(
+            track.provenance["embeddedClassical"]["movement"],
+            "II. Larghetto"
+        );
+        assert_eq!(track.provenance["embeddedClassical"]["movementNumber"], 2);
+        assert_eq!(track.provenance["embeddedClassical"]["movementTotal"], 3);
+        assert_eq!(
+            track.provenance["embeddedClassical"]["workId"],
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        );
+        assert!(
+            crate::recording_identity::RecordingIdentity::from_track(&track)
+                .work_ids
+                .is_empty()
+        );
+
+        tag.insert_text(ItemKey::MovementTotal, "4".into());
+        assert!(local_classical_tags(&tag).unwrap()["movementTotal"].is_null());
+        tag.push_unchecked(lofty::tag::TagItem::new(
+            ItemKey::Work,
+            lofty::tag::ItemValue::Text("Another work".into()),
+        ));
+        assert!(local_classical_tags(&tag).is_none());
+    }
+
     #[test]
     fn local_library_tags_preserve_album_order_and_only_unambiguous_release_ids() {
         use super::*;

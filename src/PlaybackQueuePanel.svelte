@@ -17,6 +17,7 @@
   import { approximateDetectionTime } from "./lib/playing-track-detection";
   import { detectedObservationTrack } from "./lib/detected-track";
   import { isTrackDownloaded, playableDuration, type SortDirection, type TrackSortField } from "./lib/track-sort";
+  import { trackDisplayVersion } from "./lib/track-display";
 
   let {
     tracks,
@@ -333,11 +334,12 @@
           {@const trackChapters = chaptersByTrack[track.id] ?? []}
           {@const trackDetections = detectionsByTrack[track.id] ?? []}
           {@const duration=playableDuration(track)}
+          {@const displayVersion = trackDisplayVersion(track)}
           <article use:observeQueueTrack={track} class:queue-selected={selectedRows.includes(index)} ondragover={event=>{if(draggedRows.length&&!movingRows)event.preventDefault();}} ondrop={event=>{event.preventDefault();if(draggedRows.length){const rows=draggedRows;draggedRows=[];void moveSelection(rows,index-rows.filter(at=>at<index).length,undefined,!event.isTrusted,draggedRevision);}}} class:current={index === currentIndex} class:paused={index === currentIndex && paused} class:buffering={index === currentIndex && buffering} aria-current={index === currentIndex ? "true" : undefined} aria-busy={index === currentIndex && buffering ? "true" : undefined}>
             <button onkeydown={event=>moveSelectionKey(event,index)} class="queue-drag-select" draggable={!movingRows} aria-label={`Select queue occurrence ${index+1}: ${track.title}`} aria-pressed={selectedRows.includes(index)} title="Drag to reorder; Ctrl or Shift click to select; arrow keys move selection" onclick={event=>selectQueueRow(index,event)} ondragstart={event=>{if(movingRows){event.preventDefault();return;}draggedRevision=queueRevision;draggedRows=selectedRows.includes(index)?[...selectedRows]:[index];selectedRows=draggedRows;event.dataTransfer?.setData("text/plain","burrata-queue-row");if(event.dataTransfer)event.dataTransfer.effectAllowed="move";}} ondragend={()=>draggedRows=[]}>⠿</button>
             <button onkeydown={event=>moveSelectionKey(event,index)} class="track-select" title={`${track.title}${track.artist ? ` · ${track.artist}` : ""}`} aria-label={index === currentIndex ? `${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}` : "Play " + track.title} onclick={event => { if(event.ctrlKey||event.metaKey||event.shiftKey)selectQueueRow(index,event);else onPlay(index); }}>
               <span class="track-index">{index === currentIndex ? buffering ? "…" : paused ? "Ⅱ" : "♫" : String(index + 1).padStart(2, "0")}</span>
-              <span class="track-copy"><strong>{track.title}{track.version ? " (" + track.version + ")" : ""}</strong><small>{track.artist || "Unknown artist"}{track.album ? " · " + track.album : ""}</small></span>
+              <span class="track-copy"><strong>{track.title}{displayVersion ? " (" + displayVersion + ")" : ""}</strong><small>{track.artist || "Unknown artist"}{track.album ? " · " + track.album : ""}</small></span>
               {#if favoriteIds ? favoriteIds.has(track.id) : track.favorite}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs"><HeartIcon filled /></span>{/if}
               {#if duration!==null}<span class="track-duration">{time(duration)}</span>{/if}
             </button>

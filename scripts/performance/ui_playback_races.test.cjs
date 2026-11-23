@@ -24,7 +24,8 @@ function context() {
   const value = {
     commands, console, clearTimeout, setTimeout, AbortController, untrack: read => read(), portablePlaybackSource: () => null, error: "",
     clearPlaybackSkipNotice: () => {}, nativeSnapshot: null, playbackLoadSequence: 0,
-    resolvingPlayback: false, playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
+    resolvingPlayback: false, pendingPlaybackTrack: null, lastRequestedPlaybackTrack: null,
+    playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
     cancelRadioIdentification: () => {}, autoTimer: undefined, setAutomationPlaybackOwner: () => {},
     systemPausedTrack: false, queueTracks: [], view: "search", historyItems: [], sorted: [],
     queueCandidates: {}, audioSearchTrackIds: new Set(), settings: {}, candidateForQueue: () => null,
@@ -56,6 +57,22 @@ const track = id => ({
     assert.deepEqual(app.commands.map(command => command.tracks[0].id), ["A", "B"]);
     assert.equal(app.commands[0].loudnessAlbumResource, resourceA);
     assert.equal(app.commands[1].loudnessAlbumResource, resourceB);
+  }
+
+  {
+    const app = context();
+    const first = deferred(), second = deferred();
+    app.nativeCommand = command => command.tracks[0].id === "A" ? first.promise : second.promise;
+    const playA = app.startPreview(track("A"), false, false, [track("A")], 0);
+    assert.equal(app.pendingPlaybackTrack.id, "A");
+    const playB = app.startPreview(track("B"), false, false, [track("B")], 0);
+    first.resolve();
+    await playA;
+    assert.equal(app.pendingPlaybackTrack.id, "B");
+    second.resolve();
+    await playB;
+    assert.equal(app.pendingPlaybackTrack, null);
+    assert.equal(app.lastRequestedPlaybackTrack.id, "B");
   }
 
   {
@@ -104,7 +121,7 @@ const track = id => ({
     app.queueTracks = rows;
     app.nativeSnapshot = { queue: rows, queueRevision: 23, queueEntryIds: ["occurrence-a", "occurrence-b"] };
     app.playQueueIndex(1);
-    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 1, expectedQueueRevision: 23, expectedEntryId: "occurrence-b" }));
+    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 1, expectedQueueRevision: 23, expectedEntryId: "occurrence-b", trackSelection: true }));
     app.commands.length = 0;
     app.nativeSnapshot.queueEntryIds = ["duplicate-entry", "duplicate-entry"];
     app.playQueueIndex(1);
@@ -135,7 +152,7 @@ const track = id => ({
     const row = track("reuse");
     app.nativeSnapshot = { queue: [row], queueRevision: 25, queueEntryIds: ["entry-25"] };
     await app.startPreview(row, false, false, [row], 0);
-    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 0, expectedQueueRevision: 25, expectedEntryId: "entry-25", loudnessAlbumResource: null }));
+    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 0, expectedQueueRevision: 25, expectedEntryId: "entry-25", loudnessAlbumResource: null, trackSelection: true }));
   }
 
   console.log("UI playback race and queue occurrence regression checks passed (8 cases).");

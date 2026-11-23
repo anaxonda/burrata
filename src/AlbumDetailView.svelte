@@ -1,10 +1,12 @@
 <script lang="ts">
-  import ArtworkImage from "./ArtworkImage.svelte";
+  import ArtistBanner from "./ArtistBanner.svelte";
   import { musicBrainzCover } from "./lib/catalog-artwork";
   import type { ComponentProps, Snippet } from "svelte";
   import { onDestroy } from "svelte";
   import { call } from "./lib/api";
   import TrackList from "./TrackList.svelte";
+  import TrackDurationFilter from "./TrackDurationFilter.svelte";
+  import { classicalTrackListRows, type WorkProgramme } from "./lib/classical-works";
   import type { AlbumDetailMetadata, AlbumDetailSelectOption, AlbumLoudnessAnalysisStart, AlbumLoudnessAnalysisStatus } from "./lib/album-detail-view";
   import type { LoudnessResourceIdentity } from "./lib/loudness-normalization";
   import type { Track } from "./lib/types";
@@ -55,6 +57,12 @@
   let actionOwnerGeneration = 0;
   let destroyed = false;
   const visibleCount = $derived(visibleTrackCount || trackListProps.tracks.length);
+  const workRows = $derived(
+    !loading && !trackListProps.orderedRows && !filterValue.trim() && sortValue === "sourceOrder" && sortDirection === "asc"
+      && availabilityValue === "all" && !minDuration && !maxDuration && trackListProps.tracks.length === actionTrackCount
+      ? classicalTrackListRows(trackListProps.tracks, trackListProps.rowKeys)
+      : undefined,
+  );
 
   async function resolveActionTracks(): Promise<Track[]> {
     const owner = actionOwnerGeneration;
@@ -187,6 +195,17 @@
       await onPlayAlbum(selectedTracks, loudnessAlbumResource);
     } catch (failure) { if (!destroyed) localActionStatus = `Could not play album: ${failure instanceof Error ? failure.message : String(failure)}`; }
   }
+  async function playWork(programme: WorkProgramme) {
+    const owner = actionOwnerGeneration;
+    localActionStatus = "";
+    try {
+      await onPlayAlbum(programme.tracks, null);
+    } catch (failure) {
+      if (!destroyed && owner === actionOwnerGeneration) {
+        localActionStatus = `Could not play work: ${failure instanceof Error ? failure.message : String(failure)}`;
+      }
+    }
+  }
   async function queueAlbum() {
     localActionStatus = "";
     try {
@@ -223,11 +242,9 @@
 <svelte:window onkeydown={closeMenus} onresize={refitOpenMenus} />
 
 <section class="album-detail" class:owns-scroll={ownsScroll} aria-label={`${metadata.title} album`}>
-  <header class="album-hero" role="group" aria-label="Album overview" oncontextmenu={openAlbumContextMenu}>
-    <div class="cover"><ArtworkImage urls={[metadata.artworkUrl, musicBrainzCover(metadata.sourceUrl)]} /></div>
-    <div class="hero-copy">
-      {#if metadata.sourceLabel}<p class="eyebrow">{metadata.sourceLabel}</p>{/if}
-      <h1>{metadata.title}</h1>
+  <ArtistBanner class="album-hero" heading="h1" name={metadata.title} label={metadata.sourceLabel || "Album"}
+    artworkUrl={metadata.artworkUrl} artworkFallback={musicBrainzCover(metadata.sourceUrl)} ariaLabel="Album overview" oncontextmenu={openAlbumContextMenu}>
+    {#snippet details()}
       {#if metadata.artistNames?.length}<p class="artists">{#each metadata.artistNames as artist, index}<span>{#if index > 0}<span aria-hidden="true"> · </span>{/if}{#if onArtistClick}<button class="artist-credit" onclick={() => onArtistClick?.(artist)}>{artist}</button>{:else}{artist}{/if}</span>{/each}</p>{:else if metadata.artist}<p class="artists">{metadata.artist}</p>{/if}
       {#if metadata.year || metadata.scopeLabel}<p class="album-meta release-meta">{metadata.year ?? ""}{#if metadata.scopeLabel}<span>{metadata.year ? " · " : ""}{metadata.scopeLabel}</span>{/if}</p>{/if}
       {@render headerActions?.()}
@@ -267,23 +284,34 @@
       {#if metadata.trackCountLabel}
         <div class="album-track-scope"><span>{metadata.trackCountLabel}</span>{@render scopeHelp?.()}</div>
       {/if}
-    </div>
-  </header>
-  <div class="track-heading"><h2>Tracks <span>{visibleCount}</span></h2><div class="track-controls">
+    {/snippet}
+  </ArtistBanner>
+  <h2 class="album-tracks-title">Tracks <span>{visibleCount}</span></h2>
+  <div class="track-controls sticky-toolbar compact-track-filter-bar">
     <input aria-label="Filter tracks" placeholder="Filter tracks" value={filterValue} oninput={event => onFilterChange?.(event.currentTarget.value)} />
     {#if sortOptions.length}<select aria-label="Sort tracks" value={sortValue} onchange={event => onSortChange?.(event.currentTarget.value)}>{#each sortOptions as option (option.value)}<option value={option.value} disabled={option.disabled}>{option.label}</option>{/each}</select>{/if}
-    {#if onDirectionChange}<select aria-label="Sort direction" value={sortDirection} onchange={event => onDirectionChange?.(event.currentTarget.value as "asc" | "desc")}><option value="asc">Ascending</option><option value="desc">Descending</option></select>{/if}
-    {#if availabilityOptions.length}<select aria-label="Track availability" value={availabilityValue} onchange={event => onAvailabilityChange?.(event.currentTarget.value)}>{#each availabilityOptions as option (option.value)}<option value={option.value} disabled={option.disabled}>{option.label}</option>{/each}</select>{/if}
-    {#if onDurationChange}<label>From <input aria-label="Minimum track duration" placeholder="mm:ss" value={minDuration} oninput={event => onDurationChange?.(event.currentTarget.value, maxDuration)} /></label><label>To <input aria-label="Maximum track duration" placeholder="mm:ss" value={maxDuration} oninput={event => onDurationChange?.(minDuration, event.currentTarget.value)} /></label>{/if}
-  </div></div>
+    {#if onDirectionChange || availabilityOptions.length || onDurationChange}
+      <TrackDurationFilter {minDuration} {maxDuration} includeDuration={Boolean(onDurationChange)} onchange={onDurationChange}
+        extraFiltersActive={sortDirection !== "asc" || (availabilityOptions.length > 0 && availabilityValue !== availabilityOptions[0]?.value)}>
+        {#snippet extraFilters()}
+          {#if onDirectionChange}<label>Direction<select aria-label="Sort direction" value={sortDirection} onchange={event => onDirectionChange?.(event.currentTarget.value as "asc" | "desc")}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>{/if}
+          {#if availabilityOptions.length}<label>Availability<select aria-label="Track availability" value={availabilityValue} onchange={event => onAvailabilityChange?.(event.currentTarget.value)}>{#each availabilityOptions as option (option.value)}<option value={option.value} disabled={option.disabled}>{option.label}</option>{/each}</select></label>{/if}
+        {/snippet}
+      </TrackDurationFilter>
+    {/if}
+  </div>
   {@render notices?.()}
-  {#if trackListProps.tracks.length}<TrackList {...trackListProps} presentation="playlist" />{:else}<p class="empty-message" role={loading ? "status" : undefined}>{loading ? loadingMessage : emptyMessage}</p>{/if}
+  {#if trackListProps.tracks.length}<TrackList {...trackListProps} orderedRows={workRows ?? trackListProps.orderedRows} onPlayWork={playWork} presentation="playlist" />{:else}<p class="empty-message" role={loading ? "status" : undefined}>{loading ? loadingMessage : emptyMessage}</p>{/if}
 </section>
 
 <style>
+  .album-tracks-title { margin: 0; }
   .album-track-scope { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-  .album-detail{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;box-sizing:border-box}.album-detail.owns-scroll{height:100%;overflow:auto;flex:1}.album-detail:not(.owns-scroll){height:auto;overflow:visible;flex-shrink:0}.album-detail input,.album-detail select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--button-radius,7px);padding:.5rem .65rem}.album-hero{display:flex;align-items:flex-end;gap:1.15rem;padding:.6rem 0 1rem;border-bottom:1px solid var(--border,#383d43)}.cover{width:clamp(120px,20vw,190px);height:clamp(120px,20vw,190px);flex:none;aspect-ratio:1;overflow:hidden;border-radius:9px;box-shadow:0 8px 24px #0005}.hero-copy{min-width:0;flex:1}.eyebrow{margin:0;color:var(--muted,#a3a8ae);font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.hero-copy h1{margin:.35rem 0;font-size:clamp(1.6rem,4vw,2.65rem);line-height:1.1}.artists{overflow-wrap:anywhere}.artists,.album-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artist-credit{max-width:100%;border:0!important;background:transparent!important;padding:0!important;text-align:left;white-space:normal;overflow-wrap:anywhere;text-decoration:underline}.album-source{color:var(--muted,#a3a8ae);font-size:.8rem}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}.album-menu{position:relative}.album-menu summary{box-sizing:border-box;min-height:34px;padding:.4rem .6rem;cursor:pointer;list-style:none;white-space:nowrap;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;font-size:.8rem;line-height:1.2}.album-menu summary::-webkit-details-marker{display:none}.menu-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:.4rem;min-width:210px;max-width:min(330px,calc(100vw - 2rem));padding:.5rem;background:var(--panel,#17191c);border:1px solid var(--border,#454a50);border-radius:8px;box-shadow:0 8px 22px #0008}.menu-content button{text-align:left}.menu-content small{max-width:220px;color:var(--muted,#a3a8ae);font-size:.75rem}.more-content strong{font-size:.85rem}.more-content p{margin:0;color:var(--muted,#a3a8ae);font-size:.78rem;line-height:1.4}.album-loudness-analysis{display:grid;gap:.4rem}.more-menu{margin-inline-start:auto}.more-menu summary{min-width:34px;text-align:center;font-size:1.2rem}.album-track-scope,.album-action-status{margin:.35rem 0 0;color:var(--muted,#a3a8ae);font-size:.82rem}.track-heading{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem}.track-heading h2{margin:0;font-size:1.1rem}.track-heading h2 span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.track-controls input,.track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls label{display:flex;align-items:center;gap:.25rem;color:var(--muted,#a3a8ae);font-size:.8rem}.album-detail button:focus-visible,.album-detail input:focus-visible,.album-detail select:focus-visible,.album-menu summary:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.track-controls input{color:var(--text,#eee)}
-  @media(max-width:620px){.album-detail{padding:.7rem}.album-hero{align-items:center;gap:.75rem}.cover{width:105px;height:105px}.hero-actions button{padding:.4rem .5rem}.track-heading{align-items:flex-start;flex-direction:column}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}.menu-content{max-width:calc(100vw - 1.4rem)}}
+  .album-detail{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;box-sizing:border-box}.album-detail.owns-scroll{height:100%;overflow:auto;flex:1}.album-detail:not(.owns-scroll){height:auto;overflow:visible;flex-shrink:0}.album-detail input,.album-detail select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--button-radius,7px);padding:.5rem .65rem}.artists{overflow-wrap:anywhere}.artists,.album-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artist-credit{max-width:100%;border:0!important;background:transparent!important;padding:0!important;text-align:left;white-space:normal;overflow-wrap:anywhere;text-decoration:underline}.album-source{color:var(--muted,#a3a8ae);font-size:.8rem}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}.album-menu{position:relative}.album-menu summary{box-sizing:border-box;min-height:34px;padding:.4rem .6rem;cursor:pointer;list-style:none;white-space:nowrap;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;font-size:.8rem;line-height:1.2}.album-menu summary::-webkit-details-marker{display:none}.menu-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:.4rem;min-width:210px;max-width:min(330px,calc(100vw - 2rem));padding:.5rem;background:var(--panel,#17191c);border:1px solid var(--border,#454a50);border-radius:8px;box-shadow:0 8px 22px #0008}.menu-content button{text-align:left}.menu-content small{max-width:220px;color:var(--muted,#a3a8ae);font-size:.75rem}.more-content strong{font-size:.85rem}.more-content p{margin:0;color:var(--muted,#a3a8ae);font-size:.78rem;line-height:1.4}.album-loudness-analysis{display:grid;gap:.4rem}.more-menu{margin-inline-start:auto}.more-menu summary{min-width:34px;text-align:center;font-size:1.2rem}.album-track-scope,.album-action-status{margin:.35rem 0 0;color:var(--muted,#a3a8ae);font-size:.82rem}.album-tracks-title{margin:0;font-size:1.1rem}.album-tracks-title span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.track-controls input,.track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls label{display:flex;align-items:center;gap:.25rem;color:var(--muted,#a3a8ae);font-size:.8rem}.album-detail button:focus-visible,.album-detail input:focus-visible,.album-detail select:focus-visible,.album-menu summary:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.track-controls input{color:var(--text,#eee)}
+  @media(max-width:620px){.album-detail{padding:.7rem}.hero-actions button{padding:.4rem .5rem}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}.menu-content{max-width:calc(100vw - 1.4rem)}}
   .album-detail{container-name:album-detail;container-type:inline-size}
-  @container album-detail (max-width:460px){.album-hero{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;justify-items:start;gap:.7rem}.cover{width:min(108px,42cqi);height:auto;aspect-ratio:1}.hero-copy{width:100%;box-sizing:border-box}.hero-copy h1{font-size:clamp(1.35rem,7cqi,1.7rem);line-height:1.15;overflow-wrap:anywhere;word-break:normal}}
+  .album-detail > :global(.album-hero:has(.album-menu[open])) { z-index: 5; }
+  .album-detail.owns-scroll { --album-top-inset: 1rem; padding-block-start: 0; }
+  .album-detail.owns-scroll > :global(.album-hero) { margin-block-start: var(--album-top-inset); }
+  @media(max-width:620px) { .album-detail.owns-scroll { --album-top-inset: .7rem; } }
 </style>

@@ -15,7 +15,11 @@ npm run mcp:start
 
 The app writes `automation.json` into its Tauri app-data directory (`$XDG_DATA_HOME/org.burrata.discovery/automation.json` on Linux when `XDG_DATA_HOME` is set; otherwise `~/.local/share/org.burrata.discovery/automation.json`). The bridge reads the `url` and `token` properties from that file. `BURRATA_AUTOMATION_FILE` can point to another discovery file when running the bridge directly, mainly for tests.
 
-The registry is read when the stdio process starts, with a five-second timeout. If discovery is missing, Burrata refuses the connection, or the registry cannot be reached, the process remains protocol-safe and exposes an empty tool list. Start Burrata and restart the MCP process to load tools. Calls allow up to 65 seconds for longer local operations; a refused connection returns `PLAYER_NOT_RUNNING`, while a timeout or other network failure returns `REQUEST_TIMEOUT` or `NETWORK_UNAVAILABLE`. For timed-out calls, check the operation's status before retrying because the app may still be processing it.
+The stdio bridge loads Burrata's tool registry at startup, with a five-second timeout. The bridge always exposes `get_bridge_status`, including when Burrata is closed. MCP `ping` checks that the bridge responds. `get_bridge_status` also rereads discovery and checks whether Burrata's authenticated tool registry is reachable, with a five-second request timeout. The reply includes the connection and registry states and omits endpoints, credentials, file paths, and tool details.
+
+An `appConnection` of `connected` confirms the registry request succeeded. The `registry` state is `current` when it matches the bridge's startup snapshot and `restart_required` when it differs. If the bridge started while Burrata was closed, start Burrata and restart the MCP process to load its tools. When the app is unreachable, the registry state is `unverified` and `appConnection` describes the failure, such as `discovery_unavailable`, `connection_refused`, or `unauthorized`.
+
+Burrata's `get_app_status` reports app state and requires a connection. App tool calls allow up to 65 seconds for longer local operations. A refused connection returns `PLAYER_NOT_RUNNING`, while a timeout or other network failure returns `REQUEST_TIMEOUT` or `NETWORK_UNAVAILABLE`. For timed-out calls, check the operation's status before retrying because the app may still be processing it.
 
 ## Available tools and permissions
 
@@ -187,11 +191,21 @@ media URLs. Device identity, power/sleep/wake events and continuous PCM counters
 are not collected. Events are held in memory, so save a report before closing or
 restarting the app.
 
+`diagnostics.lastBuffering.stream` contains the counters observed at the most
+recent buffering event. The values can stay at zero after playback starts on
+the same generation. Use first-audio events and sample-derived position to
+follow playback progress. Confirm actual audio output with a separate
+measurement when investigating silence.
+
 `BURRATA_PLAYBACK_TRACE=1` separately emits redacted upcoming-search
 completion and observed candidate-cache hit/miss/waited-hit events, allowing
 preparation to be distinguished from actual foreground reuse.
 
 `navigate_ui` is a Control-permission tool for finite app routes (`library`, `favorites`, `history`, `downloads`, `settings`) or an exact Spotify artist/profile/playlist identifier, or Back/Forward history direction. Artist and playlist IDs must be 22 ASCII alphanumeric characters. It confirms route entry, with a 15-second bound and cancellation/stale/unmount guards; provider data may continue loading. It accepts no arbitrary URL, script or selector. See [the command contract and qualification limits](automation/navigate_ui.md).
+
+For a specific Library tab, use `navigate_ui` with `view: "library"` and
+`libraryTab: "tracks"`, `"artists"`, or `"albums"`. The receipt confirms that the
+requested tab opened. Its saved items may still be loading.
 
 `set_player_panel` is a Control-permission tool that sets the visible player
 panel to `queue`, `info`, `now-playing`, `now-playing-details`, `lyrics` or `closed`. It changes only the panel view; it does
@@ -228,6 +242,18 @@ after the Search panel is remounted. UI control requests expire after a bounded
 deadline. The play response reports that
 the existing UI action was dispatched, not that audio playback succeeded.
 These tools do not expose provider URLs or arbitrary UI selectors.
+
+`inspect_search_cards` reads a page of loaded Spotify and YouTube playlist
+cards and YouTube channel cards from expanded groups on the current Search
+view. Pass `offset` and `limit` to page through these loaded cards (up to 200
+per call). Each card returns its title, source, kind, and an opaque token.
+Use `open_search_card` with Control permission and the returned `revision`
+and `cardToken` to dispatch the card's normal Open action. Tokens are
+single-use and expire 30 seconds after inspection. A changed search,
+changed card list, or remounted Search view invalidates older tokens.
+`hasMore` refers to the loaded cards only. These tools expose no provider
+URLs or query text, and opening a card neither imports a playlist nor starts
+playback.
 
 `resize_app_window` uses the control permission to resize the main window in
 logical pixels (width 320–7680, height 240–4320). It returns the previous and

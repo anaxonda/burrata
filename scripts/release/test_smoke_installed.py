@@ -26,6 +26,33 @@ assert RUNTIME_SPEC.loader is not None
 RUNTIME_SPEC.loader.exec_module(runtime)
 
 
+class NativeHostSmokeTests(unittest.TestCase):
+    def test_installed_check_sends_the_current_companion_handshake(self) -> None:
+        resource_root = pathlib.Path("fixture-resources")
+        target = "fixture-target"
+
+        def answer(command, *, timeout, env, input_bytes):
+            length, = struct.unpack_from("<I", input_bytes)
+            self.assertEqual(length, len(input_bytes) - 4)
+            self.assertEqual(json.loads(input_bytes[4:]), {
+                "type": "heartbeat",
+                "providerProtocolVersion": 0,
+                "providerCapabilities": ["structuredArtistCreditsV1", "spotifyTrackCreditsV1"],
+            })
+            reply = b'{"ok":true}'
+            return subprocess.CompletedProcess(command, 0, struct.pack("<I", len(reply)) + reply)
+
+        with patch.object(smoke, "run", side_effect=answer):
+            self.assertEqual(smoke.native_host_check(resource_root, target, {})["heartbeat"], "accepted")
+
+    def test_installed_check_rejects_an_outdated_helper(self) -> None:
+        reply = b'{"ok":false,"error":"Invalid native request"}'
+        response = subprocess.CompletedProcess([], 0, struct.pack("<I", len(reply)) + reply)
+        with patch.object(smoke, "run", return_value=response):
+            with self.assertRaisesRegex(smoke.SmokeFailure, "heartbeat was not accepted"):
+                smoke.native_host_check(pathlib.Path("fixture-resources"), "fixture-target", {})
+
+
 class CanonicalTempRootTests(unittest.TestCase):
     def test_symlinked_temp_root_resolves_before_app_launch(self) -> None:
         with tempfile.TemporaryDirectory(prefix="burrata-path-test-") as directory:

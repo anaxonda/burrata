@@ -68,6 +68,7 @@ export interface Chart {
 }
 export interface BrowserStatus {
   connected: boolean; pendingCount: number; lastSeen: string | null; hostName: string;
+  providerProtocolVersion?: number | null;
 }
 export interface BrowserImportResult {
   id: string; provider: string; kind: "chart" | "playlist" | "album" | "collection"; title: string; sourceUrl: string; fetchedAt: string; collectionId: string; capturedCount: number; importedCount: number; expectedTotal: number | null; complete: boolean; warnings: string[]; failedSources?: string[]; changes?: {added:number;removed:number;moved:number;retainedFromEarlierCapture:number;partial:boolean};
@@ -131,6 +132,7 @@ export interface NativePlaybackSnapshot {
   trackId: string | null;
   entryId?: string | null;
   transition?: PlaybackTransition | null;
+  pendingSelectionTrackId?: string | null;
   track: (Track & { artworkFilePath?: string }) | null;
   candidate: Candidate | null;
   queue: Track[];
@@ -281,13 +283,14 @@ export interface Collection {
 }
 export interface PlaylistMirrorOptions {
   included: boolean;
+  includeDjXml?: boolean;
   includeMediaLinks: boolean | null;
   includeYtdlpSearch: boolean | null;
 }
 export interface PlaylistMirrorOptionsView {
   collectionId: string;
   options: PlaylistMirrorOptions;
-  effective: { included: boolean; includeMediaLinks: boolean; includeYtdlpSearch: boolean };
+  effective: { included: boolean; includeDjXml?: boolean; includeMediaLinks: boolean; includeYtdlpSearch: boolean };
   defaults: { includeMediaLinks: boolean; includeYtdlpSearch: boolean };
   globallyEnabled: boolean;
 }
@@ -349,6 +352,7 @@ export interface Settings {
   soulseekLosslessUpgrades?: boolean;
   playlistDirectories?: string[];
   playlistMirroringEnabled?: boolean;
+  djXmlTargetMusicRoot?: string;
   compactPlaybackBar?: boolean;
 }
 export interface Dependency {

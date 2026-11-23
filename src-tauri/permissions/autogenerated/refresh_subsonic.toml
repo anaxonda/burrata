@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-subsonic"
+description = "Enables the refresh_subsonic command without any pre-configured scope."
+commands.allow = ["refresh_subsonic"]
+
+[[permission]]
+identifier = "deny-refresh-subsonic"
+description = "Denies the refresh_subsonic command without any pre-configured scope."
+commands.deny = ["refresh_subsonic"]

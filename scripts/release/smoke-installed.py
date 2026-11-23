@@ -1139,7 +1139,13 @@ def native_host_check(resource_root: pathlib.Path, target: str,
                       env: dict[str, str]) -> dict[str, str]:
     ext = ".exe" if sys.platform == "win32" else ""
     host = resource_root / "tools" / target / ("burrata-browser-host" + ext)
-    request = json.dumps({"type": "heartbeat"}, separators=(",", ":")).encode()
+    # Exercise the current companion's handshake with browser-assisted access
+    # off. Older helpers accept a bare heartbeat but reject these fields.
+    request = json.dumps({
+        "type": "heartbeat",
+        "providerProtocolVersion": 0,
+        "providerCapabilities": ["structuredArtistCreditsV1", "spotifyTrackCreditsV1"],
+    }, separators=(",", ":")).encode()
     frame = struct.pack("<I", len(request)) + request
     response = run([host], timeout=10, env=env, input_bytes=frame)
     if len(response.stdout) < 5:

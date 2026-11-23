@@ -409,16 +409,23 @@ h3 {
   gap: 12px;
 }
 .notification-stack {
-  position: fixed;
-  z-index: 65;
-  inset-block-start: max(12px, env(safe-area-inset-top));
-  inset-inline-end: max(12px, env(safe-area-inset-right));
+  box-sizing: border-box;
+  flex: none;
+  align-self: flex-end;
   width: min(26rem, calc(100% - 24px));
-  max-height: 48dvh;
+  margin: 4px 12px;
+  max-height: 32dvh;
   overflow: auto;
   display: grid;
   gap: 6px;
   padding: 4px;
+}
+.notification-stack.fullscreen {
+  position: fixed;
+  z-index: 65;
+  inset-block-start: max(12px, env(safe-area-inset-top));
+  inset-inline-end: max(12px, env(safe-area-inset-right));
+  margin: 0;
 }
 .notification-stack .banner {
   pointer-events: auto;
@@ -430,6 +437,17 @@ h3 {
   overflow-wrap: anywhere;
 }
 .notification-stack .banner > span { flex: 1; min-width: 0; }
+.notification-stack .player-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+}
+.player-error-actions { display: flex; align-items: center; gap: 4px; }
+.player-error-retry { color: var(--accent); }
+.player-error-details { grid-column: 1 / -1; }
+.player-error-details > summary { cursor: pointer; width: fit-content; color: var(--muted); }
+.player-error-details > p { margin: 6px 0; }
+
 .notification-close {
   flex: none;
   width: 32px;
@@ -527,6 +545,14 @@ h3 {
   overflow: auto;
   flex: 1;
   min-height: 0;
+}
+.sticky-toolbar {
+  position: sticky;
+  top: 0;
+  flex: none;
+  z-index: 4;
+  padding-block: .4rem;
+  background: var(--panel, var(--base));
 }
 table {
   width: 100%;
@@ -2518,8 +2544,27 @@ select optgroup {
 .settings > .settings-card > p { font-size:11px; line-height:1.6; color:var(--muted); }
 .settings-basic-card > label + button { margin-top:0; }
 
-/* Keep first-run setup above the player and other fixed app panels. */
-.release-onboarding { z-index: 100; }
+.release-onboarding {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: clamp(12px, 3vw, 22px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.release-onboarding::backdrop {
+  background: color-mix(in srgb, #050806 76%, transparent);
+}
+.release-onboarding > .release-setup {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 
 /* Current recording remains visible while paused; selection is independent. */
 .track-table tr.current,table tbody tr.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}
@@ -2557,27 +2602,27 @@ body .shared-track-list .more-menu a:focus-visible {
   body .shared-track-list .more-menu a { min-height:32px; }
 }
 
-/* Keep the application visible while startup restores its saved state. */
-.backup-hydration-gate {
-  position: fixed;
-  top: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10000;
+/* Reserve a row above the shell so startup status cannot cover controls. */
+#app:has(> .backup-hydration-gate) {
   display: grid;
-  gap: 12px;
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  padding: 12px 18px;
-  border: 1px solid var(--line, #35413a);
-  border-radius: 10px;
-  background: var(--surface, #1c2520);
-  color: var(--text, #f5f7fa);
-  box-shadow: 0 4px 24px #0003;
+  grid-template-rows: auto minmax(0, 1fr);
 }
-.backup-hydration-gate.restore-error { top: 25%; padding: 24px; }
-.backup-hydration-gate p { max-width: 36rem; margin: 0; }
-.backup-hydration-gate button { justify-self: start; }
+#app:has(> .backup-hydration-gate) > .app-shell {
+  height: 100%;
+}
+.backup-hydration-gate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 4px 12px;
+  border-bottom: 1px solid #35413a;
+  background: #191e1b;
+  color: #dbe5df;
+  font-size: 12px;
+}
+.backup-hydration-gate[role="alert"] { padding: 10px 12px; }
+.backup-hydration-gate p { margin: 0; }
 .settings-details-body { padding: 0 16px 16px; }
 .settings-inline-details { margin-top: 18px; }
 .settings-inline-details > summary { cursor: pointer; color: var(--text); padding: 10px 0; border-top: 1px solid var(--line); }

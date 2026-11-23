@@ -241,6 +241,19 @@ impl SearchPlan {
         }
 
         if queries.len() < MAX_SEARCH_QUERIES {
+            if let (Some(artist), Some(title)) = (
+                lead.as_deref().or(canonical_artist.as_deref()),
+                classical_catalog_query_title(track),
+            ) {
+                push_query(
+                    &mut queries,
+                    artist,
+                    &title,
+                    SearchQueryReason::ParentWorkContext,
+                );
+            }
+        }
+        if queries.len() < MAX_SEARCH_QUERIES {
             if let (Some(artist), Some(work)) = (
                 lead.as_deref().or(canonical_artist.as_deref()),
                 discogs_parent_work(track),
@@ -282,6 +295,23 @@ impl SearchPlan {
         }
         Self { queries }
     }
+}
+
+fn classical_catalog_query_title(track: &Track) -> Option<String> {
+    if track.provenance["manualFields"]["title"] == true || track.title.len() > 512 {
+        return None;
+    }
+    let title = crate::matching::normalize(&track.title);
+    let tokens = title.split_whitespace().collect::<Vec<_>>();
+    let (index, _) = tokens.windows(2).enumerate().find(|(_, pair)| {
+        matches!(pair[0], "bwv" | "hwv" | "rv" | "kv")
+            && pair[1].len() <= 4
+            && pair[1].bytes().all(|byte| byte.is_ascii_digit())
+    })?;
+    // Retrieve using the catalogue number and the full movement/edition suffix.
+    // This alternative is input to search only; it never changes identity.
+    (index > 0 && tokens.len() > index + 2)
+        .then(|| render_search_title(&tokens[index..].join(" "), track.version.as_deref()))
 }
 
 fn traxsource_label_query_title(track: &Track) -> Option<String> {
@@ -741,6 +771,21 @@ mod tests {
         assert_eq!(track.title, "Allegro");
         track.provenance["manualFields"] = json!({"title":true});
         assert_eq!(SearchPlan::for_track(&track, &[]).queries.len(), 1);
+    }
+
+    #[test]
+    fn classical_query_alternate_keeps_catalog_and_movement() {
+        let track = Track {
+            title: "J.S. Bach: Brandenburg Concerto No.3 in G, BWV 1048 - 1. (Allegro)".into(),
+            artist: "Gewandhausorchester Leipzig".into(),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track(&track, &[]);
+        assert_eq!(
+            plan.queries[1].text,
+            "Gewandhausorchester Leipzig bwv 1048 1 allegro"
+        );
+        assert!(plan.queries[0].text.contains(&track.title));
     }
 
     #[test]

@@ -32,6 +32,27 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("AlbumDetailView", () => {
+  it("plays a tagged work's movements in order without changing individual track actions", async () => {
+    const movements = [trackA, trackB].map((track, index): Track => ({
+      ...track, album: "Example Album", localPath: `/music/example/${index + 1}.flac`,
+      provenance: {
+        source: "local file tags",
+        embeddedClassical: { version: 1, work: "Symphony No. 5", movement: track.title, movementNumber: index + 1, movementTotal: 2 },
+      },
+    }));
+    const tracks = [...movements, { ...trackA, id: "third", title: "Separate recording" }];
+    const onPlayAlbum = vi.fn();
+    const onPlay = vi.fn();
+    const target = render({ albumTracks: tracks, onPlayAlbum, trackListProps: { tracks, onPlay } });
+    await settle();
+    const group = target.querySelector<HTMLButtonElement>('[aria-label="Play work: Symphony No. 5"]');
+    expect(group).not.toBeNull();
+    group!.click(); await settle();
+    expect(onPlayAlbum).toHaveBeenCalledWith(movements, null);
+    target.querySelector<HTMLButtonElement>('.track-title')!.click(); await settle();
+    expect(onPlay).toHaveBeenCalledWith(movements[0], tracks, 0);
+  });
+
   it("opens the album source from the header context menu", async () => {
     const sourceUrl = "https://musicbrainz.org/release/example";
     const target = render({ metadata: { title: "Example Album", artist: "Example Artist", sourceUrl } });

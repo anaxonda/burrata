@@ -129,56 +129,6 @@ footer.player .player-status {
   line-height: 1.1;
 }
 
-footer.player .player-error {
-  display: flex;
-  grid-column: 1 / -1;
-  grid-row: 3;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  padding: 3px 6px;
-  border: 1px solid color-mix(in srgb, #ef8f73 42%, var(--line));
-  border-left: 3px solid #ef8f73;
-  border-radius: 7px;
-  background: color-mix(in srgb, #ef8f73 8%, var(--surface));
-  color: var(--text);
-}
-
-footer.player .player-error > p {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-footer.player .player-error-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-}
-
-footer.player .player-error-actions button {
-  min-height: 28px;
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 11px;
-}
-
-footer.player .player-error-actions .player-error-retry {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
-  color: var(--accent);
-}
-footer.player .player-error-actions .player-error-dismiss { width:28px; padding:0; font-size:18px; }
-
 footer.player .player-center {
   display: contents;
 }
@@ -424,15 +374,6 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-track-title { font-size: 11px; }
   footer.player .player-track-artist { font-size: 9px; }
   footer.player .player-status { display: none; }
-  footer.player .player-error {
-    grid-column: 1 / -1;
-    grid-row: 5;
-    align-items: center;
-    flex-direction: row;
-    gap: 6px;
-    padding: 3px 5px;
-  }
-  footer.player .player-error-actions { justify-content: flex-end; }
   footer.player .player-center { display: contents; }
   footer.player .player-transport {
     grid-column: 1 / -1;
@@ -642,9 +583,13 @@ footer.player.compact .player-volume-control .volume {
     gap: 2px;
   }
 
-  footer.player.compact .player-right {
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  footer.player.compact:not(.radio-live) {
+    /* Give the action row its intrinsic width before sharing space with track text. */
+    grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.1fr) minmax(max-content, 1fr);
+  }
+
+  footer.player.compact:not(.radio-live) .player-right {
+    flex-wrap: nowrap;
   }
 
   footer.player.compact .player-volume-control {
@@ -737,9 +682,6 @@ footer.player.compact .player-volume-control .volume {
     min-width: 42px;
   }
 
-  footer.player.compact .player-error {
-    grid-row: 5;
-  }
 }
 
 @media (max-width: 360px) {
@@ -773,10 +715,6 @@ footer.player .player-artwork-options > button { text-align: left; padding: 7px 
 footer.player .player-artwork-options > button[aria-pressed="true"] { color: var(--accent); }
 
 /* Download tools use an anchored compact menu, independent of toolbar flow. */
-.download-tools { position:relative; flex:none; margin-inline-start:auto; }
-.download-tools > summary { display:grid; place-items:center; min-width:32px; min-height:32px; border:1px solid var(--line); border-radius:7px; list-style:none; }
-.download-tools > summary::-webkit-details-marker { display:none; }
-.download-tools > button { position:absolute; right:0; top:calc(100% + 5px); z-index:40; min-width:210px; padding:10px 12px; background:var(--surface); box-shadow:0 8px 22px #0005; text-align:left; }
 
 /* Give the right-side information and queue area a clear panel boundary. */
 .app-shell .player-panel-host {
@@ -875,9 +813,6 @@ footer.player.radio-live .radio-live-label {
     justify-content: center;
   }
 
-  footer.player.radio-live .player-error {
-    grid-row: 4;
-  }
 
   footer.player.radio-live .player-transport {
     grid-column: 1 / -1;

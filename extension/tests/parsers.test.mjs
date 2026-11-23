@@ -8,6 +8,20 @@ test('Traxsource preserves explicit rank, version and contributor separation',()
  const s=extract(doc('<h1>Deep House Top 100</h1><div class="trk-row"><span class="tnum">8</span><div class="title"><a href="/track/123/hello">Hello</a><span class="version">Extended Mix</span> (6:32)</div><div class="artists"><a>Artist</a><span class="remixers"><a>Remixer</a></span></div><div class="label">Label</div></div>'),'https://www.traxsource.com/genre/13/deep-house/top');
  assert.equal(s.entries[0].artist,'Artist');assert.equal(s.entries[0].rank,8);assert.equal(s.entries[0].durationSeconds,392);assert.equal(s.expectedTotal,100);assert.equal(mergeSnapshots([s]).complete,false);
 });
+test('Traxsource capture preserves a malformed clock without turning it into a runtime',()=>{
+ const page=doc('<h1>Chart</h1><div class="trk-row"><span class="tnum">5</span><div class="title"><a href="/track/1494176/plastico-bugz-in-the-attic-remix">Plastico (Bugz In The Attic Remix)</a><span class="version">(6:90)</span></div><div class="artists"><a href="/artist/37/willie-colon">Willie Colon</a><a href="/artist/11707/ruben-blades">Ruben Blades</a></div></div>');
+ const [track]=extract(page,'https://www.traxsource.com/genre/19/afro-latin-brazilian/top').entries;
+ assert.equal(track.durationSeconds,null);
+ assert.equal(track.version,'(6:90)');
+ assert.equal(track.title,'Plastico (Bugz In The Attic Remix)');
+});
+test('Traxsource track capture reads an hours clock in full and rejects a malformed one',()=>{
+ const url='https://www.traxsource.com/track/123/long-road';
+ const capture=clock=>extract(doc(`<main><h1>Long Road</h1><a href="/artist/42/Elena">Elena</a><span class="track-length">${clock}</span></main>`),url).entries[0].durationSeconds;
+ assert.equal(capture('1:02:03'),3723);
+ assert.equal(capture('1:02:90'),null);
+ assert.equal(capture('1:90:03'),null);
+});
 test('context-menu selection returns only the exact rendered public track link',()=>{
  const url='https://www.traxsource.com/genre/13/deep-house/top';
  const page=doc('<h1>Deep House Top 2</h1><div class="trk-row"><span class="tnum">1</span><div class="title"><a href="/track/123/hello">Hello</a><span class="version">Extended Mix</span></div><div class="artists"><a>Artist</a></div></div><div class="trk-row"><span class="tnum">2</span><div class="title"><a href="/track/456/world">World</a></div><div class="artists"><a>Other Artist</a></div></div>',url);
@@ -244,8 +258,8 @@ test('Traxsource chart total can come from explicit provider document title',()=
  assert.equal(unknown.expectedTotal,null);
 });
 test('Beatport rendered table reads linked artists and first-cell rank, not title-link test ID',()=>{
- const s=extract(doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell"># 7</div><div class="cell title"><a data-testid="track-title" href="/track/recording/123"><span>Recording</span></a><a href="/artist/artist/5">Artist</a><a href="/artist/artist/5">Artist</a><span class="mix-name">Extended Mix</span></div><div class="cell label"><a href="/label/label/6">Label</a></div><div class="cell bpm">122 BPM</div><div class="cell key">A Minor</div><div class="cell length">6:32</div></div>`),beatportUrl);
- assert.equal(s.entries.length,1);assert.equal(s.entries[0].rank,7);assert.equal(s.entries[0].artist,'Artist');assert.equal(s.entries[0].title,'Recording');assert.equal(s.entries[0].version,'Extended Mix');assert.equal(s.entries[0].bpm,122);assert.equal(s.entries[0].durationSeconds,392);assert.equal(s.expectedTotal,100);
+ const s=extract(doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell"># 7</div><div class="cell title"><a data-testid="track-title" href="/track/recording/123"><span>Recording</span></a><a href="/artist/artist/5">Artist</a><a href="/artist/artist/5">Artist</a><span class="mix-name">Extended Mix</span></div><div class="cell label"><a href="/label/label/6">Label</a><span class="remixer">Remixer</span></div><div class="cell bpm">122 BPM</div><div class="cell key">A Minor</div><div class="cell length">6:32</div></div>`),beatportUrl);
+ assert.equal(s.entries.length,1);assert.equal(s.entries[0].rank,7);assert.equal(s.entries[0].artist,'Artist');assert.equal(s.entries[0].title,'Recording');assert.equal(s.entries[0].version,'Extended Mix');assert.equal(s.entries[0].bpm,122);assert.equal(s.entries[0].label,'Label');assert.equal(s.entries[0].durationSeconds,392);assert.equal(s.expectedTotal,100);
 });
 test('Beatport rendered artist anchors preserve atomic punctuation, boundaries and provider IDs',()=>{
  const page=doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell">1</div><div class="cell title"><a href="/track/song/123">Song</a><a href="/artist/earth-wind-fire/456">Earth, Wind &amp; Fire</a><a href="/artist/duo/789">Duo</a><span class="remixers"><a href="/artist/remixer/99">Remixer</a></span></div></div>`);
@@ -267,6 +281,20 @@ test('Beatport DOM membership excludes ranked JSON recommendations and enriches 
  const json={tracks:[{position:99,track:{id:123,name:'Canonical Title',artists:[{name:'Canonical Artist'}],mix_name:'Extended Mix',bpm:124}},{position:1,track:{id:999,name:'Other Chart',artists:[{name:'Other'}]}}]};
  const s=extract(doc(`<h1>Afro House</h1><script id="__NEXT_DATA__">${JSON.stringify(json)}</script><div data-testid="tracks-table-row"><span class="cell position">4</span><div class="cell title"><a href="/track/recording/123">Canonical Title Extended Mix</a><a href="/artist/artist/5">Artist</a></div></div>`),beatportUrl);
  assert.equal(s.entries.length,1);assert.equal(s.entries[0].rank,4);assert.equal(s.entries[0].title,'Canonical Title');assert.equal(s.entries[0].bpm,124);
+});
+test('Beatport chart labels exclude remix-credit tooltip text and prefer exact structured metadata',()=>{
+ const row=(label)=>`<div data-testid="tracks-table-row">
+   <span class="cell position">4</span>
+   <div class="cell title"><a href="/track/recording/123">Recording</a><a href="/artist/artist/5">Artist</a></div>
+   <div class="cell label"><a href="/label/imprint/6">${label}<span role="tooltip">Remixer</span></a></div>
+ </div>`;
+ const rendered=extract(doc(row('Imprint')),beatportUrl).entries[0];
+ assert.equal(rendered.label,'Imprint');
+ assert.equal(rendered.metadata.labelUrl,'https://www.beatport.com/label/imprint/6');
+ const data={position:4,track:{id:123,name:'Recording',artists:[{id:5,name:'Artist'},{id:7,name:'Co-artist'}],label:{name:'Imprint'}}};
+ const enriched=extract(doc(`<script id="__NEXT_DATA__">${JSON.stringify(data)}</script>${row('Wrong label')}`),beatportUrl).entries[0];
+ assert.equal(enriched.label,'Imprint');
+ assert.deepEqual(enriched.artistCredits.map(credit=>credit.name),['Artist','Co-artist']);
 });
 test('Beatport local styled rows retain explicit rank without absorbing multiple recordings',()=>{
  const s=extract(doc(`<h1>Afro House</h1><section><div class="styled-row"><span class="rank">2</span><div><a href="/track/recording/123">Recording</a><a href="/artist/artist/5">Artist</a></div></div><div class="styled-row"><span class="rank">3</span><div><a href="/track/other/124">Other</a><a href="/artist/other/6">Other artist</a></div></div></section>`),beatportUrl);

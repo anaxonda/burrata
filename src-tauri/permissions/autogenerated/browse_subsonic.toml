@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-subsonic"
+description = "Enables the browse_subsonic command without any pre-configured scope."
+commands.allow = ["browse_subsonic"]
+
+[[permission]]
+identifier = "deny-browse-subsonic"
+description = "Denies the browse_subsonic command without any pre-configured scope."
+commands.deny = ["browse_subsonic"]

@@ -4,6 +4,7 @@ export const FIXED_RESOLVER_FAILURES = {
   noAudioResults: "No audio results were returned by the available providers. Open the catalog source or choose another source.",
   recordingIdentityUnverified: "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
   missingDurationIdentityUnverified: "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
+  soulseekDownloadRequired: "Download this Soulseek file before playing it.",
 } as const;
 
 export type FailureCategory = "cancelled" | "timeout" | "network" | "rate_limited" | "source_access" | "source_unavailable" | "source_private" | "source_deleted" | "no_match" | "recording_identity_mismatch" | "unsupported_audio" | "output" | "storage" | "parser" | "unknown";
@@ -40,7 +41,7 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   const failure = (category: FailureCategory, stage: PlaybackFailure["stage"], scope: PlaybackFailure["scope"], retryable: boolean, status: number | null | undefined = httpStatus): PlaybackFailure => ({category, stage, scope, retryable, ...(status == null ? {} : {httpStatus: status})});
   if (reason === FIXED_RESOLVER_FAILURES.noAudioResults || /^no playable audio match was found(?: for |[.:]|$)/.test(message)) return failure("no_match", "resolver", "recording", false, null);
   if (reason === FIXED_RESOLVER_FAILURES.recordingIdentityUnverified || reason === FIXED_RESOLVER_FAILURES.missingDurationIdentityUnverified || reason === "Verified source identity mismatch" || ["the resolved audio source identity does not match this recording", "source identity changed during audio resolution; select it again", "source identity changed during inspection; select it again"].includes(message)) return failure("recording_identity_mismatch", "resolver", "recording", false, null);
-  if (message === "this source has no supported audio stream") return failure("unsupported_audio", "resolver", "recording", false, null);
+  if (message === "this source has no supported audio stream" || reason === FIXED_RESOLVER_FAILURES.soulseekDownloadRequired) return failure("unsupported_audio", "resolver", "recording", false, null);
   if (message.startsWith("invalid monochrome catalog")) return failure("parser", "resolver", "source", true);
   if (has("cancel", "superseded")) return failure("cancelled", "resolver", "operation", false);
   if (httpStatus === 429 || has("rate limit", "too many requests")) return failure("rate_limited", "transport", "source", true);
@@ -96,7 +97,7 @@ export function trackFailureCategory(reason: string): PlaybackTrackFailure["cate
   if (reason === FIXED_RESOLVER_FAILURES.recordingIdentityUnverified || reason === FIXED_RESOLVER_FAILURES.missingDurationIdentityUnverified) return "recording_identity_unverified";
   if (/^no playable audio match was found(?: for\b|[.:]|$)/.test(message)) return "no_playable_match";
   if (["the resolved audio source identity does not match this recording", "source identity changed during audio resolution; select it again", "source identity changed during inspection; select it again"].includes(message)) return "source_identity_mismatch";
-  if (message === "this source has no supported audio stream") return "unsupported_audio_stream";
+  if (message === "this source has no supported audio stream" || reason === FIXED_RESOLVER_FAILURES.soulseekDownloadRequired) return "unsupported_audio_stream";
   return "failed_with_reason";
 }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-application-settings"
+description = "Enables the reset_application_settings command without any pre-configured scope."
+commands.allow = ["reset_application_settings"]
+
+[[permission]]
+identifier = "deny-reset-application-settings"
+description = "Denies the reset_application_settings command without any pre-configured scope."
+commands.deny = ["reset_application_settings"]

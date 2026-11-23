@@ -34,6 +34,7 @@ pub mod backup_state;
 pub mod bandcamp;
 mod bandcamp_fallback;
 pub mod browser_bridge;
+mod classical_movement_title;
 mod collection_imports;
 pub mod collection_sources;
 mod compilation_excerpt;
@@ -45,6 +46,7 @@ mod discogs_release_lexical_aliases;
 pub mod discovery;
 mod download_verification;
 pub mod external_player;
+mod factory_reset;
 mod import_drop;
 mod import_metadata;
 pub mod imports;
@@ -79,6 +81,7 @@ pub(crate) mod monochrome_playback;
 pub mod monochrome_resolver;
 #[cfg(target_os = "linux")]
 pub mod mpris;
+mod musicbrainz_apple_disc;
 pub mod native_output;
 mod native_session_migration;
 pub mod observed_analysis;
@@ -131,10 +134,15 @@ mod spotify_mb_crosswalk;
 mod staged_recognition;
 pub mod storage;
 pub mod stream_analysis;
+mod subsonic;
+mod subsonic_cache;
+mod subsonic_client;
+mod subsonic_login;
 pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
 pub mod track_sort_text;
+mod traxsource_duration_proof;
 mod verification_staging;
 pub mod waveform_analysis;
 mod webview_audio_transcode;
@@ -292,6 +300,89 @@ fn register_browser_host(app: tauri::AppHandle) -> Result<install_integration::I
 fn unregister_browser_host() -> Result<install_integration::InstallStatus> {
     install_integration::unregister()
 }
+
+#[tauri::command]
+async fn get_subsonic_status(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let Ok(_library_write) = state.store.try_library_write() else {
+        return state.subsonic.status();
+    };
+    state.subsonic.status_with_existing_login().await
+}
+
+#[tauri::command]
+async fn connect_subsonic(
+    state: State<'_, AppState>,
+    endpoint: String,
+    username: String,
+    password: String,
+) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.subsonic.connect(&endpoint, &username, password).await
+}
+
+#[tauri::command]
+async fn disconnect_subsonic(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.subsonic.disconnect().await
+}
+
+#[tauri::command]
+async fn set_subsonic_preferences(
+    state: State<'_, AppState>,
+    visible: bool,
+    allow_fallback: bool,
+) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.subsonic.preferences(visible, allow_fallback).await
+}
+
+#[tauri::command]
+fn browse_subsonic(
+    state: State<'_, AppState>,
+    query: String,
+    offset: usize,
+    limit: usize,
+) -> Result<subsonic::Page> {
+    state.subsonic.page(&query, offset, limit)
+}
+
+#[tauri::command]
+async fn refresh_subsonic(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.subsonic.refresh().await
+}
+
+#[tauri::command]
+async fn seed_subsonic(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    discovered: bool,
+) -> Result<Option<subsonic::Status>> {
+    use tauri_plugin_dialog::DialogExt;
+    let path = if discovered {
+        None
+    } else {
+        let selected = tauri::async_runtime::spawn_blocking(move || {
+            app.dialog()
+                .file()
+                .add_filter("Strawberry database", &["db", "sqlite", "sqlite3"])
+                .blocking_pick_file()
+        })
+        .await
+        .map_err(|_| "Could not open the file picker")?;
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        Some(
+            selected
+                .into_path()
+                .map_err(|_| "Choose a local Strawberry database")?,
+        )
+    };
+    let _library_write = state.store.try_library_write()?;
+    state.subsonic.import_strawberry(path).await.map(Some)
+}
+
 fn youtube_manager() -> Result<&'static youtube_support::YouTubeSupportManager> {
     youtube_support::global().ok_or("YouTube support is not initialized".into())
 }
@@ -303,14 +394,17 @@ async fn youtube_support_status() -> Result<youtube_support::SupportStatus> {
 async fn youtube_support_check(channel: Option<String>) -> Result<youtube_support::UpdateCheck> {
     match channel.as_deref().unwrap_or("recommended") {
         "recommended" => Ok(youtube_manager()?.check_recommended_update().await),
+        "stable" => youtube_manager()?.check_stable_update().await,
         "nightly" => youtube_manager()?.check_advanced_update().await,
-        _ => Err("Choose recommended or nightly".into()),
+        _ => Err("Choose stable, recommended or nightly".into()),
     }
 }
 #[tauri::command]
 async fn youtube_support_update(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     channel: Option<String>,
+    operation_id: Option<uuid::Uuid>,
 ) -> Result<youtube_support::SupportStatus> {
     if state
         .store
@@ -320,13 +414,26 @@ async fn youtube_support_update(
     {
         return Err("Finish or cancel active downloads before changing YouTube support".into());
     }
+    let progress = |progress: youtube_support::UpdateProgress| {
+        if let Some(operation_id) = operation_id {
+            let _ = app.emit(
+                "youtube-support-update-progress",
+                serde_json::json!({
+                    "operationId": operation_id,
+                    "progress": progress
+                }),
+            );
+        }
+    };
     match channel.as_deref().unwrap_or("recommended") {
         "recommended" => youtube_manager()?.update_recommended().await,
-        "stable" if !acquisition::uses_managed_ytdlp(&state.store.settings()?.yt_dlp_path) => {
+        "stable" | "nightly"
+            if !acquisition::uses_managed_ytdlp(&state.store.settings()?.yt_dlp_path) =>
+        {
             Err("Burrata uses an externally managed yt-dlp executable".into())
         }
-        "stable" => youtube_manager()?.update_stable().await,
-        "nightly" => youtube_manager()?.update_advanced().await,
+        "stable" => youtube_manager()?.update_stable(progress).await,
+        "nightly" => youtube_manager()?.update_advanced(progress).await,
         _ => Err("Choose stable, recommended or nightly".into()),
     }
 }
@@ -686,6 +793,51 @@ fn restore_backup(
         .backup_manager
         .start_restore(app, preview_id, options)?;
     Ok(serde_json::json!({"jobId":job_id}))
+}
+
+#[tauri::command]
+async fn factory_reset(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    confirmation: String,
+) -> Result<()> {
+    factory_reset::validate_confirmation(&confirmation)?;
+    let store = state.store.clone();
+    let backups = state.backup_manager.clone();
+    let freeze = state.factory_reset_freeze.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut freeze = freeze.lock().map_err(|_| "Factory reset is unavailable")?;
+        if freeze.is_some() {
+            return Err("A factory reset is already pending.".into());
+        }
+        let permit = store
+            .try_restore_permit()
+            .map_err(|_| "Wait for library tasks to finish before resetting Burrata.")?;
+        let settings = store.settings()?;
+        let protected_paths: Vec<PathBuf> = std::iter::once(settings.music_directory)
+            .chain(settings.playlist_directories)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .chain(backups.get_schedule()?.destination)
+            .collect();
+        backups.stage_factory_reset(&protected_paths)?;
+        *freeze = Some(permit);
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    app.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
+fn get_factory_reset_status(state: State<'_, AppState>) -> Result<factory_reset::Status> {
+    factory_reset::status(&state.profile_dir)
+}
+
+#[tauri::command]
+fn ack_factory_reset(state: State<'_, AppState>, reset_id: uuid::Uuid) -> Result<()> {
+    factory_reset::acknowledge(&state.profile_dir, reset_id)
 }
 
 #[tauri::command]
@@ -1861,6 +2013,23 @@ async fn resolve_track_album(
 }
 
 #[tauri::command]
+fn get_cached_track_album(
+    state: State<'_, AppState>,
+    track: Track,
+) -> Result<Option<album_navigation::AlbumResolution>> {
+    album_navigation::cached_lookup(&state.store, &track)
+}
+
+#[tauri::command]
+fn remember_track_album_choice(
+    state: State<'_, AppState>,
+    track: Track,
+    release: artists::ArtistRef,
+) -> Result<()> {
+    album_navigation::remember_choice(&state.store, &track, &release)
+}
+
+#[tauri::command]
 async fn verify_spotify_album_membership(
     state: State<'_, AppState>,
     track: Track,
@@ -1897,7 +2066,10 @@ async fn verify_spotify_album_membership(
                     tracks.append(&mut page.tracks);
                     let Some(cursor) = page.next_cursor else {
                         return Ok(tracks.len() == total
-                            && album_navigation::recording_member(&track, &tracks));
+                            && (album_navigation::recording_member(&track, &tracks)
+                                || album_navigation::radio_album_member(
+                                    &track, &title, None, &tracks,
+                                )));
                     };
                     if !cursors.insert(cursor.clone()) {
                         return Ok(false);
@@ -1919,6 +2091,13 @@ async fn get_artist_artwork(
     state: State<'_, AppState>,
     artist: artists::ArtistRef,
 ) -> Result<serde_json::Value> {
+    if artist.provider == "spotify" {
+        let image = state
+            .remote_playlists
+            .spotify_artist_artwork(&artist.id)
+            .await?;
+        return Ok(serde_json::json!({"imageUrl": image}));
+    }
     let image = state
         .artists
         .get_artist_artwork(
@@ -1927,6 +2106,16 @@ async fn get_artist_artwork(
         )
         .await?;
     Ok(serde_json::json!({"imageUrl":image}))
+}
+#[tauri::command]
+async fn get_lastfm_top_track_artwork(
+    state: State<'_, AppState>,
+    track: models::Track,
+) -> Result<Option<String>> {
+    let Some(key) = state.connections.credential("lastfm")? else {
+        return Ok(None);
+    };
+    state.artists.lastfm_top_track_artwork(&track, &key).await
 }
 #[tauri::command]
 fn cached_spotify_artist_ref(
@@ -3066,6 +3255,8 @@ pub(crate) struct AppState {
     autotag: Arc<autotag::AutoTagger>,
     store: Arc<Store>,
     _profile_lock: backup_manager::ProfileLock,
+    profile_dir: PathBuf,
+    factory_reset_freeze: Arc<std::sync::Mutex<Option<storage::RestorePermit>>>,
     backup_manager: Arc<backup_manager::BackupManager>,
     import_drops: Arc<import_drop::ImportDropRegistry>,
     directory_browser: directory_browser::DirectoryBrowser,
@@ -3075,6 +3266,7 @@ pub(crate) struct AppState {
     #[cfg(target_os = "linux")]
     _mpris: Option<mpris::MprisService>,
     local_audio: Arc<local_audio::LocalAudioManager>,
+    subsonic: Arc<subsonic::Service>,
     webview_audio_transport: Arc<webview_audio_transport::WebviewAudioTransport>,
     webview_audio_transcoder: Arc<webview_audio_transcode::WebviewAudioTranscoder>,
     acquisition: Arc<AcquisitionManager>,
@@ -3167,6 +3359,7 @@ async fn search_source(
     isrc: Option<String>,
     search_id: Option<String>,
     request_id: Option<String>,
+    exact_video_url: Option<bool>,
 ) -> Result<discovery::DiscoveryPage> {
     state
         .provider_reads
@@ -3180,6 +3373,7 @@ async fn search_source(
                 limit,
                 isrc,
                 search_id,
+                exact_video_url.unwrap_or_default(),
             )
             .await?;
             for result in &mut page.results {
@@ -6409,7 +6603,16 @@ async fn remove_unsorted_library_entries(
         .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn update_track(state: State<'_, AppState>, track: Track) -> Result<Track> {
+fn update_track(
+    state: State<'_, AppState>,
+    track: Track,
+    library_artist_credits: Option<Vec<storage::library::LibraryArtistCredit>>,
+) -> Result<Track> {
+    if let Some(credits) = library_artist_credits {
+        return state
+            .store
+            .update_library_artist_credits(&track.id, credits);
+    }
     let updated = state.store.update_track(&track)?;
     let recording = state.store.recording_id(&updated.id)?;
     let ids = state
@@ -7468,7 +7671,7 @@ async fn prepare_upcoming_playback_source(
         None,
         cancel.clone(),
         operation_id,
-        handoff,
+        playback_sources::PreloadResolution::Scheduled { handoff },
     )
     .await;
     let elapsed_ms = started.elapsed().as_millis();
@@ -8104,10 +8307,27 @@ fn save_settings(
             .allow_directory(path, true)
             .map_err(|e| e.to_string())?;
     }
+    persist_application_settings(&state, &previous, &settings)
+}
+
+#[tauri::command]
+fn reset_application_settings(state: State<'_, AppState>) -> Result<Settings> {
+    let _permit = state.store.try_library_write()?;
+    let previous = state.store.settings()?;
+    let settings = backup_state::reset_application_preferences(previous.clone());
+    persist_application_settings(&state, &previous, &settings)?;
+    state.store.settings()
+}
+
+fn persist_application_settings(
+    state: &AppState,
+    previous: &Settings,
+    settings: &Settings,
+) -> Result<()> {
     if !settings.background_source_preparation {
         source_preparation::yield_to_playback();
     }
-    state.store.save_settings(&settings)?;
+    state.store.save_settings(settings)?;
     if previous.crossfade_enabled != settings.crossfade_enabled
         || previous.soft_next_enabled != settings.soft_next_enabled
         || previous.soft_track_selection_enabled != settings.soft_track_selection_enabled
@@ -8284,6 +8504,13 @@ async fn browse_remote_artist_tracks(
                 .browse_artist_tracks(&artist_id, cursor.as_deref())
                 .await
         })
+        .await
+}
+#[tauri::command]
+async fn browse_spotify_track(state: State<'_, AppState>, track_id: String) -> Result<Track> {
+    state
+        .remote_playlists
+        .get_remote_track("spotify", &track_id)
         .await
 }
 #[tauri::command]
@@ -9311,21 +9538,37 @@ pub fn run() {
             let resources=release_resource_root(app.handle()).map_err(std::io::Error::other)?;
             tools::initialize(resources.clone());
 
-            let dir = std::env::var_os("BURRATA_APP_DATA").map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
+            let override_data_dir = std::env::var_os("BURRATA_APP_DATA");
+            let default_profile = override_data_dir.is_none();
+            let dir = override_data_dir.map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&dir)?;
+            let dir = std::fs::canonicalize(&dir)?;
             // Tauri restart starts its replacement process before this process
             // exits. Keep the profile locked until process teardown so a
             // restored database pair is never swapped under open writers.
             let profile_lock = backup_manager::acquire_profile_lock(&dir)
                 .map_err(std::io::Error::other)?;
+            let reset_at_startup = factory_reset::prepare_startup(
+                &dir, backup_manager::pending_restore_exists(&dir).map_err(std::io::Error::other)?,
+            ).map_err(std::io::Error::other)?;
             // A browser extension updates independently of the desktop app.
             // Keep already registered standard hosts on this app's protocol;
             // isolated/custom profiles must not replace the normal profile's host.
-            if std::env::var_os("BURRATA_APP_DATA").is_none() {
-                if let Err(failure) = install_integration::refresh_registered_host(&resources) {
-                    log::warn!("Could not refresh the registered browser helper: {failure}");
+            startup_mark("browser_host.refresh.begin");
+            let browser_host_refresh = if default_profile {
+                let resources = resources.clone();
+                match std::thread::Builder::new().name("burrata-browser-host-refresh".into())
+                    .spawn(move || install_integration::refresh_registered_host(&resources))
+                {
+                    Ok(task) => Some(task),
+                    Err(error) => {
+                        log::warn!("Could not start browser helper refresh: {error}");
+                        None
+                    }
                 }
-            }
+            } else {
+                None
+            };
             let backup_staging = backup_staging::BackupStaging::open(&dir)?;
             backup_staging.cleanup_abandoned()?;
             let restored_profile = backup_manager::apply_pending_restore_with_staging(&dir, &backup_staging)
@@ -9333,9 +9576,11 @@ pub fn run() {
             // Asset protocol grants are process-local. Restored playback can already
             // contain asset:// artwork URLs and skip the HTTPS cache command, so
             // regrant only our own flat artwork cache before the frontend mounts.
+            startup_mark("artwork_cache.grants.begin");
             for path in artwork_cache::cached_image_files(&app.path().app_data_dir()?.join("artwork")) {
                 app.asset_protocol_scope().allow_file(&path)?;
             }
+            startup_mark("artwork_cache.grants.end");
             let yt=tools::bundled_executable("yt-dlp").unwrap_or_else(||tools::executable("system:yt-dlp","yt-dlp"));
             let node=tools::bundled_executable("node").or_else(||Some(tools::executable("system:node","node")));
             let helper=resources.join("youtube-support/bgutil/server/build/main.js");
@@ -9347,6 +9592,16 @@ pub fn run() {
             startup_mark("store.open.begin");
             let store =
                 Arc::new(Store::open(&dir.join("burrata.sqlite")).map_err(std::io::Error::other)?);
+            if let factory_reset::Startup::ApplyCredentials { quarantine } = reset_at_startup {
+                let mut warnings = connections::reset_profile_credentials(&store, default_profile)
+                    .map_err(std::io::Error::other)?;
+                if default_profile {
+                    warnings.extend(managed_provider_session::reset_profile_credentials(&quarantine));
+                }
+                warnings.extend(subsonic::reset_profile_credentials(&dir, &quarantine));
+                subsonic::suppress_automatic_login(&store).map_err(std::io::Error::other)?;
+                factory_reset::finish(&dir, warnings).map_err(std::io::Error::other)?;
+            }
             startup_mark("store.open.end");
             // The staged database carries the authoritative restore marker.
             // Repair older committed restores before any automatic workers
@@ -9502,6 +9757,8 @@ pub fn run() {
             automation.set_playback_service(playback.clone());
             let system_media = match system_media::SystemMediaService::start(app.handle().clone(), playback.clone()) { Ok(service)=>Some(service),Err(error)=>{diagnostics.push(format!("System media controls unavailable: {error}"));None} };
             let local_audio = local_audio::LocalAudioManager::new(store.clone());
+            let subsonic = subsonic::Service::new(store.clone(), &dir);
+            acquisition.set_subsonic_service(subsonic.clone());
             let webview_audio_transport = webview_audio_transport::WebviewAudioTransport::new();
             let webview_audio_transcoder = webview_audio_transcode::WebviewAudioTranscoder::new();
             #[cfg(target_os = "linux")]
@@ -9509,11 +9766,22 @@ pub fn run() {
                 Ok(service) => Some(service),
                 Err(error) => { diagnostics.push(format!("Desktop media controls unavailable: {error}")); None }
             };
-            let router = automation.router().merge(local_audio.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
+            // Publish the endpoint only after any existing registered host is
+            // refreshed, while overlapping its filesystem work with setup.
+            startup_mark("browser_host.refresh.join");
+            if let Some(task) = browser_host_refresh {
+                match task.join() {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => log::warn!("Could not refresh the registered browser helper: {error}"),
+                    Err(_) => log::warn!("Browser helper refresh worker exited unexpectedly"),
+                }
+            }
+            startup_mark("browser_host.refresh.end");
+            let router = automation.router().merge(local_audio.router()).merge(subsonic.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
             startup_mark("browser_bridge.begin");
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
             startup_mark("browser_bridge.end");
-            let managed_provider_session = managed_provider_session::ManagedProviderSession::new(app.handle().clone(), browser.clone(), dir);
+            let managed_provider_session = managed_provider_session::ManagedProviderSession::new(app.handle().clone(), browser.clone(), dir.clone());
             let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
             let startup_readiness = Arc::new(std::sync::atomic::AtomicBool::new(false));
             {
@@ -9610,6 +9878,7 @@ pub fn run() {
             automation.set_base_url(&browser.base_url()).map_err(std::io::Error::other)?;
             startup_mark("automation_endpoint.registered");
             local_audio.set_base_url(browser.base_url());
+            subsonic.set_base_url(browser.base_url());
             webview_audio_transport.set_base_url(browser.base_url());
             webview_audio_transcoder.set_base_url(browser.base_url());
             let playlist_watcher = match playlist_watch::PlaylistWatcher::start(app.handle().clone(), store.clone(), history.clone()) { Ok(watcher) => Some(watcher), Err(error) => { diagnostics.push(error); None } };
@@ -9620,7 +9889,7 @@ pub fn run() {
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, profile_dir: dir, factory_reset_freeze: Arc::default(), backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, subsonic, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -9629,11 +9898,13 @@ pub fn run() {
             submit_backup_checkpoint,
             inspect_backup_settings,
             apply_backup_settings,
-            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_youtube_channel_videos,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
+            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_youtube_channel_videos,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,browse_spotify_track,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             inspect_backup, consume_import_drop, create_backup, estimate_backup, get_backup_job, get_active_backup_job, cancel_backup_job, restore_backup, get_restore_work_policy, review_restored_automatic_work, choose_backup_restore_root, get_backup_schedule, set_backup_schedule, choose_backup_schedule_destination, get_backup_frontend_preferences, ack_backup_frontend_preferences, get_backup_playback_restore, ack_backup_playback_restore,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
             migrate_native_playback, get_playback_snapshot, playback_command,
             get_browser_install_status, register_browser_host, unregister_browser_host,
+            get_subsonic_status, connect_subsonic, disconnect_subsonic, set_subsonic_preferences,
+            browse_subsonic, refresh_subsonic, seed_subsonic,
             youtube_support_status,youtube_support_check,youtube_support_update,youtube_support_rollback,youtube_support_diagnose,
             get_radio_stations, rename_radio_station,  resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,
             search_radio_stations, add_radio_station, add_custom_radio_station, edit_radio_station_url, get_radio_playlist_option, set_radio_playlist_option, list_radio_playlist_targets, remove_radio_station,
@@ -9720,7 +9991,7 @@ pub fn run() {
             export_playback_diagnostics,
 
             get_diagnostics,
-            save_settings,
+            save_settings, reset_application_settings, factory_reset, get_factory_reset_status, ack_factory_reset,
             check_dependencies,
             list_assets,
             get_asset_by_id,
@@ -9750,7 +10021,7 @@ pub fn run() {
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, resolve_track_album, verify_spotify_album_membership, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, resolve_track_album, get_cached_track_album, remember_track_album_choice, verify_spotify_album_membership, get_artist_artwork, get_lastfm_top_track_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,

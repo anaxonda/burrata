@@ -14,6 +14,8 @@ type Result<T> = std::result::Result<T, String>;
 pub struct PlaylistMirrorOptions {
     /// Whether Burrata publishes and reconciles the managed mirror for this playlist.
     pub included: bool,
+    /// Include this playlist in the independent local-file DJ library.
+    pub include_dj_xml: bool,
     /// `None` preserves the existing output behavior for this playlist.
     pub include_media_links: Option<bool>,
     /// `None` preserves the existing output behavior for this playlist.
@@ -24,6 +26,7 @@ impl Default for PlaylistMirrorOptions {
     fn default() -> Self {
         Self {
             included: true,
+            include_dj_xml: false,
             include_media_links: None,
             include_ytdlp_search: None,
         }
@@ -52,6 +55,7 @@ impl Default for PlaylistMirrorPolicy {
 pub struct PlaylistMirrorEffectiveOptions {
     pub collection_id: String,
     pub included: bool,
+    pub include_dj_xml: bool,
     pub include_media_links: bool,
     pub include_ytdlp_search: bool,
 }
@@ -122,6 +126,7 @@ pub fn effective_playlist_mirror_options(
     Ok(PlaylistMirrorEffectiveOptions {
         collection_id: collection_id.to_owned(),
         included: options.included,
+        include_dj_xml: options.include_dj_xml,
         include_media_links: options
             .include_media_links
             .unwrap_or(defaults.include_media_links),
@@ -159,6 +164,9 @@ pub fn set_playlist_mirror_options(
     options: PlaylistMirrorOptions,
 ) -> Result<PlaylistMirrorOptionsView> {
     validate_collection_id(store, collection_id)?;
+    if collection_id == "history" && options.include_dj_xml {
+        return Err("Choose a playlist for DJ XML".into());
+    }
     let mut policy = get_playlist_mirror_policy(store)?;
     policy.playlists.insert(collection_id.to_owned(), options);
     save_playlist_mirror_policy(store, &policy)?;
@@ -173,6 +181,7 @@ fn effective_from_options(
     PlaylistMirrorEffectiveOptions {
         collection_id: collection_id.to_owned(),
         included: options.included,
+        include_dj_xml: options.include_dj_xml,
         include_media_links: options
             .include_media_links
             .unwrap_or(defaults.include_media_links),
@@ -242,6 +251,7 @@ mod tests {
             PlaylistMirrorEffectiveOptions {
                 collection_id: "favorites".into(),
                 included: true,
+                include_dj_xml: false,
                 include_media_links: true,
                 include_ytdlp_search: false,
             }
@@ -251,6 +261,7 @@ mod tests {
             PlaylistMirrorEffectiveOptions {
                 collection_id: "history".into(),
                 included: true,
+                include_dj_xml: false,
                 include_media_links: false,
                 include_ytdlp_search: false,
             }
@@ -270,12 +281,14 @@ mod tests {
             &collection.id,
             PlaylistMirrorOptions {
                 included: false,
+                include_dj_xml: true,
                 include_media_links: Some(false),
                 include_ytdlp_search: Some(true),
             },
         )
         .unwrap();
         assert!(!effective.effective.included);
+        assert!(effective.effective.include_dj_xml);
         assert!(!effective.effective.include_media_links);
         assert!(effective.effective.include_ytdlp_search);
         assert!(!effective.globally_enabled);
@@ -284,6 +297,7 @@ mod tests {
             "favorites",
             PlaylistMirrorOptions {
                 included: true,
+                include_dj_xml: false,
                 include_media_links: Some(false),
                 include_ytdlp_search: None,
             },

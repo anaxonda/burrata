@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-disconnect-subsonic"
+description = "Enables the disconnect_subsonic command without any pre-configured scope."
+commands.allow = ["disconnect_subsonic"]
+
+[[permission]]
+identifier = "deny-disconnect-subsonic"
+description = "Denies the disconnect_subsonic command without any pre-configured scope."
+commands.deny = ["disconnect_subsonic"]

@@ -1,0 +1,68 @@
+{
+  "tracks": [
+    {
+      "id": "youtube:LSHM_bkSYQI",
+      "provider": "youtube",
+      "providerId": "LSHM_bkSYQI",
+      "sourceUrl": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+      "artist": "No Viviré",
+      "title": "Gipsy Kings",
+      "favorite": false,
+      "durationSeconds": 246.0,
+      "provenance": {
+        "sourceKind": "audioSearch",
+        "artistSource": "inferred_from_title",
+        "weakFields": { "artist": true, "title": true },
+        "audioCandidate": {
+          "provider": "youtube",
+          "id": "youtube:LSHM_bkSYQI",
+          "url": "https://www.youtube.com/watch?v=LSHM_bkSYQI",
+          "title": "No Viviré - Gipsy Kings"
+        }
+      }
+    },
+    {
+      "id": "traxsource:atomic-act",
+      "provider": "traxsource",
+      "providerId": "atomic-act",
+      "sourceUrl": "https://www.traxsource.com/track/atomic-act",
+      "artist": "Atomic Band & Friends",
+      "title": "One Shared Name",
+      "favorite": false,
+      "durationSeconds": 180.0,
+      "provenance": {
+        "browserImport": true,
+        "captureProvider": "traxsource",
+        "artistCredits": [
+          { "name": "Atomic Band & Friends", "providerId": "group-1", "role": "artist" }
+        ]
+      }
+    },
+    {
+      "id": "youtube:ambiguous-friends",
+      "provider": "youtube",
+      "providerId": "ambiguous-friends",
+      "sourceUrl": "https://www.youtube.com/watch?v=ambiguous-friends",
+      "artist": "Artist & Friends",
+      "title": "Unverified Upload",
+      "favorite": false,
+      "durationSeconds": 180.0,
+      "provenance": {
+        "sourceKind": "audioSearch",
+        "artistSource": "inferred_from_title",
+        "identity": "unverified source search result",
+        "weakFields": { "artist": true, "title": true }
+      }
+    }
+  ],
+  "expected": {
+    "repairedCaptionTrack": {
+      "id": "youtube:LSHM_bkSYQI",
+      "artist": "",
+      "title": "No Viviré - Gipsy Kings",
+      "artistSource": "unknown"
+    },
+    "atomicArtistCards": ["Atomic Band & Friends"],
+    "noArtistCardsFor": ["No Viviré", "Gipsy Kings", "Artist & Friends", "Artist", "Friends"]
+  }
+}

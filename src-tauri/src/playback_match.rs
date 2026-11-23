@@ -5,6 +5,7 @@ use crate::recording_match::{
     self, Comparison, MatchAction, MatchAssessment, MatchLevel, MatchRelationship, MatchStage,
     ProofStrength,
 };
+use std::collections::HashSet;
 pub(super) const VERSION: &str = crate::recording_match::EVALUATOR_VERSION;
 
 #[derive(Debug, Clone)]
@@ -349,6 +350,200 @@ fn discogs_barcode_candidate_context(
     Some((projected, performers))
 }
 
+/// Spotify can omit the credited name prefix from a numbered movement title.
+/// The search projection only aids discovery; extraction must independently
+/// confirm the same edition, full roster, and duration before using it.
+fn spotify_numbered_movement_caption(
+    track: &Track,
+    candidate: &Candidate,
+    stage: MatchStage,
+) -> Option<(Candidate, Vec<String>)> {
+    if candidate.provider != "youtube" {
+        return None;
+    }
+    let (album, fingerprint) =
+        crate::spotify_catalog_identity::numbered_movement_album_request(track)?;
+    crate::spotify_catalog_identity::numbered_movement_caption_matches(
+        &fingerprint,
+        &candidate.title,
+        candidate.duration_seconds?,
+    )
+    .then_some(())?;
+    let mut names = fingerprint
+        .artists
+        .into_iter()
+        .map(|artist| artist.name)
+        .collect::<Vec<_>>();
+    if stage == MatchStage::Resolved {
+        let metadata = candidate.source_metadata.as_ref()?;
+        let source_id = candidate.id.strip_prefix("youtube:")?;
+        let observed = metadata["artists"].as_array()?;
+        if metadata["sourceMetadataOrigin"] != "ytDlpFullInfo"
+            || metadata["resolvedProviderId"].as_str() != Some(source_id)
+            || metadata["identityMetadataUncertain"] == true
+            || metadata["youtubeGeneratedAlbum"].as_str() != Some(album)
+            || metadata["artistCount"].as_u64() != Some(observed.len() as u64)
+        {
+            return None;
+        }
+        let artist_key = crate::matching::normalize_single_artist_name;
+        let expected = names
+            .iter()
+            .map(|name| artist_key(name))
+            .collect::<HashSet<_>>();
+        let mut resolved_credits = observed
+            .iter()
+            .map(|name| name.as_str().map(artist_key))
+            .collect::<Option<HashSet<_>>>()?;
+        if resolved_credits.len() != observed.len() {
+            return None;
+        }
+        if let Some(composer) = metadata["youtubeGeneratedComposer"].as_str() {
+            let composer = artist_key(composer);
+            if composer.is_empty() || observed.is_empty() {
+                return None;
+            }
+            if resolved_credits.insert(composer.clone()) {
+                names.retain(|name| artist_key(name) != composer);
+            }
+        }
+        let generated = metadata["youtubeGeneratedArtistCredits"].as_array()?;
+        let generated_names = generated
+            .iter()
+            .map(|name| name.as_str().map(artist_key))
+            .collect::<Option<HashSet<_>>>()?;
+        if expected.contains("")
+            || resolved_credits != expected
+            || generated.len() != expected.len()
+            || generated_names != expected
+        {
+            return None;
+        }
+    }
+    let mut projected = candidate.clone();
+    projected.title = fingerprint.title.clone();
+    if let Some(metadata) = projected.source_metadata.as_mut() {
+        for field in ["track", "catalogTitle"] {
+            if let Some(value) = metadata.get(field) {
+                let title = value.as_str()?;
+                if !title.eq_ignore_ascii_case(&candidate.title)
+                    && !title.eq_ignore_ascii_case(&fingerprint.title)
+                {
+                    return None;
+                }
+                metadata[field] = json!(fingerprint.title);
+            }
+        }
+        if let Some(credits) = metadata["descriptionCreditLine"]
+            .as_str()
+            .and_then(|line| line.strip_prefix(&candidate.title))
+            .filter(|rest| rest.starts_with(" · "))
+        {
+            metadata["descriptionCreditLine"] = json!(format!("{}{credits}", fingerprint.title));
+        }
+    }
+    Some((projected, names))
+}
+
+/// The compiled disc proves the full roster. Fresh, distributor-generated
+/// source fields still need to establish the work, movement and performers.
+fn musicbrainz_apple_movement_performers(
+    track: &Track,
+    candidate: &Candidate,
+) -> Result<Vec<String>, &'static str> {
+    let metadata = candidate.source_metadata.as_ref().ok_or("source_context")?;
+    let id = candidate
+        .id
+        .strip_prefix("youtube:")
+        .ok_or("source_context")?;
+    let channel_id = metadata["channelId"].as_str().ok_or("topic_channel")?;
+    let release_day = track.provenance["playbackMusicBrainzAppleDiscProof"]["catalogReleaseDay"]
+        .as_str()
+        .ok_or("release_day")?;
+    let duration_agrees = track
+        .duration_seconds
+        .zip(candidate.duration_seconds)
+        .is_some_and(|(catalog, found)| {
+            catalog.is_finite()
+                && found.is_finite()
+                && catalog > 0.0
+                && found > 0.0
+                && (catalog - found).abs() <= (catalog * 0.01).min(3.0)
+        });
+    if candidate.provider != "youtube"
+        || candidate.permission == "restricted"
+        || id.len() != 11
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+        || candidate.url != format!("https://www.youtube.com/watch?v={id}")
+        || metadata["provider"] != "youtube"
+        || metadata["sourceMetadataOrigin"] != "ytDlpFullInfo"
+        || metadata["resolvedProviderId"].as_str() != Some(id)
+        || metadata["identityMetadataUncertain"] == true
+        || metadata["isPreview"] == true
+        || metadata["isFullAlbum"] == true
+        || candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|rows| !rows.is_empty())
+    {
+        return Err("source_context");
+    }
+    if !metadata["channel"]
+        .as_str()
+        .is_some_and(|name| name.ends_with(" - Topic"))
+        || channel_id.len() != 24
+        || !channel_id.starts_with("UC")
+        || !channel_id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+    {
+        return Err("topic_channel");
+    }
+    if metadata["topicAlbum"].as_str().is_none_or(str::is_empty)
+        || metadata["topicReleaseDate"].as_str() != Some(release_day)
+    {
+        return Err("release_day");
+    }
+    if metadata["duration"].as_f64() != candidate.duration_seconds || !duration_agrees {
+        return Err("duration");
+    }
+    if metadata["track"].as_str() != Some(candidate.title.as_str())
+        || !crate::classical_movement_title::bwv_movement_titles_equivalent(
+            &track.title,
+            &candidate.title,
+        )
+        || !metadata["topicComposer"].as_str().is_some_and(|composer| {
+            crate::classical_movement_title::bwv_composer_credit_matches(&candidate.title, composer)
+        })
+    {
+        return Err("movement");
+    }
+    let raw_artists = metadata["artists"].as_array().ok_or("credits")?;
+    if raw_artists.len() != 2
+        || metadata["artistCount"].as_u64() != Some(2)
+        || (!metadata["artistNames"].is_null() && metadata["artistNames"] != metadata["artists"])
+    {
+        return Err("credits");
+    }
+    let artists = raw_artists
+        .iter()
+        .map(|name| name.as_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>()
+        .ok_or("credits")?;
+    if metadata["descriptionCreditLine"] != format!("{} · {}", candidate.title, artists.join(" · "))
+        || metadata["artist"]
+            .as_str()
+            .is_some_and(|name| !name.is_empty() && name != artists.join(", "))
+    {
+        return Err("credits");
+    }
+    let projected = crate::musicbrainz_apple_disc::project_observed_performers(track, &artists)
+        .ok_or("performers")?;
+    crate::recording_identity::declared_credit_names(&projected).ok_or("performers")
+}
+
 fn assessment_with_trace_and_options(
     store: &Store,
     track: &Track,
@@ -361,6 +556,21 @@ fn assessment_with_trace_and_options(
     options: crate::recording_match::FlexibleMatchingOptions,
     trace: Option<&super::SourceTrace>,
 ) -> MatchAssessment {
+    if stage == MatchStage::Search {
+        if let Some((projected, _)) = spotify_numbered_movement_caption(track, candidate, stage) {
+            return assessment_with_options(
+                store,
+                track,
+                aliases,
+                isrc_aliases,
+                known_isrc,
+                &projected,
+                level,
+                stage,
+                options,
+            );
+        }
+    }
     if let Some((projected_candidate, performers)) =
         discogs_barcode_candidate_context(track, candidate, stage, trace)
             .or_else(|| role_context_candidate(track, candidate, trace))
@@ -988,14 +1198,39 @@ pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
             kind: RecordingProofKind::ExplicitSource,
         });
     }
+    let verified_classical_source = resolved.provider == "youtube"
+        && trace.and_then(|value| value.classical_disc_track.as_deref()) == Some(track);
     if !crate::youtube_recording_metadata::catalog_context_matches_request(
         track,
         resolved.source_metadata.as_ref().unwrap_or(&Value::Null),
     ) {
+        if let Some(trace) = trace.filter(|_| verified_classical_source) {
+            trace.event(
+                "classical_source_proof_rejected",
+                "youtube",
+                json!({"classicalProofGate": "catalog_context"}),
+            );
+        }
         return None;
     }
-    let role_credit_assessment = if discogs_credit_variant.is_none() {
+    let role_credit_assessment = if verified_classical_source {
+        let performers = match musicbrainz_apple_movement_performers(track, &resolved) {
+            Ok(performers) => performers,
+            Err(gate) => {
+                if let Some(trace) = trace {
+                    trace.event(
+                        "classical_source_proof_rejected",
+                        "youtube",
+                        json!({"classicalProofGate": gate}),
+                    );
+                }
+                return None;
+            }
+        };
+        Some((resolved.clone(), performers))
+    } else if discogs_credit_variant.is_none() {
         discogs_barcode_candidate_context(track, &resolved, MatchStage::Resolved, trace)
+            .or_else(|| spotify_numbered_movement_caption(track, &resolved, MatchStage::Resolved))
             .or_else(|| role_context_candidate(track, &resolved, trace))
     } else {
         None
@@ -1227,6 +1462,10 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
         "reportedSourceArtists",
         "unclassifiedSourceArtistCredits",
         "catalogArtistCredits",
+        "youtubeGeneratedDistributor",
+        "youtubeGeneratedArtistCredits",
+        "youtubeGeneratedAlbum",
+        "youtubeGeneratedComposer",
     ] {
         let Some(value) = metadata.get(field) else {
             continue;
@@ -1257,6 +1496,29 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
             if let Some(rows) = rows {
                 result.insert(field.to_owned(), json!(rows));
             }
+            continue;
+        }
+        if field == "youtubeGeneratedArtistCredits" {
+            if value.as_array().is_some_and(|credits| {
+                !credits.is_empty()
+                    && credits.len() <= 32
+                    && credits.iter().all(|credit| {
+                        credit.as_str().is_some_and(|name| {
+                            !name.trim().is_empty()
+                                && name.chars().count() <= 256
+                                && !name.chars().any(char::is_control)
+                        })
+                    })
+            }) {
+                result.insert(field.to_owned(), value.clone());
+            }
+            continue;
+        }
+        if field == "youtubeGeneratedDistributor"
+            && value
+                .as_str()
+                .is_none_or(|name| name.trim().is_empty() || name.chars().count() > 256)
+        {
             continue;
         }
         let bounded = match value {
@@ -1291,6 +1553,7 @@ pub(super) fn cached_direct_allowed(
     track: &Track,
     candidate: &Candidate,
     level: MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
 ) -> bool {
     if !crate::youtube_recording_metadata::catalog_context_matches_request(
         track,
@@ -1308,12 +1571,37 @@ pub(super) fn cached_direct_allowed(
     if m["evaluatorVersion"] != VERSION || m["level"] != json!(level) {
         return false;
     }
-    let a = crate::recording_match_context::assess(
+    if let Some((projected, credits)) =
+        spotify_numbered_movement_caption(track, candidate, MatchStage::Resolved)
+    {
+        let mut context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(options)
+                .with_primary_credit_override(credits);
+        let assessment = crate::recording_match_context::assess_with_aliases_and_context(
+            store,
+            track,
+            &projected,
+            level,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut context,
+        );
+        return assessment.action == MatchAction::Accept
+            && assessment.relationship != MatchRelationship::Alternative;
+    }
+    let a = assessment_with_options(
         store,
         track,
+        &[],
+        &[],
+        None,
         candidate,
         level,
         MatchStage::Resolved,
+        options,
     );
     a.action == MatchAction::Accept && a.relationship != MatchRelationship::Alternative
 }
@@ -1321,6 +1609,323 @@ pub(super) fn cached_direct_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn verified_musicbrainz_disc_uses_fresh_extracted_movement_and_roster() {
+        let track = crate::musicbrainz_apple_disc::tests::prepared_bach_recording().await;
+        let (_directory, store) = store();
+        let mut trace = super::super::SourceTrace::new(None, None, None);
+        trace.classical_disc_track = Some(std::sync::Arc::new(track.clone()));
+        let caption = "J.S. Bach: Brandenburg Concerto No. 3 in G Major, BWV 1048: I. [Allegro]";
+        let album = "Bach: Brandenburg Concertos";
+        let mut metadata = json!({
+            "id":"3g0c278B51I", "url":"https://rr1.googlevideo.com/videoplayback",
+            "title":caption, "track":caption, "album":album,
+            "channel":"Gewandhausorchester - Topic", "channel_id":"UCmAe1tC-pWPfoed0eDMbD8w",
+            "artists":["Gewandhausorchester","Riccardo Chailly"],
+            "artist":"Gewandhausorchester, Riccardo Chailly",
+            "duration":342, "release_date":"20100101",
+            "acodec":"mp4a.40.2", "vcodec":"none", "protocol":"https", "ext":"m4a",
+            "description":format!("Provided to YouTube by Universal Music Group\n\n{caption} · Gewandhausorchester · Riccardo Chailly\n\n{album}\n\nReleased on: 2010-01-01\nComposer: Johann Sebastian Bach\n\nAuto-generated by YouTube."),
+        });
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:3g0c278B51I".into(),
+            url: "https://www.youtube.com/watch?v=3g0c278B51I".into(),
+            title: caption.into(),
+            duration_seconds: Some(342.0),
+            ..Candidate::default()
+        };
+        let verifies = |metadata: &Value, trace: Option<&super::super::SourceTrace>| {
+            let mut candidate = candidate.clone();
+            let audio = acquisition::preview_audio_from_metadata(&candidate, metadata).unwrap();
+            verify_with_discogs_credit_variant_and_options_traced(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut candidate,
+                &audio,
+                true,
+                MatchLevel::Balanced,
+                &store,
+                None,
+                crate::recording_match::FlexibleMatchingOptions::default(),
+                trace,
+            )
+            .is_some()
+        };
+        assert!(verifies(&metadata, Some(&trace)));
+        assert!(!verifies(&metadata, None));
+        metadata["release_date"] = json!("20110101");
+        assert!(!verifies(&metadata, Some(&trace)));
+        metadata["release_date"] = json!("20100101");
+        metadata["artists"][1] = json!("A different conductor");
+        assert!(!verifies(&metadata, Some(&trace)));
+    }
+
+    #[test]
+    fn spotify_numbered_movement_checks_topic_composer_against_linked_catalog() {
+        let title = "Brandenburg Concerto No. 3 in G Major, BWV 1048: I. [Allegro]";
+        let caption = format!("J.S. Bach: {title}");
+        let album = "Bach: Brandenburg Concertos";
+        let composer = "Johann Sebastian Bach";
+        let performers = ["Gewandhausorchester", "Riccardo Chailly"];
+        let artist = format!("{composer}, {}", performers.join(", "));
+        let channel = "UCmAe1tC-pWPfoed0eDMbD8w";
+        let names = [composer, performers[0], performers[1]];
+        let mut track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let refs = names.iter().zip(['a', 'b', 'd']).map(|(name, id)| {
+            json!({"provider":"spotify", "id":id.to_string().repeat(22), "name":name})
+        }).collect::<Vec<_>>();
+        track.title = title.into();
+        track.album = Some(album.into());
+        track.artist = artist.clone();
+        track.duration_seconds = Some(341.533);
+        track.provenance["catalog"]["artists"] = json!(refs);
+        track.provenance["catalog"]["artistCount"] = json!(3);
+        track.provenance["remoteCatalog"] = json!({
+            "trackId":track.provider_id, "title":title, "artist":artist, "album":album,
+            "durationSeconds":341.533, "artistCount":3, "artistRefs":refs,
+        });
+        let candidate = Candidate {
+            id: "youtube:3g0c278B51I".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=3g0c278B51I".into(),
+            title: caption.clone(),
+            duration_seconds: Some(342.0),
+            source_metadata: Some(json!({
+                "provider":"youtube", "playbackMusicCatalogCandidate":true,
+                "catalogTitle":caption, "catalogArtist":names.join(", "),
+                "catalogRequestedAlbum":album, "catalogAlbum":album,
+                "catalogDurationSeconds":342.0, "catalogRequestedDurationSeconds":341.533,
+                "albumBrowseId":"MPREb_dd1WR5dUqby",
+                "catalogArtistCredits":[
+                    {"name":composer,"providerId":"UCFtSXTlIMFFkyJbHO3V5b7A"},
+                    {"name":performers[0],"providerId":channel},
+                    {"name":performers[1],"providerId":"UCaDCwnYtao84O92Hu51kKUQ"}
+                ],
+            })),
+            ..Candidate::default()
+        };
+        let info = json!({
+            "id":"3g0c278B51I", "title":caption, "track":caption, "album":album,
+            "duration":342.0, "artists":performers, "channel":"Gewandhausorchester - Topic",
+            "channel_id":channel,
+            "description":format!("Provided to YouTube by Distributor\n\n{caption} · {}\n\n{album}\n\nComposer: {composer}\n\nAuto-generated by YouTube.", performers.join(" · ")),
+            "url":"https://media.googlevideo.com/audio", "acodec":"mp4a.40.2",
+            "vcodec":"none", "ext":"m4a", "protocol":"https", "format_id":"140",
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.db")).unwrap();
+        let trace = super::super::SourceTrace::new(None, None, None);
+        let settings = crate::recording_match::FlexibleMatchingOptions::default();
+        assert!(crate::youtube_recording_metadata::preferred_album_locator(
+            &track, &candidate
+        ));
+        let mut wrong_edition = candidate.clone();
+        wrong_edition.source_metadata.as_mut().unwrap()["catalogAlbum"] = json!("Other album");
+        assert!(!crate::youtube_recording_metadata::preferred_album_locator(
+            &track,
+            &wrong_edition
+        ));
+        assert!(evaluate_with_trace_and_options(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            MatchLevel::Balanced,
+            &store,
+            settings.clone(),
+            &trace
+        )
+        .accepted());
+        let verifies = |mut candidate: Candidate, info: &Value| {
+            let audio = acquisition::preview_audio_from_metadata(&candidate, info).unwrap();
+            verify_with_discogs_credit_variant_and_options_traced(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut candidate,
+                &audio,
+                true,
+                MatchLevel::Balanced,
+                &store,
+                None,
+                settings.clone(),
+                Some(&trace),
+            )
+            .is_some()
+        };
+        assert!(verifies(candidate.clone(), &info));
+        let mut composer_in_recording_line = info.clone();
+        composer_in_recording_line["artists"] = json!([performers[0], performers[1], composer]);
+        composer_in_recording_line["description"] =
+            json!(info["description"].as_str().unwrap().replace(
+                &format!("{caption} · {}", performers.join(" · ")),
+                &format!("{caption} · {} · {composer}", performers.join(" · ")),
+            ));
+        assert!(verifies(candidate.clone(), &composer_in_recording_line));
+        let mut truncated_display = info.clone();
+        let prefix = caption.chars().take(70).collect::<String>();
+        truncated_display["title"] = json!(format!("{prefix}..."));
+        assert!(verifies(candidate.clone(), &truncated_display));
+        truncated_display["title"] = json!(format!("Wrong performance {prefix}..."));
+        assert!(!verifies(candidate.clone(), &truncated_display));
+        let mut unlinked = candidate.clone();
+        unlinked.source_metadata = None;
+        assert!(!verifies(unlinked, &info));
+        for (field, wrong) in [
+            ("channel_id", json!("UC1234567890123456789012")),
+            ("album", json!("Unrelated release")),
+        ] {
+            let mut changed = info.clone();
+            changed[field] = wrong;
+            assert!(!verifies(candidate.clone(), &changed), "{field}");
+        }
+        let mut changed = info;
+        changed["description"] = json!(changed["description"].as_str().unwrap().replace(
+            "Composer: Johann Sebastian Bach",
+            "Composer: Carl Philipp Emanuel Bach"
+        ));
+        assert!(!verifies(candidate, &changed));
+    }
+
+    #[test]
+    fn spotify_numbered_movement_requires_exact_extracted_edition_and_credits() {
+        let title = "Symphony No. 5 in C Minor, Op. 67: I. Allegro con brio";
+        let caption = format!("Beethoven: {title}");
+        let album = "Beethoven: Symphonies Nos. 5 & 7";
+        let names = [
+            "Ludwig van Beethoven",
+            "Wiener Philharmoniker",
+            "Carlos Kleiber",
+        ];
+        let mut track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let refs = names.iter().zip(['a', 'b', 'd']).map(|(name, id)| {
+            json!({"provider":"spotify", "id":id.to_string().repeat(22), "name":name})
+        }).collect::<Vec<_>>();
+        track.title = title.into();
+        track.artist = names.join(", ");
+        track.album = Some(album.into());
+        track.duration_seconds = Some(441.946);
+        track.provenance["catalog"]["artists"] = json!(refs);
+        track.provenance["catalog"]["artistCount"] = json!(names.len());
+        track.provenance["remoteCatalog"] = json!({
+            "trackId":track.provider_id, "title":title, "artist":track.artist, "album":album,
+            "durationSeconds":441.946, "artistCount":names.len(), "artistRefs":refs,
+        });
+        let mut candidate = Candidate {
+            id: "youtube:Xg5gIv72-DA".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=Xg5gIv72-DA".into(),
+            title: caption.clone(),
+            uploader: Some("Vienna Philharmonic".into()),
+            duration_seconds: Some(442.0),
+            ..Candidate::default()
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.db")).unwrap();
+        let trace = super::super::SourceTrace::new(None, None, None);
+        let settings = crate::recording_match::FlexibleMatchingOptions::default();
+        assert!(evaluate_with_trace_and_options(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            MatchLevel::Balanced,
+            &store,
+            settings.clone(),
+            &trace,
+        )
+        .accepted());
+        assert!(
+            spotify_numbered_movement_caption(&track, &candidate, MatchStage::Resolved).is_none()
+        );
+        let source_names = [names[1], names[2], names[0]];
+        let info = json!({
+            "id":"Xg5gIv72-DA", "title":caption, "track":caption, "album":album,
+            "duration":442.0, "artists":source_names, "channel":"Vienna Philharmonic",
+            "channel_id":"UC1234567890123456789012", "channel_is_verified":true,
+            "description":format!(
+                "Provided to YouTube by Universal Music Group\n\n{caption} · {}\n\n{album}\n\nAuto-generated by YouTube.",
+                source_names.join(" · "),
+            ),
+            "url":"https://media.googlevideo.com/audio", "acodec":"mp4a.40.2",
+            "vcodec":"none", "ext":"m4a", "protocol":"https", "format_id":"140",
+        });
+        let audio = acquisition::preview_audio_from_metadata(&candidate, &info).unwrap();
+        assert_eq!(
+            audio.source_metadata.as_ref().unwrap()["youtubeGeneratedAlbum"],
+            album
+        );
+        let verifies = |candidate: &mut Candidate, audio: &acquisition::PreviewAudio| {
+            verify_with_discogs_credit_variant_and_options_traced(
+                &track,
+                &[],
+                &[],
+                None,
+                candidate,
+                audio,
+                true,
+                MatchLevel::Balanced,
+                &store,
+                None,
+                settings.clone(),
+                Some(&trace),
+            )
+            .is_some()
+        };
+        assert!(verifies(&mut candidate, &audio));
+        assert_eq!(candidate.title, caption);
+        for (field, wrong) in [
+            ("artists", json!([names[1], "Other Conductor", names[0]])),
+            ("youtubeGeneratedAlbum", json!("An unrelated anthology")),
+            ("youtubeGeneratedArtistCredits", Value::Null),
+            ("artistCount", json!(2)),
+            ("sourceMetadataOrigin", json!("search")),
+        ] {
+            let mut wrong_audio = audio.clone();
+            wrong_audio.source_metadata.as_mut().unwrap()[field] = wrong;
+            assert!(!verifies(&mut candidate.clone(), &wrong_audio), "{field}");
+        }
+        let mut changed_info = info;
+        changed_info["album"] = json!("An unrelated anthology");
+        let changed_audio =
+            acquisition::preview_audio_from_metadata(&candidate, &changed_info).unwrap();
+        assert!(!verifies(&mut candidate.clone(), &changed_audio));
+        let mut wrong_audio = audio;
+        wrong_audio.resolved_title =
+            Some("Beethoven: Symphony No. 5 in C Minor, Op. 67: II. Andante con moto".into());
+        assert!(!verifies(&mut candidate, &wrong_audio));
+    }
+
+    #[test]
+    fn cached_identity_preserves_complete_generated_distributor_credits() {
+        let evidence = json!({
+            "youtubeGeneratedDistributor": "MTN Muting The Noise GmbH",
+            "youtubeGeneratedArtistCredits": ["Rampa", "Adam Port", "&ME", "Chuala", "Keinemusik"],
+            "description": "Raw provider payload must not be retained",
+        });
+        let cached = bounded_identity_metadata(&evidence);
+        assert_eq!(
+            cached["youtubeGeneratedDistributor"],
+            evidence["youtubeGeneratedDistributor"]
+        );
+        assert_eq!(
+            cached["youtubeGeneratedArtistCredits"],
+            evidence["youtubeGeneratedArtistCredits"]
+        );
+        assert!(cached.get("description").is_none());
+        let malformed = json!({
+            "youtubeGeneratedDistributor": "x".repeat(257),
+            "youtubeGeneratedArtistCredits": ["Rampa", "bad\u{0000}credit", "Keinemusik"],
+        });
+        assert_eq!(bounded_identity_metadata(&malformed), json!({}));
+    }
 
     #[test]
     fn verified_classical_caption_matches_only_with_the_fresh_album_and_performers() {
@@ -2174,7 +2779,8 @@ mod tests {
                 &store,
                 &track,
                 &candidate,
-                MatchLevel::Exact
+                MatchLevel::Exact,
+                Default::default(),
             ));
             let current = recording_match::assess(
                 &track,
@@ -2920,7 +3526,13 @@ mod tests {
             request_fingerprint(&t, MatchLevel::Exact),
             request_fingerprint(&t, MatchLevel::Flexible)
         );
-        assert!(!cached_direct_allowed(&s, &t, &c, MatchLevel::Exact));
+        assert!(!cached_direct_allowed(
+            &s,
+            &t,
+            &c,
+            MatchLevel::Exact,
+            Default::default()
+        ));
         assert_eq!(t.title, "Song");
     }
     #[test]
@@ -3320,7 +3932,8 @@ mod retained_locator_tests {
             &reopened,
             &track,
             &candidate,
-            MatchLevel::Balanced
+            MatchLevel::Balanced,
+            Default::default(),
         ));
         // A source locator locates an extraction; it never invents missing
         // performer evidence or carries a resolved-stream acceptance.

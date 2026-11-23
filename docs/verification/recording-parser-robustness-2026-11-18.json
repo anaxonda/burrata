@@ -1,0 +1,615 @@
+{
+  "baseCommit": "86c3894",
+  "scope": "Offline audit of the working tree on 2026-11-18, including the existing unreleased parser changes. Examples measure search and eligibility decisions. Provider responses are controlled fixtures; the results do not measure live availability, installed application behavior, population frequency or stream continuity.",
+  "postFixReplay": {
+    "targetedDelimiterPairsAccepted": 100,
+    "targetedDelimiterPairsExamined": 100,
+    "formerlyRejectedPairsNowAccepted": 39,
+    "liveSuffixPairsAccepted": 17,
+    "liveSuffixPairsExamined": 17,
+    "additionalExploratoryPairs": "The larger replay also changes some dashes inside full upload captions or nested annotations. Ten such transformations still require more evidence or conflict. These include moving the title into parentheses after the performer, which changes the caption structure.",
+    "policyAndHeldOutDecisions": 168,
+    "unexpectedPolicyDifferences": 0
+  },
+  "existingQualification": {
+    "policyMatrixDecisions": 120,
+    "heldOutDecisions": 30,
+    "additionalPolicyDecisions": 18,
+    "differences": 0
+  },
+  "delimiterExperiment": {
+    "source": "286-row local catalog snapshot. Take titles containing a spaced dash and an edition-like final label; exclude comma-separated artist strings. The reported subset uses unique artist/title pairs with a final label under 100 characters containing no brackets or parentheses and ending in mix, version, edit, remix or remaster, or equal to live, edit, remix or remastered.",
+    "method": "A Spotify-shaped request and a synthetic structured YouTube Topic candidate with the same artist and controlled duration (200 s), no shared recording ID. Compare the unchanged title first, then wrap only the final dash label in parentheses on the candidate. Both variants use the same candidate channel and artist fields. All 100 controls accepted in Balanced and Flexible. The alternate forms returned the same action in both modes.",
+    "controlsAccepted": 100,
+    "alternateAccepted": 61,
+    "alternateRejected": 39,
+    "bareLiveSuffix": {
+      "rejected": 17,
+      "examined": 17
+    },
+    "columns": [
+      "artist",
+      "requestedTitle",
+      "resolvedActionAfterDelimiterChange"
+    ],
+    "rows": [
+      [
+        "TEDDY-O",
+        "I Miss You (Missing) - Extended Mix",
+        "accept"
+      ],
+      [
+        "Kelela",
+        "Contact - Karen Nyame KG Remix",
+        "accept"
+      ],
+      [
+        "Anthony Keyrouz",
+        "Young And Beautiful - Afro House Version",
+        "reject"
+      ],
+      [
+        "Jamie Jones",
+        "La Musa (with Miluhska) - Adam Ten & Rafael Remix",
+        "accept"
+      ],
+      [
+        "DJ Tomer",
+        "House on a Hill - Drega Remix",
+        "accept"
+      ],
+      [
+        "JIMMX",
+        "BIRDS OF A FEATHER - Afro House Version",
+        "reject"
+      ],
+      [
+        "Tony P.",
+        "The Rhythm - Alex Twin Remix",
+        "accept"
+      ],
+      [
+        "Campanini",
+        "Wide Up (I'm a Rider) - Extended Mix",
+        "accept"
+      ],
+      [
+        "Cale",
+        "All Of Me - Afro Mix",
+        "reject"
+      ],
+      [
+        "Yusuf Alev",
+        "Show Me How - Afro House Version",
+        "reject"
+      ],
+      [
+        "Chris Di Amato",
+        "Canopée - Radio Edit",
+        "accept"
+      ],
+      [
+        "Blevo",
+        "Alela - Afro House Version",
+        "reject"
+      ],
+      [
+        "Salif Keita",
+        "Madan - Martin Solveig Exotic Disco Mix",
+        "reject"
+      ],
+      [
+        "Simone Vitullo",
+        "Dreams - Extended Mix",
+        "accept"
+      ],
+      [
+        "Vanco",
+        "WOLF - EXTENDED MIX",
+        "accept"
+      ],
+      [
+        "Foreigner",
+        "I Want to Know What Love Is - Live",
+        "reject"
+      ],
+      [
+        "Patrice Rushen",
+        "Remind Me - Remastered",
+        "accept"
+      ],
+      [
+        "Lorca",
+        "Ritmo De La Noche - Radio Version",
+        "accept"
+      ],
+      [
+        "Nooossaa!",
+        "Ai Se Eu Te Pego - Radio Edit",
+        "accept"
+      ],
+      [
+        "Las Ketchup",
+        "The Ketchup Song (Aserejé) - Spanglish Version",
+        "accept"
+      ],
+      [
+        "Luis Enrique",
+        "Yo No Se Manana - Salsa Version",
+        "accept"
+      ],
+      [
+        "Marc Anthony",
+        "Tu Amor Me Hace Bien - Salsa Version",
+        "accept"
+      ],
+      [
+        "GhostMasters",
+        "La Rumba De La Vida - Radio Mix",
+        "accept"
+      ],
+      [
+        "Marc Anthony",
+        "Ahora Quien - Salsa Version",
+        "accept"
+      ],
+      [
+        "Marc Anthony",
+        "Valió la Pena - Salsa Version",
+        "accept"
+      ],
+      [
+        "Tito Nieves",
+        "Fabricando Fantasías - Salsa Version",
+        "accept"
+      ],
+      [
+        "J Alvarez",
+        "Esa Boquita - Salsa Version",
+        "accept"
+      ],
+      [
+        "Gilberto Santa Rosa",
+        "Conteo Regresivo - Salsa Version",
+        "accept"
+      ],
+      [
+        "Big Thief",
+        "Paul - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Big Thief",
+        "Velvet Ring - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Big Thief",
+        "Masterpiece - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Big Thief",
+        "Shark Smile - Edit",
+        "accept"
+      ],
+      [
+        "Haris Alexiou",
+        "Poso S' Agapo - Live",
+        "reject"
+      ],
+      [
+        "Stamatis Kraounakis",
+        "Poso S' Agapo (Emigre Remix) - Live",
+        "reject"
+      ],
+      [
+        "Christina Maxouri",
+        "Poso S' Agapo - Live",
+        "reject"
+      ],
+      [
+        "Talking Heads",
+        "Heaven - 2005 Remaster",
+        "accept"
+      ],
+      [
+        "Ghosting",
+        "Lion King - Remastered",
+        "accept"
+      ],
+      [
+        "Francesco Suppa",
+        "Portrait of Tracy - Original Version",
+        "reject"
+      ],
+      [
+        "NoToneTyrone",
+        "Bulgarian Choirs - Cinematic Trailer Version",
+        "reject"
+      ],
+      [
+        "TiBeat",
+        "Bulgarian Choir - Radio Edit",
+        "accept"
+      ],
+      [
+        "Soho",
+        "Hamed and Jacques - 2008 Remixed Version",
+        "reject"
+      ],
+      [
+        "Los Tres",
+        "He Barrido el Sol - Unplugged Version",
+        "reject"
+      ],
+      [
+        "Tara Mahajan",
+        "Creep - Post Modern Jukebox Version",
+        "reject"
+      ],
+      [
+        "Italobros",
+        "Baba Yaga - Extended Mix",
+        "accept"
+      ],
+      [
+        "Papa Tin",
+        "Ojo Ayo - Extended Mix",
+        "accept"
+      ],
+      [
+        "J Ribbon",
+        "My Habitat - Extended Mix",
+        "accept"
+      ],
+      [
+        "Billy Strings",
+        "Midnight On The Stormy Deep - Live",
+        "reject"
+      ],
+      [
+        "Roy Harper",
+        "McGoohan's Blues - Remastered",
+        "accept"
+      ],
+      [
+        "John Denver",
+        "Matthew - alternate version",
+        "reject"
+      ],
+      [
+        "John Denver",
+        "Matthew - Live",
+        "reject"
+      ],
+      [
+        "John Denver",
+        "Rhymes and Reasons - \"Greatest Hits\" Version",
+        "reject"
+      ],
+      [
+        "Nick Cave & The Bad Seeds",
+        "Fifteen Feet of Pure White Snow - 2011 Remaster",
+        "accept"
+      ],
+      [
+        "The Alarm",
+        "Spirit of '76 - Remastered",
+        "accept"
+      ],
+      [
+        "Lamar Campbell",
+        "It's All About The Love - Remix",
+        "accept"
+      ],
+      [
+        "LEVEL UP",
+        "Scared Of The Dark - Original Mix",
+        "accept"
+      ],
+      [
+        "Taylor Swift",
+        "Ruin The Friendship - My Advice Version",
+        "reject"
+      ],
+      [
+        "Tina Turner",
+        "Proud Mary (Edit) - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Nusrat Fateh Ali Khan",
+        "Meri Zindagi Hai Tu - Remix",
+        "accept"
+      ],
+      [
+        "Oasis",
+        "Live Forever - Remastered",
+        "accept"
+      ],
+      [
+        "Bobby V.",
+        "Slow Down - 12\" Version",
+        "reject"
+      ],
+      [
+        "Dzeju",
+        "Paradise - Radio Mix",
+        "accept"
+      ],
+      [
+        "The Toxhards",
+        "Mars For The Rich (King Gizzard & The Lizard Wizard) - Live",
+        "reject"
+      ],
+      [
+        "Lynyrd Skynyrd",
+        "Truck Drivin' Man - Demo Version",
+        "accept"
+      ],
+      [
+        "José Antonio Mendez",
+        "La gloria eres tú - Remastered",
+        "accept"
+      ],
+      [
+        "Manu Chao",
+        "Rumba de Barcelona - Live",
+        "reject"
+      ],
+      [
+        "Manu Chao",
+        "Me Gustas Tu - Slowed and Reverb Version",
+        "reject"
+      ],
+      [
+        "Manu Chao",
+        "Clandestino - Live",
+        "reject"
+      ],
+      [
+        "Manu Chao",
+        "Bongo Bong - Live",
+        "reject"
+      ],
+      [
+        "Flavia Coelho",
+        "Sunshine - Acoustic Version",
+        "accept"
+      ],
+      [
+        "Tryo",
+        "L'hymne de nos campagnes - Live",
+        "reject"
+      ],
+      [
+        "Grateful Dead",
+        "Fire on the Mountain - 2013 Remaster",
+        "accept"
+      ],
+      [
+        "Pet Shop Boys",
+        "West End Girls - 2018 Remaster",
+        "accept"
+      ],
+      [
+        "Peggy Lee",
+        "Black Coffee - Single Version",
+        "accept"
+      ],
+      [
+        "Igor & Red Elvises",
+        "Three Alley Cats - Live",
+        "reject"
+      ],
+      [
+        "Nickelback",
+        "Rockstar - 2020 Remaster",
+        "accept"
+      ],
+      [
+        "Populous",
+        "Alala - El Búho Remix",
+        "accept"
+      ],
+      [
+        "El Búho",
+        "Tecolotin - Chancha Vía Circuito Remix",
+        "accept"
+      ],
+      [
+        "Omara Portuondo",
+        "Veinte Años - 2019 Remaster",
+        "accept"
+      ],
+      [
+        "Chavela Vargas",
+        "No Soy de Aquí Ni Soy de Allá - Remastered",
+        "accept"
+      ],
+      [
+        "Chavela Vargas",
+        "No Soy de Aquí, Ni Soy de Allá - Remastered",
+        "accept"
+      ],
+      [
+        "The 2020 Les Misérables Staged Concert Male Ensemble",
+        "ABC Café / Red & Black - Live",
+        "reject"
+      ],
+      [
+        "Big Thief",
+        "Real Love - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Big Thief",
+        "Vegas - 2023 Remaster",
+        "accept"
+      ],
+      [
+        "Take That",
+        "Patience - Abbey Road Version",
+        "reject"
+      ],
+      [
+        "Gloria Gaynor",
+        "I Will Survive - Single Version",
+        "accept"
+      ],
+      [
+        "Dolly Parton",
+        "I Will Always Love You - Live",
+        "reject"
+      ],
+      [
+        "Gloria Gaynor",
+        "I Will Survive - Original 7\" Version",
+        "reject"
+      ],
+      [
+        "Whitney Houston",
+        "I Will Always Love You - Film Version",
+        "reject"
+      ],
+      [
+        "Gloria Gaynor",
+        "I Will Survive - The Legendary Remix",
+        "accept"
+      ],
+      [
+        "The Brand New Heavies",
+        "Dream on Dreamer - Heavies Radio Version",
+        "reject"
+      ],
+      [
+        "Peter Gabriel",
+        "Red Rain - 2012 Remaster",
+        "accept"
+      ],
+      [
+        "Ariana Grande",
+        "Popular - Edit",
+        "accept"
+      ],
+      [
+        "Drake White",
+        "The Coast Is Clear - Live",
+        "reject"
+      ],
+      [
+        "Drake",
+        "Falling Back - Extended Version",
+        "accept"
+      ],
+      [
+        "Bulgarian Voices Angelite",
+        "Pilentze Pee - Live",
+        "reject"
+      ],
+      [
+        "Roberta Flack",
+        "Killing Me Softly With His Song - 2025 Remaster",
+        "accept"
+      ],
+      [
+        "iSingKeys",
+        "Let Me Love You Like a Woman (Originally Performed by Lana Del Rey) - Piano Instrumental Version",
+        "reject"
+      ],
+      [
+        "iSingKeys",
+        "Let Me Love You Like a Woman (Lower Key - Originally Performed by Lana Del Rey) - Piano Instrumental Version",
+        "reject"
+      ],
+      [
+        "Joe Bonamassa",
+        "Let Me Love You Baby - Live",
+        "reject"
+      ],
+      [
+        "New Order",
+        "Leave Me Alone - 2015 Remaster",
+        "accept"
+      ]
+    ]
+  },
+  "additionalReproductions": [
+    {
+      "path": "src-tauri/src/acquisition.rs:6571",
+      "input": "Don't Think Twice, It's All Right / Dont Think Twice, Its All Right; 光 / 光【官方MV】; Lumière / Lumière (Clip officiel); Song / Song (Official Audio); Song / Song Official Audio",
+      "observed": "The YouTube Music locator title filter discarded all five. Passing the corresponding structured audio metadata to the resolved matcher accepted all five. An alternate search path may still find the recording.",
+      "fix": "Use a shared title comparison for retrieval and preserve the complete candidate for verification."
+    },
+    {
+      "path": "src-tauri/src/recording_match.rs:954",
+      "input": "Identical Signal (Live) (Acoustic), or identical Signal (Ava Remix) (Radio Edit), same performer and runtime",
+      "observed": "Both sides flagged as having conflicting versions. Exact and Flexible ask for more evidence after resolution on YouTube and Monochrome fixtures. Live plus a dated remaster is a passing control.",
+      "fix": "Compare timing/edit, arrangement, performance, remixer, venue and mastering where explicitly present. Multiple compatible labels may describe one recording. Keep distinct venues or remixers as conflicts."
+    },
+    {
+      "path": "src-tauri/src/recording_match.rs:3074",
+      "input": "Lead, Ava, Bea / Lead for Signal (Ava Remix)",
+      "observed": "Exact accepted a candidate missing Bea. Reordering the request to Lead, Bea, Ava prevented acceptance. Av also matched part of Ava.",
+      "fix": "Remove the substring-and-truncate branch. Reuse the existing per-credit exact remixer-name exclusion. Require evidence for all other performers."
+    },
+    {
+      "path": "src-tauri/src/matching.rs:6",
+      "input": "Sonata in F♯ minor / Sonata in F minor; Concerto in B♭ major / Concerto in B major",
+      "observed": "Balanced and Flexible accepted both pairs as exact with matching runtimes. F♯ minor versus F-sharp minor was rejected. Symbol-only identical titles can also yield an empty identity.",
+      "fix": "Keep a conservative recording-identity key separate from a loose search key. Canonicalize adjacent musical accidentals in musical-key context. Preserve distinct literal symbols on structured titles."
+    },
+    {
+      "path": "src-tauri/src/artists.rs:4195",
+      "input": "Various compilation with two parent suites credited to different quartets, each with a child titled Allegro",
+      "observed": "Both rows inherited Various. Each row retained its parent title but lost the parent performer.",
+      "fix": "Prefer child performer credits, then the nearest explicit parent performing credit, then the release. Carry the work title as scoped query context."
+    },
+    {
+      "path": "src-tauri/src/youtube_music.rs:219",
+      "input": "Title 4:33, dedicated duration 4:54; alternatively title runs 4: and 33",
+      "observed": "Single-run title supplied the wrong 273-second duration. Multi-run title was truncated to 4:. Normal title control yielded 294 seconds.",
+      "fix": "Assemble all title runs. Prefer the duration field, then a validated duration from the appropriate metadata column."
+    },
+    {
+      "path": "src-tauri/src/youtube_recording_metadata.rs:253",
+      "input": "Add Live at Wembley next month — tickets on sale now! to an otherwise accepted studio fixture",
+      "observed": "Balanced rejected with versionConflict. Recorded live at Wembley. also rejected, correctly.",
+      "fix": "Use explicit recording-specific attribution as version evidence. Treat promotional venue mentions as weak context."
+    },
+    {
+      "path": "src-tauri/src/search_plan.rs:64",
+      "input": "!!!, Pardon My Freedom, even with a structured performer credit",
+      "observed": "Search plan had zero queries. A spelled-out artist control generated a query.",
+      "fix": "Preserve nonempty symbolic names from explicit artist fields or provider identities and require literal or verified identity agreement."
+    },
+    {
+      "path": "src-tauri/src/playback_sources.rs:1715",
+      "input": "Catalog recording titled Unknown with a known performer",
+      "observed": "The catalog placeholder predicate blocks resolution before selected source inspection. The matching candidate is eligible if passed separately to the verifier.",
+      "fix": "Use missing-data or non-audio provenance to block placeholders. Respect a verified recording or an explicitly selected audio source."
+    },
+    {
+      "path": "src-tauri/src/recording_match.rs:1291",
+      "input": "Unstructured Aya x Bea versus separate structured performer credits Aya and Bea",
+      "observed": "Both provider fixtures rejected. A comma-separated control worked.",
+      "fix": "Interpret an ambiguous join only when separate structured credits corroborate both names, while preserving a literal band name."
+    },
+    {
+      "path": "src-tauri/src/recording_identity.rs:1136",
+      "input": "Track followed by nonbreaking spaces around a dash and Radio Edit versus Track (Radio Edit); Don＇t Go versus Don't Go",
+      "observed": "Matched controls using ordinary spaces or ASCII apostrophes accepted; the variants rejected.",
+      "fix": "Normalize delimiter whitespace and supported apostrophe variants consistently before classification, keeping original strings and byte spans."
+    }
+  ],
+  "unknownDurationControl": {
+    "mode": "Flexible, Allow matches without a known length enabled, known candidate duration",
+    "result": "Matching unmodified Bongo Bong - Live accepted as probable with no request duration. The alternative delimiter was rejected with or without duration and identified title/version conflicts, not a missing-length restriction."
+  },
+  "qualificationPlan": [
+    "Replay raw provider rows through ingestion, query planning, locator retention and resolved verification. Capture the first stage that dropped the source and why. Keep explicitly selected provider IDs on their dedicated path.",
+    "For each positive control, add a near miss for wrong key, performer, remixer, live venue or movement. Run matching cases across supported modes and repeat with unknown duration on and off. Keep this targeted set separate from a held-out evaluation set.",
+    "Once offline fixtures pass, repeat representative album, radio-save, playlist and explicitly selected upload examples through the packaged player. Record selected versus resolved media ID, first audio, and completion versus transport failure."
+  ]
+}

@@ -87,9 +87,8 @@ if [[ -n "$stale_source" ]]; then
   exit 1
 fi
 
-# Native workers prefer packaged resource files over their embedded fallback.
-# Keep those generated files aligned with the source checked above; otherwise a
-# fresh executable can silently run an older provider parser in development.
+# Refresh the generated provider extension used by the development app.
+# Native worker snapshots come from the checked executable's embedded assets.
 node "$project_root/scripts/package_managed_provider_extension.mjs" >/dev/null
 
 if [[ "$mode" == "isolated-profile" ]]; then
@@ -116,6 +115,18 @@ if [[ "$mode" == "isolated" || "$mode" == "isolated-profile" ]]; then
   fi
   source "$project_root/scripts/dev/isolated-music-root.sh"
   configure_isolated_music_root "$scratch_dir" || exit 1
+  # Keep web links in the desktop's browser when using a blank XDG profile.
+  if command -v xdg-mime >/dev/null 2>&1 &&
+     [[ "$(realpath -e "$scratch_dir/config")" == "$scratch_dir/config" &&
+        ! -L "$scratch_dir/config/mimeapps.list" ]]; then
+    for scheme in http https; do
+      handler="$(xdg-mime query default "x-scheme-handler/$scheme" 2>/dev/null || true)"
+      if [[ "$handler" =~ ^[a-zA-Z0-9_.-]+\.desktop$ ]]; then
+        XDG_CONFIG_HOME="$scratch_dir/config" XDG_DATA_HOME="$scratch_dir/data" \
+          XDG_CURRENT_DESKTOP=generic xdg-mime default "$handler" "x-scheme-handler/$scheme" || true
+      fi
+    done
+  fi
   export XDG_CONFIG_HOME="$scratch_dir/config"
   export XDG_DATA_HOME="$scratch_dir/data"
   export XDG_CACHE_HOME="$scratch_dir/cache"

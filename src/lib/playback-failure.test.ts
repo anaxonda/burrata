@@ -22,6 +22,7 @@ describe("automatic queue failure classification",()=>{
       [FIXED_RESOLVER_FAILURES.noAudioResults, "no_audio_results"],
       [FIXED_RESOLVER_FAILURES.recordingIdentityUnverified, "recording_identity_unverified"],
       [FIXED_RESOLVER_FAILURES.missingDurationIdentityUnverified, "recording_identity_unverified"],
+      [FIXED_RESOLVER_FAILURES.soulseekDownloadRequired, "unsupported_audio_stream"],
     ] as const;
     for (const [reason, category] of contracts) {
       expect(shouldSkipFailedTrack(reason), reason).toBe(true);

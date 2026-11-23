@@ -161,6 +161,8 @@ enum NativeRequest {
         target_url: String,
         snapshot: BrowserSnapshot,
     },
+    #[serde(rename = "openSpotifyLink")]
+    OpenSpotifyLink { url: String },
     #[serde(rename = "applyImportPreview")]
     ApplyImportPreview {
         #[serde(rename = "previewId")]
@@ -784,6 +786,15 @@ impl Drop for PendingProviderOperationGuard<'_> {
 #[async_trait::async_trait]
 pub trait ProviderTransport: Send + Sync {
     fn provider_operations_supported(&self) -> bool;
+    /// The external companion's protocol can deliver either provider's
+    /// requests, including public YouTube reads without an account. Managed
+    /// transports with separate provider readiness override this check.
+    fn provider_operations_supported_for(&self, provider: &str) -> bool {
+        matches!(provider, "spotify" | "youtube") && self.provider_operations_supported()
+    }
+    fn provider_session_revision(&self) -> Option<u64> {
+        None
+    }
     fn native_write_sync_enabled(&self) -> bool {
         false
     }
@@ -878,6 +889,7 @@ impl BrowserBridge {
                 "/browser/append-track-to-collection",
                 post(append_track_to_collection_route),
             )
+            .route("/browser/open-spotify-link", post(open_spotify_link_route))
             .route("/browser/heartbeat", post(heartbeat_route))
             .route("/browser/poll", post(poll_route))
             .route("/browser/status", post(status_route))
@@ -995,6 +1007,10 @@ impl BrowserBridge {
         };
         let id = request.id.clone();
         let mut s = self.inner.lock().unwrap();
+        ensure_browser_import_ready(
+            s.seen.as_ref().map(|(time, _)| time),
+            s.provider_protocol_version,
+        )?;
         if s.active.len() >= 100 {
             return Err("Too many pending browser requests".into());
         }
@@ -1196,6 +1212,19 @@ async fn wait_for_cancel(cancel: Arc<AtomicBool>) {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
+fn ensure_browser_import_ready(
+    seen: Option<&Instant>,
+    protocol_version: Option<u32>,
+) -> Result<(), String> {
+    if !companion_seen_is_fresh(seen) {
+        return Err("Browser companion is not connected. Open the Burrata extension popup or import the page manually from the extension.".into());
+    }
+    if protocol_version.unwrap_or(0) < 2 {
+        return Err("Enable Browser-assisted access in the Burrata extension to send it requests from the app. You can also import the page manually from the extension.".into());
+    }
+    Ok(())
+}
+
 fn companion_seen_is_fresh(seen: Option<&Instant>) -> bool {
     // Chromium's background alarm is a one-minute fallback if its service
     // worker is suspended; leave a small delivery margin.
@@ -1420,6 +1449,95 @@ async fn append_track_to_collection_route(
         }
         Err(message) => (StatusCode::BAD_REQUEST, error(message)),
     }
+}
+
+fn canonical_spotify_open_link(raw: &str) -> Option<String> {
+    if raw.len() > 2048 {
+        return None;
+    }
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("open.spotify.com")
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    let segments = url.path_segments()?.collect::<Vec<_>>();
+    let (kind, id) = match segments.as_slice() {
+        [kind, id] => (*kind, *id),
+        [locale, kind, id] if spotify_open_link_locale(locale) => (*kind, *id),
+        _ => return None,
+    };
+    if !matches!(kind, "track" | "artist" | "album" | "playlist")
+        || id.len() != 22
+        || !id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(format!("https://open.spotify.com/{kind}/{id}"))
+}
+
+fn spotify_open_link_locale(locale: &str) -> bool {
+    let Some(locale) = locale.strip_prefix("intl-") else {
+        return false;
+    };
+    let (language, country) = locale
+        .split_once('-')
+        .map_or((locale, None), |(language, country)| {
+            (language, Some(country))
+        });
+    language.len() == 2
+        && language.bytes().all(|byte| byte.is_ascii_lowercase())
+        && country.is_none_or(|country| {
+            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_uppercase())
+        })
+}
+
+async fn open_spotify_link_route(
+    State(bridge): State<Arc<BrowserBridge>>,
+    headers: HeaderMap,
+    Json(request): Json<NativeRequest>,
+) -> (StatusCode, Json<Value>) {
+    if !bridge.authorize(&headers) {
+        return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
+    }
+    let NativeRequest::OpenSpotifyLink { url } = request else {
+        return (StatusCode::BAD_REQUEST, error("Expected a Spotify link"));
+    };
+    let Some(url) = canonical_spotify_open_link(&url) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Expected a Spotify track, artist, album or playlist link"),
+        );
+    };
+    let Some(main) = bridge.app.get_webview_window("main") else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            error("The Burrata window is unavailable"),
+        );
+    };
+
+    if bridge
+        .app
+        .emit_to(
+            tauri::EventTarget::webview_window("main"),
+            "open-spotify-link",
+            url,
+        )
+        .is_err()
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            error("Could not send the Spotify link to Burrata"),
+        );
+    }
+    let _ = main.unminimize();
+    let _ = main.show();
+    let _ = main.set_focus();
+    (StatusCode::OK, Json(json!({"ok":true})))
 }
 
 async fn youtube_session_handoff_route(
@@ -2289,6 +2407,7 @@ async fn forward_native(client: &reqwest::Client, d: &Discovery, r: &NativeReque
         | NativeRequest::ApplyImportPreview { .. } => "browser/import",
         NativeRequest::ListTargetCollections => "browser/target-collections",
         NativeRequest::AppendTrackToCollection { .. } => "browser/append-track-to-collection",
+        NativeRequest::OpenSpotifyLink { .. } => "browser/open-spotify-link",
         NativeRequest::Heartbeat { .. } => "browser/heartbeat",
         NativeRequest::Poll { .. } => "browser/poll",
         NativeRequest::Status { .. } => "browser/status",
@@ -2389,6 +2508,48 @@ mod tests {
     }
 
     #[test]
+    fn spotify_browser_handoff_accepts_only_exact_public_entity_links() {
+        let id = "2u9k9X8d1uD4qDLjMhVxU0";
+        for kind in ["track", "artist", "album", "playlist"] {
+            let canonical = format!("https://open.spotify.com/{kind}/{id}");
+            for locale in ["", "intl-de/", "intl-pt-BR/"] {
+                let url = format!("https://open.spotify.com/{locale}{kind}/{id}?si=private-query");
+                let payload = serde_json::from_value::<NativeRequest>(
+                    json!({"type":"openSpotifyLink","url":url}),
+                )
+                .unwrap();
+                let NativeRequest::OpenSpotifyLink { url } = payload else {
+                    panic!("expected a Spotify handoff");
+                };
+                assert_eq!(
+                    canonical_spotify_open_link(&url).as_deref(),
+                    Some(canonical.as_str())
+                );
+            }
+        }
+        for bad in [
+            format!("https://open.spotify.com.evil.example/track/{id}"),
+            format!("http://open.spotify.com/track/{id}"),
+            format!("https://user@open.spotify.com/track/{id}"),
+            format!("https://open.spotify.com:8443/track/{id}"),
+            format!("https://open.spotify.com/embed/track/{id}"),
+            format!("https://open.spotify.com/intl-xyz/track/{id}"),
+            format!("https://open.spotify.com/show/{id}"),
+            format!("https://open.spotify.com/track/{id}/more"),
+            format!("https://open.spotify.com/track/{id}#fragment"),
+            format!("spotify:track:{id}"),
+            "https://open.spotify.com/track/short-id".into(),
+        ] {
+            assert!(canonical_spotify_open_link(&bad).is_none(), "{bad}");
+        }
+        assert!(serde_json::from_value::<NativeRequest>(json!({
+            "type":"openSpotifyLink", "url":format!("https://open.spotify.com/track/{id}"),
+            "snapshot":{}
+        }))
+        .is_err());
+    }
+
+    #[test]
     fn manual_companion_heartbeat_marks_fresh_connection_without_app_polling() {
         let request: NativeRequest = serde_json::from_value(json!({"type":"heartbeat"})).unwrap();
         assert!(matches!(
@@ -2404,6 +2565,22 @@ mod tests {
         assert!(!companion_seen_is_fresh(Some(
             &(Instant::now() - Duration::from_secs(76))
         )));
+    }
+
+    #[test]
+    fn queued_import_requires_a_fresh_companion_with_browser_assisted_access() {
+        let now = Instant::now();
+        let expired = now - Duration::from_secs(76);
+        assert!(ensure_browser_import_ready(None, Some(2))
+            .unwrap_err()
+            .contains("not connected"));
+        assert!(ensure_browser_import_ready(Some(&expired), Some(2)).is_err());
+        for protocol in [None, Some(0), Some(1)] {
+            assert!(ensure_browser_import_ready(Some(&now), protocol)
+                .unwrap_err()
+                .contains("Enable Browser-assisted access"));
+        }
+        assert!(ensure_browser_import_ready(Some(&now), Some(2)).is_ok());
     }
     #[test]
     fn optional_structured_artist_credits_round_trip_without_closing_completeness() {
@@ -2929,7 +3106,6 @@ mod tests {
         ));
     }
     #[tokio::test]
-    #[ignore = "Requires permission to bind a local TCP listener; run explicitly outside restricted sandbox"]
     async fn native_forwarding_authenticates_exact_request() {
         async fn poll(headers: HeaderMap, Json(value): Json<Value>) -> (StatusCode, Json<Value>) {
             if headers.get("authorization").and_then(|h| h.to_str().ok())
@@ -2940,7 +3116,15 @@ mod tests {
                     Json(json!({"ok":false,"error":"Unauthorized"})),
                 );
             }
-            assert_eq!(value, json!({"type":"poll","providerProtocolVersion":2}));
+            assert_eq!(
+                value,
+                json!({
+                    "type": "poll",
+                    "providerProtocolVersion": 2,
+                    "managedSessionId": null,
+                    "providerCapabilities": ["structuredArtistCreditsV1"],
+                })
+            );
             (StatusCode::OK, Json(json!({"ok":true,"requests":[]})))
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

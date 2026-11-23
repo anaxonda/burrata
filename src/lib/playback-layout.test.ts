@@ -18,8 +18,7 @@ function fixtureRoot() {
     <button class="now-playing" data-source-url="https://private.example/track">PRIVATE TITLE · PRIVATE ARTIST<span class="playback-quality"></span></button>
     <div class="player-center"><div class="player-transport"></div><div class="player-scrubber"></div></div>
     <div class="player-right"></div>
-    <div class="player-error" role="alert"></div>
-  </footer>`;
+  </footer><section class="notification-stack"><div class="player-error" role="alert"></div></section>`;
   const roles: Record<string,PlaybackLayoutRole> = {
     "footer.player":"footer",
     "footer.player > .now-playing":"now_playing",
@@ -27,7 +26,7 @@ function fixtureRoot() {
     "footer.player .player-scrubber":"scrubber",
     "footer.player .player-right":"right",
     "footer.player .now-playing .playback-quality":"quality",
-    "footer.player .player-error[role='alert']":"error",
+    ".notification-stack .player-error[role='alert']":"error",
   };
   for (const [selector,role] of Object.entries(roles)) {
     const element=root.querySelector(selector);

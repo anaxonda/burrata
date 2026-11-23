@@ -30,8 +30,15 @@ and the [vendored source inventory](src-tauri/vendor/SOURCES.md).
 - Build a local library from audio files, imports, charts, and playlists.
 - Search music catalogs and online audio sources, then compare candidates and
   preview available audio.
+- Paste a Spotify track, album, artist, or playlist link into Search and press
+  Enter to open it with a connected Spotify account. The browser companion
+  also offers **Open in Burrata** on Spotify pages and links.
 - Save playlists and collections, manage local files, and review metadata,
   artwork, BPM, and key information.
+- In **Settings → Library → Local playlist copies**, choose which playlists to
+  include in `Music/Playlists/Burrata iTunes Library.xml`. It preserves playlist
+  order and includes available local audio. In Mixxx, right-click **iTunes** in
+  the library tree and choose **Choose Library** to open the file.
 - Acquire a source only after you choose to start a download; validate and tag
   the saved file before adding it to your library.
 

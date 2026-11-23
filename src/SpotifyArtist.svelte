@@ -420,9 +420,10 @@
     const position = provenance.albumPosition;
     return typeof position === "number" && Number.isSafeInteger(position) && position >= 0 ? position : null;
   }
+  let initializedAlbumTarget: string | null = null;
   $effect(() => {
-    const id = artistId, snapshotKey = navigationSnapshotKey;
-    untrack(() => { if (id && (id !== initializedArtistId || snapshotKey !== initializedSnapshotKey)) void restoreArtist(id, snapshotKey); });
+    const id = artistId, snapshotKey = navigationSnapshotKey, albumTarget = initialAlbumId;
+    untrack(() => { if (id && (id !== initializedArtistId || snapshotKey !== initializedSnapshotKey || albumTarget !== initializedAlbumTarget)) void restoreArtist(id, snapshotKey); });
   });
   onMount(() => () => onScroll(scrollElement?.scrollTop ?? scrollTop));
   onDestroy(() => {
@@ -430,7 +431,7 @@
     generation++; restoreGeneration++; providerReads.cancelAll(); cancelTopTracks(); cancelAlbumActions();
   });
 
-  function saveArtistSnapshot(id: string, key = id) {
+  function saveArtistSnapshot(id: string, key = initializedAlbumTarget ? `album:${id}` : `artist:${id}`) {
     const snapshot: ArtistSnapshot = { page, albums, albumPage, albumId: albumPage?.album.id ?? null, tracks, albumCursor, trackCursor, seenAlbumCursors: [...seenAlbumCursors], seenTrackCursors: [...seenTrackCursors], topTracks, topTracksCursor, topTracksTotal, seenTopTrackCursors: [...seenTopTrackCursors], topTracksLoaded, topTrackSort, topTrackSortDirection, topTrackQuery, topTrackMinDuration, topTrackMaxDuration, loadedTopTrackCount: topTracks.length, sort, sortDirection, releaseSort, releaseSortDirection, minDuration, maxDuration, scroll: scrollElement?.scrollTop ?? scrollTop, loadedAlbumCount: albums.length, loadedTrackCount: tracks.length, needsRefetch: false };
     if (accountScope) providerNavigationSnapshots.put({ kind: "spotify-artist", key, accountScope, snapshot, rows: albums.length + tracks.length + topTracks.length, stripRows: value => ({ ...value, page: null, albums: [], albumPage: null, tracks: [], albumCursor: null, trackCursor: null, seenAlbumCursors: [], seenTrackCursors: [], topTracks: [], topTracksCursor: null, seenTopTrackCursors: [], topTracksLoaded: false, needsRefetch: true }) });
   }
@@ -442,17 +443,22 @@
 
   export async function restoreNavigationSnapshot(key: string) { await restoreArtist(artistId, key); }
 
+  export function getOpenAlbumTitle(): string | null {
+    return albumPage?.album.title ?? null;
+  }
+
   async function restoreArtist(id: string, snapshotKey: string | null = null) {
     cancelAlbumActions();
     if (initializedArtistId) saveArtistSnapshot(initializedArtistId);
-    initializedArtistId = id; initializedSnapshotKey = snapshotKey;
+    const albumTarget = initialAlbumId;
+    initializedArtistId = id; initializedSnapshotKey = snapshotKey; initializedAlbumTarget = albumTarget;
     const request = ++restoreGeneration;
-    const isCurrent = () => request === restoreGeneration && artistId === id && initializedArtistId === id && initializedSnapshotKey === snapshotKey;
+    const isCurrent = () => request === restoreGeneration && artistId === id && initialAlbumId === albumTarget && initializedArtistId === id && initializedSnapshotKey === snapshotKey;
     providerReads.cancelAll(); generation++; cancelTopTracks();
     const scope = await providerAccountScope(call, "spotify");
     if (!isCurrent()) return;
     accountScope = scope;
-    const saved = providerNavigationSnapshots.get<ArtistSnapshot>("spotify-artist", snapshotKey ?? id, accountScope);
+    const saved = providerNavigationSnapshots.get<ArtistSnapshot>("spotify-artist", snapshotKey ?? (albumTarget ? `album:${id}` : `artist:${id}`), accountScope);
     if (initialAlbumId && id === initialAlbumId) {
       page = null; albums = []; topTracks = []; topTracksCursor = null; topTracksTotal = null; topTracksLoaded = false;
       if (saved && !saved.needsRefetch && saved.albumPage?.album.id === initialAlbumId) {
@@ -513,24 +519,31 @@
   function cancelRestore() { restoreGeneration += 1; generation += 1; providerReads.cancelAll(); busy = false; }
 </script>
 
-<section class="spotify-artist" aria-label={initialAlbumId ? "Spotify album" : "Spotify artist"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; onScroll(scrollTop); }}>
+<section class="spotify-artist" class:album-view={Boolean(albumPage)} aria-label={initialAlbumId || albumPage ? "Spotify album" : "Spotify artist"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; onScroll(scrollTop); }}>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if albumQueueStatus}<p class={albumQueueStatus.loading ? "notice" : "notice error"} role={albumQueueStatus.loading ? "status" : "alert"}>{albumQueueStatus.text}</p>{/if}
   {#if albumPage}
-    <header class="hero">
-      <span class="album-detail-art"><ArtworkImage urls={[albumPage.album.artworkUrl]} /></span>
-      <div>
-        <p class="eyebrow">{albumPage.album.albumType ?? "Album"}</p>
-        <h1>{albumPage.album.title}</h1>
-        <p>{formatReleaseDate(albumPage.album.releaseDate)} · {albumPage.album.artists.join(", ")}</p>
-        {#if onQueueSelected}
+    <ArtistBanner class="hero" heading="h1" name={albumPage.album.title} label={albumPage.album.albumType ?? "Album"} artworkUrl={albumPage.album.artworkUrl}>
+      {#snippet details()}<p>{[formatReleaseDate(albumPage?.album.releaseDate), albumPage?.album.artists.join(", ")].filter(Boolean).join(" · ")}</p>{/snippet}
+      {#snippet actions()}
+        {#if albumPage && onQueueSelected}
           <button type="button" aria-label={`Queue album ${albumPage.album.title}`} disabled={albumQueueStatus?.loading} onclick={() => { if (albumPage) void queueAlbum(albumPage.album); }}>
             {albumQueueStatus?.loading && albumQueueStatus.albumId === albumPage.album.id ? "Loading tracks…" : "Queue album"}
           </button>
         {/if}
-      </div>
-    </header>
-    <div class="track-heading"><h2>Tracks <span>{visibleTracks.length}</span></h2><div class="track-controls"><select aria-label="Sort tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", ["spotify"])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", ["spotify"])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", ["spotify"])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", ["spotify"])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", ["spotify"])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", ["spotify"])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", ["spotify"])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", ["spotify"])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", ["spotify"])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", ["spotify"])}</option></select><select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />{#if onAddAlbumToPlaylist && tracks.length}<button type="button" aria-label="Add album to playlist" onclick={() => void onAddAlbumToPlaylist?.([...tracks], albumPage!.album.title)}>Add to playlist</button>{/if}{#if onSaveCompleteAlbum}<button disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveCompleteAlbum()}>Save album</button>{/if}{#if onSaveToLibrary && tracks.length}<button class="save-album-to-library" type="button" aria-label={!onSaveCompleteAlbum && albumTracksComplete ? "Save album to library" : "Save loaded tracks to library"} disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveLoadedAlbumTracks()}>{librarySaveStatus?.kind === "saving" ? "Saving…" : !onSaveCompleteAlbum && albumTracksComplete ? "Save album" : "Save loaded tracks"}</button>{/if}</div></div>
+      {/snippet}
+    </ArtistBanner>
+    {#if onAddAlbumToPlaylist || onSaveCompleteAlbum || onSaveToLibrary}<div class="album-library-actions">{#if onAddAlbumToPlaylist && tracks.length}<button type="button" aria-label="Add album to playlist" onclick={() => void onAddAlbumToPlaylist?.([...tracks], albumPage!.album.title)}>Add to playlist</button>{/if}{#if onSaveCompleteAlbum}<button disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveCompleteAlbum()}>Save album</button>{/if}{#if onSaveToLibrary && tracks.length}<button class="save-album-to-library" type="button" aria-label={!onSaveCompleteAlbum && albumTracksComplete ? "Save album to library" : "Save loaded tracks to library"} disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveLoadedAlbumTracks()}>{librarySaveStatus?.kind === "saving" ? "Saving…" : !onSaveCompleteAlbum && albumTracksComplete ? "Save album" : "Save loaded tracks"}</button>{/if}</div>{/if}
+    <h2 class="album-tracks-title">Tracks <span>{visibleTracks.length}</span></h2>
+    <div class="track-controls sticky-toolbar compact-track-filter-bar">
+      <select aria-label="Sort tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", ["spotify"])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", ["spotify"])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", ["spotify"])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", ["spotify"])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", ["spotify"])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", ["spotify"])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", ["spotify"])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", ["spotify"])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", ["spotify"])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", ["spotify"])}</option></select>
+      <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} extraFiltersActive={downloadAvailability !== "all" || sortDirection !== "asc"}>
+        {#snippet extraFilters()}
+          <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+          <TrackDownloadFilter bind:value={downloadAvailability} />
+        {/snippet}
+      </TrackDurationFilter>
+    </div>
     <p class="collection-scope">Sorting and duration filters apply to collected tracks ({tracks.length}{albumPage.total != null ? ` of ${albumPage.total}` : ""}).{#if trackCursor} Load more to include additional tracks.{/if}</p>
     {#if librarySaveStatus?.albumId === albumPage.album.id}<p class={librarySaveStatus.kind === "error" ? "error" : "notice"} role={librarySaveStatus.kind === "error" ? "alert" : "status"}>{librarySaveStatus.text}</p>{/if}
     <TrackList {showProviderCounts} showLibraryStatus={true} presentation="playlist" position={(_track, index) => (visibleTrackOccurrences[index]?.sourceIndex ?? index) + 1} tracks={visibleTracks} selectionContext={`album:${artistId}:${albumPage.album.id}`} selectionKeys={visibleTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={tracks} selectionTrackKeys={tracks.map((_, index) => String(index))} listLabel={`${albumPage.album.title} tracks`} onPlay={(track, list, index) => onPlay(track, list, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onPlaylist={onPlaylist} onArtist={onArtist} onAlbum={onTrackAlbum} onContext={onContext} {onAddSelectedToPlaylist} {onQueueSelected} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
@@ -605,17 +618,18 @@
 {/if}
 
 <style>
+  .album-library-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .album-tracks-title { margin: 0; }
   .artist-genres{margin:.25rem 0;color:var(--muted,#a3a8ae)}
-  .album-detail-art{width:clamp(96px,12vw,124px);aspect-ratio:1;flex:none;overflow:hidden;border-radius:9px}
   .album-cover{display:block;width:100%;aspect-ratio:1;overflow:hidden;border-radius:5px}
   .album-card{display:flex;flex-direction:column;gap:.3rem;min-width:0}
   .album-card .album{flex:1}
-  .spotify-artist{height:100%;min-height:0;overflow:auto;padding:1rem;display:flex;flex-direction:column;gap:.8rem;color:var(--text,#eee);background:var(--base,#17191c);border-radius:12px}.spotify-artist button,.spotify-artist input,.spotify-artist select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .7rem}.spotify-artist button{cursor:pointer}.spotify-artist button:disabled{opacity:.5}.hero{display:flex;align-items:center;justify-content:flex-start;gap:1rem;min-width:0;padding:.5rem 0 .75rem;border-bottom:1px solid var(--border,#383d43)}.hero>div{flex:1;min-width:0}.hero h1{margin:.25rem 0}.hero p{color:var(--muted,#a3a8ae)}.eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.browse-provider{display:block;margin-top:.45rem;font-size:.85rem}.notice{padding:.7rem;border-radius:7px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}h2 span{font-size:.8rem;color:var(--muted,#a3a8ae);font-weight:400}.release-controls{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.release-controls label{display:flex;align-items:center;gap:.35rem}.release-controls span{color:var(--muted,#a3a8ae);font-size:.85rem}.albums{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:.8rem}.album{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:.35rem;min-width:0;width:100%;overflow:hidden}.album strong{display:block;width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.album span:last-child{font-size:.85rem;color:var(--muted,#a3a8ae)}.track-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.7rem;align-items:center}.track-controls{display:flex;gap:.4rem;flex-wrap:wrap}.track-controls input{width:5.5rem}.error{color:var(--danger)}
+  .spotify-artist{height:100%;min-height:0;overflow:auto;padding:1rem;display:flex;flex-direction:column;gap:.8rem;color:var(--text,#eee);background:var(--base,#17191c);border-radius:12px}.spotify-artist button,.spotify-artist input,.spotify-artist select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .7rem}.spotify-artist button{cursor:pointer}.spotify-artist button:disabled{opacity:.5}.browse-provider{display:block;margin-top:.45rem;font-size:.85rem}.notice{padding:.7rem;border-radius:7px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}h2 span{font-size:.8rem;color:var(--muted,#a3a8ae);font-weight:400}.release-controls{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.release-controls label{display:flex;align-items:center;gap:.35rem}.release-controls span{color:var(--muted,#a3a8ae);font-size:.85rem}.albums{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:.8rem}.album{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:.35rem;min-width:0;width:100%;overflow:hidden}.album strong{display:block;width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.album span:last-child{font-size:.85rem;color:var(--muted,#a3a8ae)}.track-controls{display:flex;gap:.4rem;flex-wrap:wrap}.track-controls input{width:5.5rem}.error{color:var(--danger)}
   .spotify-artist .track-controls{align-items:center;gap:6px 8px;min-width:0}
 
-  .spotify-artist .track-controls select,.spotify-artist .track-controls input,.spotify-artist .track-controls .save-album-to-library{box-sizing:border-box;flex:none;height:34px;min-height:34px;padding:.3rem .5rem;font-size:.8rem;line-height:normal}
+  .spotify-artist .track-controls select,.spotify-artist .track-controls input,.spotify-artist .album-library-actions .save-album-to-library{box-sizing:border-box;flex:none;height:34px;min-height:34px;padding:.3rem .5rem;font-size:.8rem;line-height:normal}
 
-  .spotify-artist .track-heading h2{margin:0;font-size:1.1rem}
+  .spotify-artist .album-tracks-title{margin:0;font-size:1.1rem}
   .spotify-artist .release-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;margin:0;font-size:.8rem}.spotify-artist .release-controls select{height:34px;min-height:34px;padding:.3rem .5rem;font-size:.8rem}.spotify-artist>h2{margin:0;line-height:1.2}.spotify-artist>.notice{margin:0}
   .top-tracks h2{margin:0;line-height:1.2}.top-tracks h2 span{font-size:.8rem;color:var(--muted,#a3a8ae);font-weight:400}.top-tracks .track-controls{align-items:center;margin:.35rem 0}.top-tracks .track-controls input,.top-tracks .track-controls select{height:34px;min-height:34px;padding:.3rem .5rem;font-size:.8rem}.top-tracks .track-controls>span{font-size:.78rem;color:var(--muted,#a3a8ae)}
 
@@ -629,12 +643,11 @@
   }
   @media (min-width:901px) and (max-height:650px) {
     .spotify-artist { padding:8px 16px; gap:6px; }
-    .spotify-artist>.hero { flex:none; gap:12px; padding:0 0 6px; }
-    .album-detail-art { width:72px; }
-    .spotify-artist>.hero h1 { margin:2px 0; font-size:21px; line-height:1.15; }
-    .spotify-artist>.hero p { margin:2px 0; line-height:1.2; }
+    .spotify-artist.album-view { --album-top-inset: 8px; }
     .top-tracks .track-controls { margin:4px 0; }
   }
+  .spotify-artist.album-view { padding-block-start: 0; }
+  .spotify-artist.album-view > :global(:first-child) { margin-block-start: var(--album-top-inset, 1rem); }
   .spotify-artist .browse-provider{box-sizing:border-box;min-height:34px;height:auto;padding:.3rem .6rem;font-size:.8rem;line-height:1.2}
   .spotify-artist .browse-provider{display:inline-flex;vertical-align:middle;margin:0}
   .spotify-artist .track-controls select,.spotify-artist .release-controls select{appearance:none;-webkit-appearance:none;box-sizing:border-box;display:block;height:34px;min-height:34px;max-height:34px;padding:0 30px 0 9px;font-size:12px;line-height:18px;text-align:left;background-image:linear-gradient(45deg,transparent 50%,var(--muted,#a3a8ae) 50%),linear-gradient(135deg,var(--muted,#a3a8ae) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 10px) 50%;background-size:4px 4px;background-repeat:no-repeat}

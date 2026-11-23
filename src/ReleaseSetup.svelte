@@ -1,6 +1,8 @@
 <script lang="ts">
   import InfoPopover from "./InfoPopover.svelte";
-  import { call, desktop } from "./lib/api";
+  import { call, desktop, listen } from "./lib/api";
+  import { browserCompanionStatus } from "./lib/browser-companion-status";
+  import type { BrowserStatus } from "./lib/types";
 
   type BrowserInfo = { browser: string; installed: boolean };
   type InstallStatus = { browsers: BrowserInfo[] };
@@ -14,13 +16,20 @@
     usesManagedYtDlp?: boolean;
   };
   type YoutubeStatus = {
-    bundledVersion: string | null; managedVersion: string | null; activeVersion: string | null;
-    activeSource: string; updateAvailable: boolean | null; recommendedUpdate: string;
-    advancedUpdate: string; provider: { version: string; available: boolean; helperRunning: boolean; message: string };
+    managedVersion: string | null;
+    activeVersion: string | null;
+    activeSource: "bundled" | "managed";
   };
+  type UpdateChannel = "stable" | "nightly";
+  type UpdateCheck = { version: string | null; available: boolean };
+  type UpdateProgress =
+    | { stage: "checking" | "verifying" }
+    | { stage: "downloading"; receivedBytes: number; totalBytes: number | null };
+  type UpdateAvailability = { result?: UpdateCheck; checking: boolean; error?: string };
   type Diagnosis = { ok: boolean; category: string; ytDlpVersion: string | null; providerAvailable: boolean; audioAccessible: boolean; message: string };
-  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all" }: {
+  let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all", browserStatus = null }: {
     category?: string;
+    browserStatus?: BrowserStatus | null;
     onSettingsChanged?: () => void; onComplete?: () => void; onboarding?: boolean;
   } = $props();
 
@@ -29,6 +38,20 @@
   let radioRecognition = $state(false), musicDirectory = $state("");
   let diagnosis = $state<Diagnosis | null>(null), diagnosisUrl = $state("");
   let browserBusy = $state<Record<string, boolean>>({});
+
+  let availability = $state<Partial<Record<UpdateChannel, UpdateAvailability>>>({});
+  let updateProgress = $state<UpdateProgress | null>(null);
+
+  async function checkYoutube(channel: UpdateChannel) {
+    if (availability[channel]?.checking) return;
+    availability[channel] = { checking: true };
+    try {
+      const result = await call<UpdateCheck>("youtube_support_check", { channel });
+      availability[channel] = { result, checking: false };
+    } catch {
+      availability[channel] = { checking: false, error: "Could not check for updates." };
+    }
+  }
 
   let refreshEpoch = 0;
   async function refresh(currentCategory: string) {
@@ -42,6 +65,9 @@
       setup = nextSetup; youtube = nextYoutube;
       radioRecognition = nextSetup.radioRecognition;
       musicDirectory = nextSetup.musicDirectory ?? "";
+      if (!onboarding && nextYoutube && nextSetup.usesManagedYtDlp !== false) {
+        void checkYoutube("stable");
+      }
     } catch (cause) { if (epoch === refreshEpoch) error = String(cause); }
     finally { if (epoch === refreshEpoch) loading = false; }
   }
@@ -79,27 +105,55 @@
     try {
       await call<InstallStatus>(remove ? "unregister_browser_host" : "register_browser_host");
       setup = await call<Setup>("get_release_setup");
-      message = remove ? "Disconnected the browser companion." : "Connected the browser companion.";
+      message = remove ? "Browser host registration removed." : "Browser host registered. Open the extension popup to connect.";
       onSettingsChanged();
     } catch (cause) { error = `Could not update browser companion: ${String(cause)}`; }
     finally { browserBusy.all = false; }
   }
-  async function updateYoutube(channel: "stable" | "nightly") {
+  async function updateYoutube(channel: UpdateChannel) {
     if (busy || setup?.usesManagedYtDlp === false) return;
     const previousVersion = youtube?.activeVersion;
-    busy = true; error = ""; message = "";
+    busy = true; error = "";
+    message = channel === "stable" ? "Checking for a stable yt-dlp update…" : "Installing the latest yt-dlp nightly…";
+    let unlisten: (() => void) | undefined;
     try {
-      youtube = await call<YoutubeStatus>("youtube_support_update", { channel });
-      message = channel === "stable" && youtube.activeVersion === previousVersion
-        ? "yt-dlp is up to date."
-        : youtube.activeVersion ? `Updated yt-dlp to ${youtube.activeVersion}.` : "yt-dlp update installed.";
-    } catch (cause) { error = `Could not update yt-dlp: ${String(cause)}`; }
-    finally { busy = false; }
+      const operationId = crypto.randomUUID();
+      unlisten = await listen<{ operationId: string; progress: UpdateProgress }>("youtube-support-update-progress", ({ payload }) => {
+        if (payload.operationId !== operationId) return;
+        updateProgress = payload.progress;
+        if (payload.progress.stage !== "checking") message = "";
+      });
+      updateProgress = { stage: "checking" };
+      youtube = await call<YoutubeStatus>("youtube_support_update", { channel, operationId });
+      if (youtube.activeVersion && youtube.activeVersion === previousVersion) {
+        message = channel === "stable"
+          ? "Your yt-dlp is already as recent as the latest stable release."
+          : "The latest nightly is already installed.";
+      } else {
+        const build = channel === "stable" ? "stable release" : "nightly build";
+        message = youtube.activeVersion ? `Installed yt-dlp ${youtube.activeVersion} (${build}).` : `Installed the yt-dlp ${build}.`;
+      }
+      void checkYoutube(channel);
+      if (channel === "nightly") void checkYoutube("stable");
+    } catch (cause) {
+      message = "";
+      error = `Could not update yt-dlp: ${String(cause)}`;
+    }
+    finally {
+      unlisten?.();
+      updateProgress = null;
+      busy = false;
+    }
   }
   async function rollbackYoutube() {
-    busy = true; error = "";
-    try { youtube = await call<YoutubeStatus>("youtube_support_rollback"); message = "YouTube support was rolled back."; }
-    catch (cause) { error = `Could not roll back YouTube support: ${String(cause)}`; }
+    if (busy || setup?.usesManagedYtDlp === false) return;
+    busy = true; error = ""; message = "";
+    try {
+      youtube = await call<YoutubeStatus>("youtube_support_rollback");
+      message = youtube.activeVersion ? `Restored yt-dlp ${youtube.activeVersion}.` : "Restored the previous yt-dlp version.";
+      void checkYoutube("stable");
+      if (availability.nightly) void checkYoutube("nightly");
+    } catch (cause) { error = `Could not restore the previous yt-dlp version: ${String(cause)}`; }
     finally { busy = false; }
   }
   async function diagnose() {
@@ -125,6 +179,19 @@
       default: return "Try the check again or review the troubleshooting options.";
     }
   }
+  function updateLabel(channel: UpdateChannel) {
+    const build = channel === "stable" ? "stable release" : "nightly build";
+    const state = availability[channel];
+    if (state?.checking) return `Checking for the latest ${build}…`;
+    if (state?.error) return state.error;
+    const version = state?.result?.version;
+    if (!version) return "";
+    return state.result?.available
+      ? `yt-dlp ${version} is available (${build}).`
+      : channel === "stable"
+        ? `Latest stable release is ${version}. The installed version is current or newer.`
+        : `The latest nightly (${version}) is already installed.`;
+  }
   const browserLabel = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 </script>
 
@@ -148,9 +215,10 @@
     {#if category === "all" || category === "connections"}<section class="tool-section" aria-label="Browser companion">
       {#if category === "all"}<h3 id="browser-title">Browser companion</h3>{/if}
       <p>Connect a browser to import charts and playlists. Burrata reads pages only when you use the extension; it does not read cookies or logins.</p>
+      <p role="status">{browserCompanionStatus(browserStatus)}</p>
       {#if setup?.browser.browsers.length}
         <div class="browser-list">{#each setup.browser.browsers as item (item.browser)}
-          <div class="browser-row"><div><strong>{browserLabel(item.browser)}</strong><small>{item.installed ? "Browser host registered" : "Not connected"}</small></div></div>
+          <div class="browser-row"><div><strong>{browserLabel(item.browser)}</strong><small>{item.installed ? "Browser host registered" : "Browser host not registered"}</small></div></div>
         {/each}</div>
       {:else}<p class="muted">No supported browsers were detected.</p>{/if}
       <div class="browser-actions"><button disabled={!!browserBusy.all} onclick={() => void updateBrowserHost(false)}>{browserBusy.all ? "Working…" : "Connect browser companion"}</button><button class="quiet" disabled={!!browserBusy.all || !setup?.browser.browsers.some((item) => item.installed)} onclick={() => void updateBrowserHost(true)}>Disconnect browser companion</button></div>
@@ -173,18 +241,47 @@
     {#if category === "all" || category === "advanced"}<section class="tool-section" aria-label="YouTube support">
       {#if category === "all"}<h3 id="youtube-title">YouTube support</h3>{/if}
       {#if youtube}
+        {@const recordedVersion = youtube.activeSource === "managed" ? youtube.managedVersion : null}
+        {@const installedVersion = youtube.activeVersion ?? recordedVersion}
         {#if setup?.usesManagedYtDlp === false}
           <p>Update your configured yt-dlp outside Burrata.</p>
         {:else}
-          <p class="tool-version">yt-dlp {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
-          <button class="primary" disabled={busy} onclick={() => void updateYoutube("stable")}>{busy ? "Working…" : "Update yt-dlp"}</button>
+          <p class="tool-version">
+            Installed version: {installedVersion ? `yt-dlp ${installedVersion}` : "Unknown"} · {youtube.activeSource === "bundled" ? "Included with Burrata" : "Installed update"}
+          </p>
+          {#if !youtube.activeVersion}
+            <p>{recordedVersion ? "This version was recorded during installation. Burrata couldn’t verify the executable." : "Burrata couldn’t verify the yt-dlp version."}</p>
+          {/if}
+          <button class="primary" disabled={busy} aria-describedby="yt-dlp-stable-description" onclick={() => void updateYoutube("stable")}>Update yt-dlp</button>
+          <p class="update-description" id="yt-dlp-stable-description">Installs a newer stable release when available.</p>
+          {#if updateLabel("stable")}<p role="status">{updateLabel("stable")}</p>{/if}
+          {#if availability.stable?.error}<button disabled={busy} onclick={() => void checkYoutube("stable")}>Check again</button>{/if}
         {/if}
-        <details class="youtube-details"><summary>Advanced options</summary>
+        {#if updateProgress?.stage === "downloading"}
+          {@const received = updateProgress.receivedBytes}
+          {@const total = updateProgress.totalBytes}
+          <div class="update-progress">
+            <label>Downloading yt-dlp
+              {#if total}<progress max={total} value={Math.min(received, total)}></progress>
+              {:else}<progress></progress>{/if}
+            </label>
+            {#if total}
+              <span>{Math.round(Math.min(received / total, 1) * 100)}%</span>
+            {:else}<span>{(received / 1024 / 1024).toFixed(1)} MiB downloaded</span>{/if}
+          </div>
+        {:else if updateProgress?.stage === "verifying"}
+          <p role="status">Verifying the download and checking that it works…</p>
+        {/if}
+        <details class="youtube-details" ontoggle={({ currentTarget }) => {
+          if (currentTarget.open && setup?.usesManagedYtDlp !== false && !availability.nightly) void checkYoutube("nightly");
+        }}><summary>Advanced options</summary>
           {#if setup?.usesManagedYtDlp !== false}
             <div class="update-actions">
-              <button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly build</button>
-              <small>Nightly builds can be less stable.</small>
-              {#if youtube.managedVersion}<button disabled={busy} onclick={() => void rollbackYoutube()}>Roll back update</button>{/if}
+              <button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install latest nightly build</button>
+              <small>Nightly builds get fixes sooner and may be less reliable.</small>
+              {#if updateLabel("nightly")}<p role="status">{updateLabel("nightly")}</p>{/if}
+              {#if availability.nightly?.error}<button disabled={busy} onclick={() => void checkYoutube("nightly")}>Check nightly again</button>{/if}
+              {#if youtube.managedVersion}<button disabled={busy} onclick={() => void rollbackYoutube()}>Restore previous version</button>{/if}
             </div>
           {/if}
           <details><summary>Test YouTube audio access</summary>
@@ -205,6 +302,10 @@
 </section>
 
 <style>
+  .update-progress { display: flex; align-items: center; gap: 0.75rem; }
+  .update-progress label { display: grid; gap: 0.25rem; }
+  .update-progress progress { width: min(19rem, 50vw); accent-color: var(--accent); }
+
   .release-setup{min-width:0}.intro,.tool-section>p,.setup-step>p{color:var(--muted);line-height:1.5}
   .setup-step,.tool-section{min-width:0;margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)}
   .troubleshooting > h2{font-size:16px;margin:0 0 8px}.troubleshooting > .tool-section{margin:0;padding:0;border:0;background:transparent}.troubleshooting .tool-section > p{font-size:.82rem;margin:10px 0;line-height:1.45}.troubleshooting .youtube-details{margin:12px 0 0;padding:0;border:0;border-radius:0}.troubleshooting .youtube-details > summary{font-size:12px}

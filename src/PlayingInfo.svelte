@@ -3,10 +3,12 @@
   import { getContext } from "svelte";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { liveBpmLabel } from "./lib/live-bpm";
+  import { classicalTrackDisplay, trackDisplayVersion } from "./lib/track-display";
   import { metadataCount } from "./lib/provider-counts";
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
   import ArtistInformation from "./ArtistInformation.svelte";
+  import ArtistCreditEditor, { type ArtistCreditDraft } from "./ArtistCreditEditor.svelte";
   import RecordingInformation from "./RecordingInformation.svelte";
   import type {RecordingInformationResult, RecordingReleaseInfo} from "./lib/recording-information";
   import type {ArtistProfile, ArtistRef} from "./lib/artist-types";
@@ -77,7 +79,7 @@ import { trackSource } from "./lib/source-link";
     analysisStatus = "",
     loudnessStatus = null, loudnessMode = null, loudnessAnalysisJob = null, pendingLoudnessAnalysisCount = 0, loudnessAnalysisMessage = "",
     trackLibrarySummary = null, trackLibrarySummaryLoading = false, trackLibrarySummaryRequested = false,
-    onHistoryOccurrence, onPlaylistMembership,
+    onHistoryOccurrence, onPlaylistMembership, onSaveLibraryArtistCredits,
     trackDetectionView = null, trackDetectionStatus = "", trackDetectionDisabledReason = "",
     trackDetectionAvailable = false, onTrackDetectionToggle, onTrackDetectionSeek, onTrackDetectionOpen, onTrackDetectionAddToPlaylist, onTrackDetectionsAddToPlaylist,
     trackDetectionMarkersEnabled = false, onTrackDetectionMarkersToggle,
@@ -138,6 +140,7 @@ import { trackSource } from "./lib/source-link";
     trackLibrarySummary?: TrackLibrarySummary | null;
     trackLibrarySummaryLoading?: boolean;
     trackLibrarySummaryRequested?: boolean;
+    onSaveLibraryArtistCredits?: (track: Track, credits: ArtistCreditDraft[]) => Promise<void>;
     onHistoryOccurrence?: (sessionId: string) => void;
     onPlaylistMembership?: (playlistId: string, trackId: string) => void;
     trackDetectionView?: PlayingTrackDetectionView | null;
@@ -201,13 +204,13 @@ import { trackSource } from "./lib/source-link";
       if (generation === sourceCopyGeneration && copiedTrackId === track.id && [copyableSourceUrl(sourcePage?.url), copyableSourceUrl(candidate?.url)].includes(url)) sourceCopyStatus = "Could not copy the source link.";
     }
   }
-  async function openAudioSource(event: MouseEvent, url: string) {
+  async function openSource(event: MouseEvent, url: string, metadata = false) {
     event.preventDefault();
     sourceOpenError = "";
     try {
-      await (sourceOpener ? sourceOpener(track, url) : call("open_external_url", { url }));
+      await (sourceOpener && !metadata ? sourceOpener(track, url) : call("open_external_url", { url }));
     } catch (error) {
-      sourceOpenError = `Could not open the audio source: ${String(error)}`;
+      sourceOpenError = `Could not open the ${metadata ? "metadata" : "audio"} source: ${String(error)}`;
     }
   }
   const visibleTrackDetections = $derived.by(() => {
@@ -222,7 +225,7 @@ import { trackSource } from "./lib/source-link";
     return typeof provenance.catalogProvider === "string" ? provenance.catalogProvider : "";
   });
   function providerLabel(provider: string): string {
-    return ({ musicbrainz: "MusicBrainz", discogs: "Discogs", spotify: "Spotify", youtube: "YouTube", soundcloud: "SoundCloud", monochrome: "Monochrome", soulseek: "Soulseek", slskd: "Soulseek" } as Record<string, string>)[provider] || provider;
+    return ({ musicbrainz: "MusicBrainz", discogs: "Discogs", spotify: "Spotify", youtube: "YouTube", soundcloud: "SoundCloud", bandcamp: "Bandcamp", beatport: "Beatport", traxsource: "Traxsource", lastfm: "Last.fm", monochrome: "Monochrome", soulseek: "Soulseek", slskd: "Soulseek" } as Record<string, string>)[provider] || provider;
   }
   let resizing = $state(false);
   function resizePanel(event: PointerEvent) {
@@ -239,6 +242,8 @@ import { trackSource } from "./lib/source-link";
   let imageFailed = $state(false);
   let imageUrl = $state("");
   const originalCoverUrl = $derived(track.artworkUrl || candidate?.artworkUrl || "");
+  const classical = $derived(classicalTrackDisplay(track));
+  const displayVersion = $derived(trackDisplayVersion(track));
   const coverUrl = $derived(artworkDisplayUrl || originalCoverUrl);
   function safeHttpUrl(value: unknown): string {
     if (typeof value !== "string") return "";
@@ -266,9 +271,12 @@ import { trackSource } from "./lib/source-link";
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     return stationName.trim() || (typeof provenance.radioStationName === "string" ? provenance.radioStationName : "") || track.title;
   });
+  const originalSource = $derived(trackSource(track));
+  const metadataPage = $derived(docked && !radioLinks.isRadio && originalSource?.label === providerLabel(catalogProvider)
+    ? originalSource : null);
   const sourcePage = $derived.by(() => {
     if (radioLinks.isRadio) return radioLinks.stationUrl ? { url: radioLinks.stationUrl, label: displayedStationName } : null;
-    return !candidate?.url ? trackSource(track) : null;
+    return !candidate?.url && (!metadataPage || ["youtube", "soundcloud", "bandcamp"].includes(track.provider)) ? originalSource : null;
   });
   $effect(() => {
     const identity = JSON.stringify([track.id, sourcePage?.url ?? "", candidate?.url ?? ""]);
@@ -313,6 +321,19 @@ import { trackSource } from "./lib/source-link";
   const acceptedLastLiveBpm = $derived(lastLiveBpm && Number.isFinite(lastLiveBpm.value) && lastLiveBpm.value > 0 ? lastLiveBpm : null);
   const acceptedLastLiveKey = $derived(lastLiveKey && typeof lastLiveKey.value === "string" && lastLiveKey.value.trim() ? lastLiveKey : null);
   const librarySummary = $derived(trackLibrarySummary?.trackId === track.id ? trackLibrarySummary : null);
+  let editingArtistCreditsFor = $state<string | null>(null);
+  function artistCreditDrafts(track: Track): ArtistCreditDraft[] {
+    const provenance = (track.provenance ?? {}) as Record<string, unknown>;
+    const raw = provenance.libraryArtistCredits ?? provenance.artistCredits;
+    const credits = Array.isArray(raw) ? raw.slice(0, 32).flatMap((credit: unknown) => {
+      if (typeof credit === "string" && credit.trim()) return [{ name: credit, role: "artist" }];
+      if (!credit || typeof credit !== "object") return [];
+      const { name, role } = credit as { name?: unknown; role?: unknown };
+      if (typeof name !== "string" || !name.trim()) return [];
+      return [{ name, role: typeof role === "string" && role.trim() ? role : "artist" }];
+    }) : [];
+    return credits.length ? credits : [{ name: track.artist, role: "artist" }];
+  }
   const historyOccurrences = $derived.by(() => {
     if (!librarySummary) return [];
     if (librarySummary.playedOccurrences?.length) return librarySummary.playedOccurrences;
@@ -377,7 +398,9 @@ import { trackSource } from "./lib/source-link";
       {/if}
       <div class="hero-copy">
       {#if candidate?.provider || track.provider}<p class="eyebrow">{candidate?.provider ?? track.provider} audio</p>{/if}
-        <h2>{activeChapter || track.title}{!activeChapter && track.version ? " (" + track.version + ")" : ""}</h2>
+        <h2 title={track.title}>{activeChapter || classical?.movement || track.title}</h2>
+        {#if !activeChapter && classical?.movement && classical.workTitle}<p class="track-version">{classical.workTitle}</p>{/if}
+        {#if !activeChapter && displayVersion}<p class="track-version">{displayVersion}</p>{/if}
       {#if track.artist}<button class="artist-link" onclick={onArtist}>{track.artist}</button>{:else}<p class="unknown-artist">Artist unknown</p>{/if}
         {#if track.album}{#if onAlbum}<button class="album album-link" onclick={onAlbum}>{track.album}</button>{:else}<p class="album">{track.album}</p>{/if}{/if}
       {#if activeChapter}<p class="chapter"><span>From</span><strong>{track.playbackRange?.parentTitle || track.title}</strong></p>{/if}
@@ -425,6 +448,27 @@ import { trackSource } from "./lib/source-link";
           </div>
         {/if}
       </section>
+      {#if librarySummary.inLibrary && onSaveLibraryArtistCredits}
+        {#if editingArtistCreditsFor === track.id}
+          {#key track.id}
+            {@const editedTrack = track}
+            <ArtistCreditEditor credits={artistCreditDrafts(editedTrack)}
+              onSave={async (credits) => {
+                await onSaveLibraryArtistCredits?.(editedTrack, credits);
+                if (editingArtistCreditsFor === editedTrack.id) editingArtistCreditsFor = null;
+              }}
+              onReset={Array.isArray((editedTrack.provenance as Record<string, unknown> | null)?.libraryArtistCredits)
+                ? async () => {
+                  await onSaveLibraryArtistCredits?.(editedTrack, []);
+                  if (editingArtistCreditsFor === editedTrack.id) editingArtistCreditsFor = null;
+                }
+                : undefined}
+              onCancel={() => { editingArtistCreditsFor = null; }} />
+          {/key}
+        {:else}
+          <button type="button" onclick={() => { editingArtistCreditsFor = track.id; }}>Edit Library artist credits</button>
+        {/if}
+      {/if}
     {:else if trackLibrarySummaryLoading}
       <p class="track-library-loading" role="status">Loading listening and library details…</p>
     {:else if !trackLibrarySummaryRequested && (track.localAvailability === "available" || (!track.localAvailability && track.localPath))}
@@ -465,12 +509,24 @@ import { trackSource } from "./lib/source-link";
     </section>{/if}
 
     <dl>
+      {#if classical}
+        {#each classical.credits as credit (`${credit.artist.id}:${credit.role}`)}
+          <div><dt>{credit.role}</dt><dd>{#if onArtistRef}<button class="artist-link" onclick={() => onArtistRef(credit.artist)}>{credit.name}</button>{:else}{credit.name}{/if}</dd></div>
+        {/each}
+        {#if classical.movement}<div><dt>Original title</dt><dd>{track.title}</dd></div>{/if}
+      {/if}
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
       {#if plays !== null}<div><dt>Source plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
-      {#if catalogProvider && catalogProvider !== "catalog"}<div><dt>Metadata source</dt><dd>{providerLabel(catalogProvider)}</dd></div>{/if}
-      {#if sourcePage}<div class:radio-source={radioLinks.isRadio}><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, sourcePage!.url)}>{radioLinks.isRadio ? `${displayedStationName} ↗` : `Open ${sourcePage.label} ↗`}</a>{#if (radioLinks.isRadio || !candidate?.url && ["youtube","soundcloud","bandcamp"].includes(track.provider)) && copyableSourceUrl(sourcePage.url)}<button type="button" class="copy-source" aria-label={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} title={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} onclick={() => void copyAudioSource(copyableSourceUrl(sourcePage!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
+      {#if catalogProvider && catalogProvider !== "catalog"}
+        <div><dt>Metadata source</dt><dd>
+          {#if metadataPage}
+            <a href={metadataPage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openSource(event, metadataPage!.url, true)}>{providerLabel(catalogProvider)} ↗</a>
+          {:else}{providerLabel(catalogProvider)}{/if}
+        </dd></div>
+      {/if}
+      {#if sourcePage}<div class:radio-source={radioLinks.isRadio}><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openSource(event, sourcePage!.url)}>{radioLinks.isRadio ? `${displayedStationName} ↗` : `Open ${sourcePage.label} ↗`}</a>{#if (radioLinks.isRadio || !candidate?.url && ["youtube","soundcloud","bandcamp"].includes(track.provider)) && copyableSourceUrl(sourcePage.url)}<button type="button" class="copy-source" aria-label={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} title={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} onclick={() => void copyAudioSource(copyableSourceUrl(sourcePage!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
       {#if candidate?.provider}<div><dt>Audio provider</dt><dd>{providerLabel(candidate.provider)}</dd></div>{/if}
-      {#if candidate?.title}<div><dt>Audio source</dt><dd title={candidate.title}>{#if candidate.url && /^https:\/\//i.test(candidate.url)}<a href={candidate.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, candidate!.url!)}>{candidate.title} ↗</a>{:else}{candidate.title}{/if}{#if copyableSourceUrl(candidate.url)}<button type="button" class="copy-source" aria-label="Copy audio source link" title="Copy audio source link" onclick={() => void copyAudioSource(copyableSourceUrl(candidate!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
+      {#if candidate?.title}<div><dt>Audio source</dt><dd title={candidate.title}>{#if candidate.url && /^https:\/\//i.test(candidate.url)}<a href={candidate.url} target="_blank" rel="noopener noreferrer" onclick={event => void openSource(event, candidate!.url!)}>{candidate.title} ↗</a>{:else}{candidate.title}{/if}{#if copyableSourceUrl(candidate.url)}<button type="button" class="copy-source" aria-label="Copy audio source link" title="Copy audio source link" onclick={() => void copyAudioSource(copyableSourceUrl(candidate!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd title={candidate.uploader}>{candidate.uploader}</dd></div>{/if}
       {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{:else if analysisEstimate?.bpm && Number.isFinite(analysisEstimate.bpm.bpm) && analysisEstimate.bpm.bpm > 0}<div><dt>Tempo</dt><dd>{analysisEstimate.bpm.bpm} BPM · estimated from audio</dd></div>{:else if analysisStatus}<div><dt>Tempo</dt><dd>{analysisStatusText()}</dd></div>{/if}
       {#if currentLiveBpm || acceptedLastLiveBpm}<div class="live-bpm" title={currentLiveBpm ? `Approximate tempo estimated from ${currentLiveBpm.windowSeconds.toFixed(1)} seconds of current playback` : undefined}><dt>{currentLiveBpm ? "Live BPM" : "Last BPM"}</dt><dd>{currentLiveBpm ? liveBpmLabel(currentLiveBpm) : `${acceptedLastLiveBpm!.value} BPM`}{#if acceptedLastLiveBpm}<small class="last-measurement">{lastMeasurementText(acceptedLastLiveBpm.measuredAt, acceptedLastLiveBpm.positionSeconds)}</small>{/if}</dd></div>{:else if currentLiveStatus}<div class="live-bpm" title={liveBpmStatusReason ?? undefined}><dt>Live BPM</dt><dd>{liveBpmStatusReason ? liveBpmStatusReason.slice(0, 160) : {disabled:"Disabled · enable in Settings → Playback",unsupported:"This source has no supported Web Audio PCM route",paused:"Paused",warming:"Listening for audio…",estimating:"Estimating BPM…",insufficient:"No live BPM reading yet",waiting:"Waiting for the current playback buffer…",unavailable:"Estimate temporarily unavailable"}[currentLiveStatus]}</dd></div>{/if}
@@ -488,7 +544,7 @@ import { trackSource } from "./lib/source-link";
     {#if sourceOpenError}<p role="status">{sourceOpenError}</p>{/if}
 
     {#if loadArtist && track.artist && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} compact />{/if}
-    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
+    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} showSourceDetails={!docked} compact />{/if}
     <div class="actions">
       {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}><HeartIcon filled={favorite} /> {favorite ? "Favorited" : "Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
@@ -524,6 +580,7 @@ import { trackSource } from "./lib/source-link";
   h2 { margin: 0 0 6px; overflow-wrap: anywhere; font-size: clamp(19px, 2vw, 26px); line-height: 1.15; letter-spacing: -.025em; }
   .artist-link { display: block; width: 100%; min-width: 0; max-width: 100%; padding: 2px 0; overflow: visible; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; background: transparent; color: var(--accent); text-align: left; font-size: 15px; }
   .unknown-artist { margin:2px 0; color:var(--muted); font-size:13px; }
+  .track-version { margin: 0 0 6px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
   .chapter { display:grid; gap:3px; margin:9px 0 0; font-size:11px; }.chapter span { color:var(--muted); }.chapter strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:550; }
   .album-link{display:block;width:100%;min-width:0;max-width:100%;overflow:visible;overflow-wrap:anywhere;white-space:normal;text-overflow:clip;background:transparent;border:0;padding:0;text-align:left;text-decoration:underline;cursor:pointer}
   .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }

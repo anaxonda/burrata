@@ -360,6 +360,14 @@ describe("BackupRestore", () => {
     expect(createBackup).toHaveBeenCalledTimes(1);
   });
 
+  it("shows cancellation when the backup destination picker is dismissed", async () => {
+    mountRestore({ createBackup: vi.fn().mockResolvedValue(undefined) });
+    [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === "Back up now")!.click();
+    await settle();
+    expect(document.body.textContent).toContain("Backup canceled.");
+    expect(document.body.textContent).not.toContain("Backup completed and verified.");
+  });
+
   it("previews and applies selected standalone settings, retaining choices after failure", async () => {
     const settingsPreview = {
       previewId: "settings-1", schemaVersion: 1,
@@ -393,6 +401,63 @@ describe("BackupRestore", () => {
     }), settingsPreview);
     expect(document.querySelector('[aria-label="Settings import preview"]')).toBeNull();
     expect(document.body.textContent).toContain("We’ll confirm the imported interface preferences were saved the next time Burrata starts.");
+  });
+
+  it("requires a separate settings confirmation and refreshes the settings view after persistence", async () => {
+    const saved = { theme: "dark", musicDirectory: "/media/library" };
+    const resetSettings = vi.fn().mockRejectedValueOnce(new Error("write failed")).mockResolvedValue(saved);
+    const onSettingsReset = vi.fn();
+    const props = mountRestore({ resetSettings, onSettingsReset });
+    [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === "Reset settings…")!.click();
+    await settle();
+    expect(resetSettings).not.toHaveBeenCalled();
+    const dialog = document.querySelector("dialog")!;
+    const confirm = [...dialog.querySelectorAll("button")].find(button => button.textContent?.trim() === "Reset settings")!;
+    confirm.click(); await settle();
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("write failed");
+    expect(onSettingsReset).not.toHaveBeenCalled();
+    confirm.click(); await settle();
+    expect(onSettingsReset).toHaveBeenCalledWith(saved);
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(props.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it("allows factory reset without a backup only after typing the exact confirmation", async () => {
+    const factoryReset = vi.fn().mockResolvedValue(undefined);
+    const props = mountRestore({ factoryReset });
+    [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === "Factory reset…")!.click();
+    await settle();
+    const dialog = document.querySelector("dialog")!;
+    const input = dialog.querySelector<HTMLInputElement>('input[type="text"]')!;
+    const confirm = [...dialog.querySelectorAll("button")].find(button => button.textContent?.includes("Erase profile"))!;
+    input.value = "reset"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(confirm.disabled).toBe(true);
+    input.value = "RESET"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(confirm.disabled).toBe(false);
+    confirm.click(); await settle();
+    expect(factoryReset).toHaveBeenCalledExactlyOnceWith("RESET");
+    expect(props.createBackup).not.toHaveBeenCalled();
+    expect(props.restoreBackup).not.toHaveBeenCalled();
+    expect(dialog.textContent).toContain("Restarting Burrata");
+  });
+
+  it("can save a verified media backup before a factory reset without starting the reset", async () => {
+    const factoryReset = vi.fn();
+    const createBackup = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue({ jobId: "saved-backup" });
+    mountRestore({ factoryReset, createBackup });
+    [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === "Factory reset…")!.click();
+    await settle();
+    const dialog = document.querySelector("dialog")!;
+    dialog.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    const backup = [...dialog.querySelectorAll("button")].find(button => button.textContent?.includes("Back up first"))!;
+    backup.click(); await settle();
+    expect(createBackup).toHaveBeenCalledWith({ includeMedia: true }, expect.any(Function));
+    expect(dialog.textContent).toContain("Backup canceled.");
+    backup.click(); await settle();
+    expect(dialog.textContent).toContain("Backup completed and verified.");
+    expect(factoryReset).not.toHaveBeenCalled();
   });
 });
 

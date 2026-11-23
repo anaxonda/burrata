@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { ALBUM_LOOKUP_PENDING } from "./lib/album-navigation";
   import HeartIcon from "./HeartIcon.svelte";
   import { getContext, onMount } from "svelte";
   import { FAVORITE_MEMBERSHIP, type FavoriteMembership } from "./lib/favorite-membership";
   import { readLibraryTrackMembership } from "./lib/library-track-membership";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { call } from "./lib/api";
+  import type { ArtistRef } from "./lib/artist-types";
   import type { Track } from "./lib/types";
   import TrackMenu from "./TrackMenu.svelte";
   import BufferingSpinner from "./BufferingSpinner.svelte";
@@ -13,21 +15,33 @@
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
+  import { classicalTrackDisplay, OPEN_CREDIT_ARTIST, trackDisplayVersion } from "./lib/track-display";
+  import type { ClassicalTrackListRow, WorkProgramme } from "./lib/classical-works";
   import { trackProviderCount } from "./lib/provider-counts";
   import { rowWindow } from "./lib/table";
   import { invertSelection } from "./lib/selection";
   import { playlistPosition } from "./lib/source-position";
   import { playlistDropIndex } from "./lib/playlist-reorder";
 
+  function topTrackArtworkLookup(track: Track) {
+    const provenance = track.provenance as { source?: string } | undefined;
+    if (track.provider !== "lastfm" || provenance?.source !== "Last.fm top tracks") return undefined;
+    return {
+      key: `lastfm-track:${track.id}:${track.artist}:${track.title}`,
+      load: () => call<string | null>("get_lastfm_top_track_artwork", { track }),
+    };
+  }
+
   let {
-    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
-    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
+    tracks, orderedRows, onPlay, onPlayWork, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
+    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, fixedRowHeight, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     showLibraryStatus?: boolean;
     showProviderCounts?: boolean;
-    orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
+    orderedRows?: Array<ClassicalTrackListRow | { kind: "status"; key: string; title: string; detail: string }>;
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
+    onPlayWork?: (programme: WorkProgramme) => void | Promise<void>;
     onDownload?: (track: Track) => void | Promise<void>;
     onFavorite?: (track: Track) => void | Promise<void>;
     onNext?: (track: Track) => void | Promise<void>;
@@ -76,6 +90,7 @@
     /** Called with zero-based persisted occurrence indices (not track IDs). */
     onReorder?: (from: number, to: number) => void | Promise<void>;
     virtualizationThreshold?: number;
+    fixedRowHeight?: number;
     initialScroll?: number;
     onScroll?: (scrollTop: number) => void;
   } = $props();
@@ -118,7 +133,7 @@
       value === first + index && value <= count,
     );
   });
-  const rowHeight = $derived(presentation === "playlist" ? 60 : 88);
+  const rowHeight = $derived(fixedRowHeight ?? (presentation === "playlist" ? 60 : 88));
   const displayRows = $derived(orderedRows ?? tracks.map((track, trackIndex) => ({ kind: "track" as const, key: rowKeys?.[trackIndex] ?? `${track.id}:${trackIndex}`, trackIndex })));
   const virtualized = $derived(displayRows.length > virtualizationThreshold);
   const visibleRange = $derived(virtualized
@@ -286,6 +301,8 @@
     const destination = fromPosition - 1 + (event.key === "ArrowUp" ? -1 : 1);
     void movePlaylistOccurrence(track, fromPosition, destination);
   }
+  const openCreditArtist = getContext<((artist: ArtistRef) => void) | undefined>(OPEN_CREDIT_ARTIST);
+  const albumLookupPending = getContext<((id: string) => boolean) | undefined>(ALBUM_LOOKUP_PENDING);
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
   const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
   let sourceOpenFailure = $state("");
@@ -304,7 +321,7 @@
 
 </script>
 
-<div class:virtualized class:playlist={presentation === "playlist"} style:--track-row-height={`${rowHeight}px`} class="track-list-viewport" bind:this={scrollElement} onscroll={updateViewport}>
+<div class:virtualized class:fixed-rows={fixedRowHeight !== undefined} class:playlist={presentation === "playlist"} style:--track-row-height={`${rowHeight}px`} class="track-list-viewport" bind:this={scrollElement} onscroll={updateViewport}>
 {#if sourceOpenFailure}<p role="alert">{sourceOpenFailure}</p>{/if}
 {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection" bind:this={selectionToolbar}>
   {#if showSelection}
@@ -326,6 +343,17 @@
     {@const index = displayRow.kind === "track" ? displayRow.trackIndex : -1}
     {#if displayRow.kind === "status"}
       <li class="track-status-row" role="status" aria-label={displayRow.title}><div class="track-copy"><strong>{displayRow.title}</strong><span class="track-subtitle">{displayRow.detail}</span></div></li>
+    {:else if displayRow.kind === "work"}
+      {@const programme = displayRow.programme}
+      <li class="classical-work-row">
+        <div class="track-copy">
+          <h3 title={programme.title}>{programme.title}</h3>
+          <span class="track-subtitle" title={programme.performanceLabel}>
+            {programme.performanceLabel} · {programme.tracks.length} movements{programme.complete ? "" : " available"}
+          </span>
+        </div>
+        {#if onPlayWork}<button type="button" aria-label={`Play work: ${programme.title}`} onclick={() => void onPlayWork?.(programme)}>▶ Play work</button>{/if}
+      </li>
     {:else}
     {@const track = tracks[index]}
     {#if track}
@@ -333,6 +361,8 @@
     {@const failed = current && playbackFailed}
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
+    {@const displayVersion = trackDisplayVersion(track)}
+    {@const classical = classicalTrackDisplay(track)}
     {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
@@ -348,16 +378,22 @@
       {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedOccurrence} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
       {#if canReorderPlaylist && showSelection}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}; use Up and Down arrow keys`} aria-keyshortcuts="ArrowUp ArrowDown" title="Drag to reorder, or use the Up and Down arrow keys" onkeydown={(event) => occurrencePosition && reorderPlaylistFromHandle(event, track, occurrencePosition)} ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button>{/if}
       {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}{#if presentation === "playlist"}{@render playbackStatus()}{/if}</div>{/if}
-      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
+      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} artworkLookup={topTrackArtworkLookup(track)} /></span>
       {#if presentation !== "playlist"}{@render playbackStatus()}{/if}
       <div class="track-copy">
         <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
-          <strong>{track.title}{#if track.version}<small>{" "}({track.version})</small>{/if}</strong>
+          <strong>{classical?.movement || track.title}{#if displayVersion}<small>{" "}({displayVersion})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
           {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if track.artist || track.album || rowMeta}{" · "}{/if}{/if}
-          {#if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
-          {#if track.album}<span class="album">{track.artist ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} onclick={() => onAlbum?.(track)}>{track.album}</button>{:else}{track.album}{/if}</span>{/if}
+          {#if classical?.movement && classical.workTitle}<span>{classical.workTitle} · </span>{/if}
+          {#if classical?.credits.length}
+            {#each classical.credits as credit, creditIndex (`${credit.artist.id}:${credit.role}`)}
+              {#if creditIndex > 0}<span aria-hidden="true"> · </span>{/if}
+              {#if openCreditArtist}<button class="artist-link" aria-label={`${credit.name}, ${credit.role.toLowerCase()}`} title={credit.role} onclick={() => openCreditArtist(credit.artist)}>{credit.name}</button>{:else}<span title={credit.role}>{credit.name}</span>{/if}
+            {/each}
+          {:else if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
+          {#if track.album}<span class="album">{track.artist || classical?.credits.length ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} aria-busy={albumLookupPending?.(track.id) ?? false} onclick={(event) => { if (albumLookupPending?.(track.id)) return; event.currentTarget.focus({ preventScroll: true }); onAlbum?.(track); }}>{#if albumLookupPending?.(track.id)}Finding album…{:else}{track.album}{/if}</button>{:else}{track.album}{/if}</span>{/if}
           {#if track.localAvailability === "available" || track.localAvailability === "missing"}<span class="local-asset-status" class:local-asset-missing={track.localAvailability === "missing"}>{track.localAvailability === "available" ? "Downloaded" : "Missing file"}</span>{/if}
           {#if rowMeta}<span>{track.artist || track.album ? " · " : ""}{rowMeta}</span>{/if}
         </div>
@@ -394,11 +430,14 @@
 {/if}
 
 <style>
+  li.classical-work-row{background:var(--surface);min-width:0}
+  .classical-work-row h3{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.9rem}
+  .classical-work-row button{flex:none;white-space:nowrap}
   li.failed .playback-state { color:var(--danger,#f99b82); }
   /* Inline text actions should use their text height inside a track row. */
   .track-copy .track-title, .track-copy .track-subtitle { max-width:100%; }
   .track-title, .artist-link, .album-link { min-height: 0; }
-  .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
+  .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport:is(.virtualized,.fixed-rows) .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
   .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.focused-history-occurrence{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 16%,var(--surface))}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{display:grid;place-items:center;flex:0 0 22px;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering-has-play{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link,.album-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px;font:inherit;cursor:pointer}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}.icon-action.play.buffering{position:relative;color:transparent}.icon-action.play.buffering::before{content:"";position:absolute;width:17px;height:17px;box-sizing:border-box;border:2px solid color-mix(in srgb,var(--accent) 38%,transparent);border-top-color:var(--accent);border-right-color:var(--accent);border-radius:50%;animation:track-row-buffering 850ms linear infinite;pointer-events:none}.row-play.buffering{display:grid;place-items:center;box-sizing:border-box;opacity:1}
   @keyframes track-row-buffering{to{transform:rotate(360deg)}}
   @media(prefers-reduced-motion:reduce){.icon-action.play.buffering::before{animation:none;border-style:dashed;border-color:color-mix(in srgb,var(--accent) 42%,transparent);border-top-color:transparent;border-right-color:var(--accent)}}
@@ -419,6 +458,15 @@
   @container (max-width: 560px){.shared-track-list li{gap:7px}.track-title strong,.track-subtitle{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}.track-title strong{line-height:1.35}.track-subtitle{line-height:1.35}.duration{display:none}}
   @container (max-width: 560px){.playlist .playlist-time{display:none}.playlist .track-copy{flex:1 1 0;min-width:0}.playlist .track-title strong,.playlist .track-subtitle{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5}.playlist .row-actions{flex:0 0 auto}}
   @container (max-width: 430px){.shared-track-list li{gap:5px}.track-position,.artwork{display:none}.playlist .track-position{display:block}.playback-state.status-buffering-has-play{position:relative;width:22px;height:auto;padding:0;margin:0;overflow:visible;clip:auto;white-space:normal;border:0;display:grid}.row-actions>.icon-action{display:none}.more-trigger{width:40px;height:40px}.row-actions{gap:2px}.track-copy{flex-basis:0}}
+  @media (pointer: fine), (pointer: none) {
+    @container (max-width: 560px) {
+      .playlist .row-actions :is(.icon-action, .more-trigger) {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+      }
+    }
+  }
   @container (max-width: 350px){.row-actions{gap:1px}.track-title strong{font-size:12px}}
   .shared-track-list li.selected{outline:1px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}.select-track{flex:0 0 16px;width:16px;height:16px;margin:0;accent-color:var(--accent)}
   .icon-action{font-size:19px}.more-trigger{font-size:23px}

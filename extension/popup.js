@@ -23,7 +23,16 @@ contextPlaylistSelect.onchange=async()=>{
   catch(error){show(error);}
 };
 refreshTargetPlaylists.onclick=()=>void loadTargetPlaylists();
-send({type:'status'}).then(r=>{enabled=r.enabled;savedTargetCollectionId=r.targetCollectionId||'';enable.textContent=enabled?'Disable browser-assisted access':'Enable browser-assisted access';status.textContent=[r.error||(r.connected?(enabled?'Companion ready · Browser-assisted access on.':'Companion ready · Browser-assisted access off.'):'Companion unavailable. Open Burrata and install the browser host.'),r.lastContextAction].filter(Boolean).join('\n');}).catch(show);
+send({type:'status'}).then(r=>{
+  enabled=r.enabled;
+  savedTargetCollectionId=r.targetCollectionId||'';
+  enable.textContent=enabled?'Disable browser-assisted access':'Enable browser-assisted access';
+  const missingHost=/^specified native messaging host not found\.?$/i.test(r.error?.trim()||'');
+  const message=r.error&&!missingHost?r.error:r.connected
+    ? `Companion ready · Browser-assisted access ${enabled?'on':'off'}.`
+    : 'Companion unavailable. Open Burrata and install the browser host.';
+  status.textContent=[message,r.lastContextAction].filter(Boolean).join('\n');
+}).catch(show);
 importButton.onclick=async()=>{importButton.disabled=true;status.textContent='Collecting visible track metadata…';try{const r=await send({type:'importCurrent'});status.textContent=`Imported ${r.result.capturedCount} entries (${r.result.importedCount} unique recordings)${r.result.expectedTotal!=null?` of ${r.result.expectedTotal} expected`:""} · ${r.result.complete?"complete":"partial"}.\n${r.result.changes?`${r.result.changes.added} added · ${r.result.changes.removed} removed · ${r.result.changes.moved} moved\n`:""}${r.result.failedSources?.length?`${r.result.failedSources.length} album pages failed; retry from Burrata.\n`:""}${(r.result.warnings||[]).join('\n')}`;}catch(e){show(e);}finally{importButton.disabled=false;}};
 enable.onclick=async()=>{
   try{

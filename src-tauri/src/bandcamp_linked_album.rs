@@ -52,32 +52,8 @@ fn close_runtime(milliseconds: f64, seconds: f64) -> bool {
     };
     (milliseconds / 1000.0 - seconds).abs() <= tolerance
 }
-fn verify(
-    track: &Track,
-    release: &Value,
-    album: &Value,
-    url: &reqwest::Url,
-) -> Option<(Candidate, Value)> {
-    let release_id = release_id(track)?;
-    let expected_recording = track.provenance["recordingId"].as_str()?;
-    uuid::Uuid::parse_str(expected_recording).ok()?;
-    let name = track.album.as_deref()?;
-    if release["id"] != release_id
-        || crate::matching::normalize(release["title"].as_str()?)
-            != crate::matching::normalize(name)
-        || !same_credit(&track.artist, &credit(&release["artist-credit"])?)
-        || !same_credit(&track.artist, album["artist"].as_str()?)
-        || album["current"]["type"] != "album"
-        || crate::matching::normalize(album["current"]["title"].as_str()?)
-            != crate::matching::normalize(name)
-        || !release["relations"]
-            .as_array()?
-            .iter()
-            .any(|relation| relation["url"]["resource"].as_str() == Some(url.as_str()))
-    {
-        return None;
-    }
-    let mut left = Vec::new();
+fn ordered_tracks(release: &Value) -> Option<Vec<&Value>> {
+    let mut ordered = Vec::new();
     for (medium_index, medium) in release["media"].as_array()?.iter().enumerate() {
         let rows = medium["tracks"].as_array()?;
         if medium["position"].as_u64() != Some((medium_index + 1) as u64)
@@ -89,30 +65,195 @@ fn verify(
             if row["position"].as_u64() != Some((index + 1) as u64) {
                 return None;
             }
-            left.push(row);
+            ordered.push(row);
         }
     }
+    (2..=500).contains(&ordered.len()).then_some(ordered)
+}
+fn mbid(value: &Value) -> Option<&str> {
+    let id = value.as_str()?;
+    uuid::Uuid::parse_str(id).ok()?;
+    Some(id)
+}
+fn structured_credits(raw: &Value) -> Option<Vec<(&str, &str)>> {
+    let rows = raw.as_array()?;
+    let credits = rows
+        .iter()
+        .map(|row| {
+            Some((
+                mbid(&row["artist"]["id"])?,
+                row["joinphrase"].as_str()?.trim(),
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!credits.is_empty()).then_some(credits)
+}
+fn featured_credit_only(credits: &[(&str, &str)], primary_id: &str) -> bool {
+    credits.first().is_some_and(|(id, join)| {
+        *id == primary_id && (credits.len() == 1 || matches!(*join, "featuring" | "feat." | "feat"))
+    })
+}
+struct AlternateEdition<'a> {
+    release: &'a Value,
+    primary_id: &'a str,
+    primary_name: &'a str,
+}
+fn alternate_edition<'a>(
+    release: &'a Value,
+    linked: &'a Value,
+    group_id: &str,
+) -> Option<AlternateEdition<'a>> {
+    if mbid(&release["id"])? == mbid(&linked["id"])?
+        || release["status"] != "Official"
+        || linked["status"] != "Official"
+        || release["release-group"]["id"] != group_id
+        || linked["release-group"]["id"] != group_id
+        || crate::matching::normalize(release["title"].as_str()?)
+            != crate::matching::normalize(linked["title"].as_str()?)
+    {
+        return None;
+    }
+    let original_credit = structured_credits(&release["artist-credit"])?;
+    let linked_credit = structured_credits(&linked["artist-credit"])?;
+    let primary_id = linked_credit.first()?.0;
+    if !featured_credit_only(&original_credit, primary_id)
+        || !featured_credit_only(&linked_credit, primary_id)
+    {
+        return None;
+    }
+    let primary_name = linked["artist-credit"][0]["name"]
+        .as_str()
+        .or_else(|| linked["artist-credit"][0]["artist"]["name"].as_str())?;
+    Some(AlternateEdition {
+        release: linked,
+        primary_id,
+        primary_name,
+    })
+}
+fn runtime_ms(row: &Value) -> Option<f64> {
+    row["length"]
+        .as_f64()
+        .or_else(|| row["recording"]["length"].as_f64())
+}
+fn verify(
+    track: &Track,
+    release: &Value,
+    album: &Value,
+    url: &reqwest::Url,
+    alternate: Option<AlternateEdition<'_>>,
+) -> Option<(Candidate, Value)> {
+    let release_id = release_id(track)?;
+    let expected_recording = mbid(&track.provenance["recordingId"])?;
+    let name = track.album.as_deref()?;
+    let linked_release = alternate
+        .as_ref()
+        .map_or(release, |edition| edition.release);
+    let source_artist = album["artist"].as_str()?;
+    if release["id"] != release_id
+        || crate::matching::normalize(release["title"].as_str()?)
+            != crate::matching::normalize(name)
+        || album["current"]["type"] != "album"
+        || crate::matching::normalize(album["current"]["title"].as_str()?)
+            != crate::matching::normalize(name)
+        || !linked_release["relations"]
+            .as_array()?
+            .iter()
+            .any(|relation| {
+                relation["url"]["resource"].as_str() == Some(url.as_str())
+                    && (alternate.is_none()
+                        || relation["type"] == "free streaming" && relation["ended"] == false)
+            })
+    {
+        return None;
+    }
+    let linked_tracks = if let Some(edition) = &alternate {
+        if !same_credit(edition.primary_name, source_artist)
+            && !same_credit(&credit(&linked_release["artist-credit"])?, source_artist)
+        {
+            return None;
+        }
+        Some(ordered_tracks(linked_release)?)
+    } else {
+        if !same_credit(&track.artist, &credit(&release["artist-credit"])?)
+            || !same_credit(&track.artist, source_artist)
+        {
+            return None;
+        }
+        None
+    };
+    let left = ordered_tracks(release)?;
     let right = album["trackinfo"].as_array()?;
-    if !(2..=500).contains(&left.len()) || left.len() != right.len() {
+    if left.len() != right.len()
+        || linked_tracks
+            .as_ref()
+            .is_some_and(|rows| rows.len() != left.len())
+    {
         return None;
     }
     let album_id = album["current"]["id"].as_u64().filter(|id| *id > 0)?;
     let mut seen = HashSet::new();
+    let mut seen_recordings = HashSet::new();
     let mut matches = Vec::new();
     let mut vector = Vec::new();
     for (index, (a, b)) in left.iter().zip(right).enumerate() {
         let catalog_title = a["title"].as_str()?;
         let source_title = b["title"].as_str()?;
-        let duration = a["length"]
-            .as_f64()
-            .or_else(|| a["recording"]["length"].as_f64())?;
+        let duration = runtime_ms(a)?;
         let actual = b["duration"].as_f64()?;
         let id = b["track_id"].as_u64().filter(|id| *id > 0)?;
         if !seen.insert(id)
             || b["track_num"].as_u64() != Some((index + 1) as u64)
             || title_in_album(catalog_title, name) != title_in_album(source_title, name)
             || !close_runtime(duration, actual)
-            || !same_credit(&track.artist, &credit(&a["artist-credit"])?)
+        {
+            return None;
+        }
+        let mut catalog_duration = duration;
+        if let Some(edition) = &alternate {
+            let linked_row = linked_tracks.as_ref()?[index];
+            let recording_id = mbid(&a["recording"]["id"])?;
+            let recording_credits = structured_credits(&a["recording"]["artist-credit"])?;
+            let recording_credit = credit(&a["recording"]["artist-credit"])?;
+            if !seen_recordings.insert(recording_id)
+                || linked_row["recording"]["id"] != recording_id
+                || linked_row["title"]
+                    .as_str()
+                    .map(|title| title_in_album(title, name))
+                    != Some(title_in_album(catalog_title, name))
+                || structured_credits(&linked_row["recording"]["artist-credit"])?
+                    != recording_credits
+                || !featured_credit_only(&recording_credits, edition.primary_id)
+                || b["artist"].as_str().is_some_and(|artist| {
+                    !same_credit(edition.primary_name, artist)
+                        && !same_credit(&recording_credit, artist)
+                })
+            {
+                return None;
+            }
+            if recording_id == expected_recording {
+                let guid = mbid(&track.provenance["trackGuid"])?;
+                let declared = track.provenance["artistCredits"].as_array()?;
+                if a["id"] != guid
+                    || !same_credit(&track.artist, &recording_credit)
+                    || declared.len() != recording_credits.len()
+                    || !declared
+                        .iter()
+                        .zip(&recording_credits)
+                        .all(|(credit, (id, join))| {
+                            credit["artist"]["provider"] == "musicbrainz"
+                                && credit["artist"]["id"].as_str() == Some(*id)
+                                && credit["joinPhrase"].as_str().unwrap_or_default().trim() == *join
+                        })
+                    || !close_runtime(runtime_ms(linked_row)?, actual)
+                {
+                    return None;
+                }
+                // The library display uses recording length first. Verify that
+                // value against its catalog record and use the precise release
+                // row above for the source's actual runtime.
+                catalog_duration = a["recording"]["length"].as_f64().unwrap_or(duration);
+            }
+        } else if !same_credit(&track.artist, &credit(&a["artist-credit"])?)
             || b["artist"]
                 .as_str()
                 .is_some_and(|artist| !same_credit(&track.artist, artist))
@@ -128,7 +269,7 @@ fn verify(
             if title_in_album(&track.title, name) != title_in_album(catalog_title, name)
                 || track
                     .duration_seconds
-                    .is_none_or(|d| (d - duration / 1000.0).abs() > 0.025)
+                    .is_none_or(|d| (d - catalog_duration / 1000.0).abs() > 0.025)
             {
                 return None;
             }
@@ -154,9 +295,130 @@ fn verify(
         permission: "stream_only".into(),
         ..Candidate::default()
     };
-    let proof = json!({"method":"catalog-linked-album-v1","referenceId":expected_recording,"releaseId":release_id,"catalogTitle":track.title,"catalogArtist":track.artist,"linkedAlbumUrl":url.as_str(),"bandcampAlbumId":album_id,"albumTrackCount":right.len(),"albumFingerprint":format!("{:x}",Sha256::digest(json!(vector).to_string().as_bytes()))});
+    let mut proof = json!({"method":"catalog-linked-album-v1","referenceId":expected_recording,"releaseId":release_id,"catalogTitle":track.title,"catalogArtist":track.artist,"linkedAlbumUrl":url.as_str(),"bandcampAlbumId":album_id,"albumTrackCount":right.len(),"albumFingerprint":format!("{:x}",Sha256::digest(json!(vector).to_string().as_bytes()))});
+    if alternate.is_some() {
+        proof["linkedReleaseId"] = linked_release["id"].clone();
+        proof["releaseGroupId"] = linked_release["release-group"]["id"].clone();
+        proof["sourceArtist"] = json!(source_artist);
+        proof["albumFingerprint"] = json!(format!(
+            "{:x}",
+            Sha256::digest(
+                json!({
+                    "requestedReleaseId": release_id,
+                    "linkedReleaseId": linked_release["id"],
+                    "recordings": vector,
+                })
+                .to_string()
+                .as_bytes()
+            )
+        ));
+    }
     Some((candidate, proof))
 }
+const MAX_RELEASE_EDITIONS: usize = 8;
+
+async fn fetch_release(store: &Store, id: &str) -> Result<Value, String> {
+    let namespace = "playback.bandcamp-linked-release.v1";
+    if let Some(raw) = store.get_provider_cache(namespace, id)? {
+        if raw["id"] == id
+            && (mbid(&raw["release-group"]["id"]).is_some() || !album_links(&raw, false).is_empty())
+        {
+            return Ok(raw);
+        }
+    }
+    if let Some(raw) = store.get_provider_cache("artists.release-tracks.musicbrainz", id)? {
+        if raw["id"] == id
+            && mbid(&raw["release-group"]["id"]).is_some()
+            && raw["relations"].is_array()
+        {
+            return Ok(raw);
+        }
+    }
+    crate::artists::musicbrainz_rate_limit().await;
+    let response = client()?
+        .get(format!("https://musicbrainz.org/ws/2/release/{id}"))
+        .query(&[
+            ("inc", "recordings+artist-credits+url-rels+release-groups"),
+            ("fmt", "json"),
+        ])
+        .send()
+        .await
+        .map_err(|_| "Release reference unavailable")?;
+    let raw: Value = serde_json::from_slice(&body(response, 2 * 1024 * 1024).await?)
+        .map_err(|_| "Invalid release reference")?;
+    if raw["id"] != id {
+        return Err("Unexpected MusicBrainz release reference".into());
+    }
+    store.set_provider_cache(namespace, id, &raw, 86400)?;
+    Ok(raw)
+}
+
+fn album_links(release: &Value, require_free_stream: bool) -> Vec<reqwest::Url> {
+    let mut seen = HashSet::new();
+    release["relations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|relation| {
+            !require_free_stream
+                || relation["type"] == "free streaming" && relation["ended"] == false
+        })
+        .filter_map(|relation| relation["url"]["resource"].as_str())
+        .filter_map(|raw| crate::bandcamp::validate_album_page_url(raw).ok())
+        .filter(|url| seen.insert(url.to_string()))
+        .collect()
+}
+
+fn linked_edition(
+    rows: &Value,
+    original_id: &str,
+    group_id: &str,
+) -> Option<(String, reqwest::Url)> {
+    let editions = rows["releases"].as_array()?;
+    if rows["release-count"].as_u64()? != editions.len() as u64
+        || editions.len() > MAX_RELEASE_EDITIONS
+        || !editions.iter().any(|edition| edition["id"] == original_id)
+    {
+        return None;
+    }
+    let mut links = editions
+        .iter()
+        .filter(|edition| edition["id"] != original_id && edition["status"] == "Official")
+        .filter(|edition| edition["release-group"]["id"] == group_id)
+        .flat_map(|edition| {
+            let id = mbid(&edition["id"]).map(str::to_owned);
+            album_links(edition, true)
+                .into_iter()
+                .filter_map(move |url| Some((id.clone()?, url)))
+        });
+    let unique = links.next()?;
+    links.next().is_none().then_some(unique)
+}
+
+async fn fetch_editions(store: &Store, group_id: &str) -> Result<Value, String> {
+    let namespace = "playback.bandcamp-group-editions.v1";
+    if let Some(raw) = store.get_provider_cache(namespace, group_id)? {
+        return Ok(raw);
+    }
+    crate::artists::musicbrainz_rate_limit().await;
+    let limit = MAX_RELEASE_EDITIONS.to_string();
+    let response = client()?
+        .get("https://musicbrainz.org/ws/2/release")
+        .query(&[
+            ("release-group", group_id),
+            ("inc", "release-groups+url-rels"),
+            ("limit", &limit),
+            ("fmt", "json"),
+        ])
+        .send()
+        .await
+        .map_err(|_| "Release editions unavailable")?;
+    let raw = serde_json::from_slice(&body(response, 512 * 1024).await?)
+        .map_err(|_| "Invalid release edition reference")?;
+    store.set_provider_cache(namespace, group_id, &raw, 86400)?;
+    Ok(raw)
+}
+
 pub(super) async fn discover(
     store: &Store,
     track: &Track,
@@ -167,42 +429,41 @@ pub(super) async fn discover(
         return Ok(None);
     };
     bounded(cancel, deadline, async {
-        let namespace = "playback.bandcamp-linked-release.v1";
-        let release = if let Some(raw) = store.get_provider_cache(namespace, &id)? {
-            raw
-        } else {
-            let response = client()?
-                .get(format!("https://musicbrainz.org/ws/2/release/{id}"))
-                .query(&[
-                    ("inc", "recordings+artist-credits+url-rels"),
-                    ("fmt", "json"),
-                ])
-                .send()
-                .await
-                .map_err(|_| "Release reference unavailable")?;
-            let raw: Value = serde_json::from_slice(&body(response, 2 * 1024 * 1024).await?)
-                .map_err(|_| "Invalid release reference")?;
-            if raw["id"] != id {
-                return Ok(None);
+        let release = fetch_release(store, &id).await?;
+        let urls = album_links(&release, false);
+        let linked;
+        let (url, alternate) = match urls.as_slice() {
+            [url] => (url.clone(), None),
+            [] => {
+                let Some(group_id) = mbid(&release["release-group"]["id"]) else {
+                    return Ok(None);
+                };
+                if release["status"] != "Official"
+                    || track.provenance["releaseGroupId"]
+                        .as_str()
+                        .is_some_and(|id| id != group_id)
+                    || mbid(&track.provenance["trackGuid"]).is_none()
+                    || mbid(&track.provenance["recordingId"]).is_none()
+                    || track.provenance["artistCredits"].as_array().is_none()
+                {
+                    return Ok(None);
+                }
+                let editions = fetch_editions(store, group_id).await?;
+                let Some((linked_id, url)) = linked_edition(&editions, &id, group_id) else {
+                    return Ok(None);
+                };
+                linked = fetch_release(store, &linked_id).await?;
+                let Some(edition) = alternate_edition(&release, &linked, group_id) else {
+                    return Ok(None);
+                };
+                if album_links(&linked, true).as_slice() != [url.clone()] {
+                    return Ok(None);
+                }
+                (url, Some(edition))
             }
-            store.set_provider_cache(namespace, &id, &raw, 86400)?;
-            raw
+            _ => return Ok(None),
         };
-        let mut seen = HashSet::new();
-        let urls = release["relations"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|r| r["url"]["resource"].as_str())
-            .filter_map(|raw| crate::bandcamp::validate_album_page_url(raw).ok())
-            .filter(|url| seen.insert(url.to_string()))
-            .collect::<Vec<_>>();
-        // Ambiguous editions need a user choice; never pick an arbitrary link.
-        if urls.len() != 1 {
-            return Ok(None);
-        }
-        let url = &urls[0];
-        let addresses = crate::acquisition::public_addresses(url).await?;
+        let addresses = crate::acquisition::public_addresses(&url).await?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -221,7 +482,7 @@ pub(super) async fn discover(
         else {
             return Ok(None);
         };
-        Ok(verify(track, &release, &album, url))
+        Ok(verify(track, &release, &album, &url, alternate))
     })
     .await
 }
@@ -256,7 +517,13 @@ pub(super) fn bind_audio(
             .is_none_or(|(a, b)| (a - b).abs() > 0.025)
         || candidate.id.strip_prefix("bandcamp:") != audio.resolved_provider_id.as_deref()
         || metadata["channel"].as_str().is_none_or(|artist| {
-            !same_credit(artist, proof["catalogArtist"].as_str().unwrap_or_default())
+            !same_credit(
+                artist,
+                proof["sourceArtist"]
+                    .as_str()
+                    .or_else(|| proof["catalogArtist"].as_str())
+                    .unwrap_or_default(),
+            )
         })
     {
         return false;
@@ -272,6 +539,12 @@ pub(super) fn bind_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const GROUP: &str = "03a274f2-053f-44fd-be65-6da71288138f";
+    const LINKED_RELEASE: &str = "4e4d16f5-c849-4700-8243-2a41d46b46f2";
+    const ENSEMBLE: &str = "80fb9c75-af15-4a6b-9528-715f9ef4ebea";
+    const GUEST: &str = "cd645207-1664-46af-9953-264e9ae54089";
+
     fn fixture() -> (Track, Value, Value, reqwest::Url) {
         let release = "11111111-1111-4111-8111-111111111111";
         let recording = "22222222-2222-4222-8222-222222222222";
@@ -298,7 +571,7 @@ mod tests {
     #[test]
     fn exact_linked_release_accepts_rounded_live_runtime_but_rejects_wrong_performance() {
         let (track, reference, source, url) = fixture();
-        let (candidate, proof) = verify(&track, &reference, &source, &url).unwrap();
+        let (candidate, proof) = verify(&track, &reference, &source, &url, None).unwrap();
         assert_eq!(candidate.id, "bandcamp:51");
         assert_eq!(candidate.duration_seconds, Some(469.647));
         assert_eq!(proof["method"], "catalog-linked-album-v1");
@@ -309,23 +582,23 @@ mod tests {
                 "current" => changed[field]["title"] = json!("Live at Another Show"),
                 _ => changed[field][0]["duration"] = json!(298.76),
             };
-            assert!(verify(&track, &reference, &changed, &url).is_none());
+            assert!(verify(&track, &reference, &changed, &url, None).is_none());
         }
         let mut remix = source.clone();
         remix["trackinfo"][1]["title"] = json!("Second Song (Remix)");
-        assert!(verify(&track, &reference, &remix, &url).is_none());
+        assert!(verify(&track, &reference, &remix, &url, None).is_none());
         let mut missing = source.clone();
         missing["trackinfo"].as_array_mut().unwrap().pop();
-        assert!(verify(&track, &reference, &missing, &url).is_none());
+        assert!(verify(&track, &reference, &missing, &url, None).is_none());
         let mut reordered = source.clone();
         reordered["trackinfo"].as_array_mut().unwrap().swap(0, 1);
-        assert!(verify(&track, &reference, &reordered, &url).is_none());
+        assert!(verify(&track, &reference, &reordered, &url, None).is_none());
         let mut unlinked = reference.clone();
         unlinked["relations"] = json!([]);
-        assert!(verify(&track, &unlinked, &source, &url).is_none());
+        assert!(verify(&track, &unlinked, &source, &url, None).is_none());
         let other =
             reqwest::Url::parse("https://another.bandcamp.com/album/live-at-fixture-26").unwrap();
-        assert!(verify(&track, &reference, &source, &other).is_none());
+        assert!(verify(&track, &reference, &source, &other, None).is_none());
     }
     #[test]
     fn proof_requires_fresh_album_track_identity_and_shared_matcher_acceptance() {
@@ -339,7 +612,7 @@ mod tests {
             row["artist-credit"] = full_credit.clone();
         }
         source["artist"] = json!(band);
-        let (candidate, mut proof) = verify(&track, &reference, &source, &url).unwrap();
+        let (candidate, mut proof) = verify(&track, &reference, &source, &url, None).unwrap();
         let mut audio = crate::acquisition::PreviewAudio {
             provider_session: None,
             url: "https://audio.example/unused".into(),
@@ -387,6 +660,124 @@ mod tests {
             true
         ));
     }
+    fn alternate_fixture() -> (Track, Value, Value, Value, reqwest::Url) {
+        let (mut track, mut release, mut source, url) = fixture();
+        let guid = "d831ff9e-390d-4633-b48d-4a651f918117";
+        let original = json!([{"name":"Synthetic Band","joinphrase":"","artist":{"id":ENSEMBLE}}]);
+        let featured = json!([
+            {"name":"Synthetic Band","joinphrase":" featuring ","artist":{"id":ENSEMBLE}},
+            {"name":"Guest Singer","joinphrase":"","artist":{"id":GUEST}}
+        ]);
+        track.artist = "Synthetic Band featuring Guest Singer".into();
+        track.duration_seconds = Some(264.0);
+        track.provenance["trackGuid"] = json!(guid);
+        track.provenance["artistCredits"] = json!([
+            {"name":"Synthetic Band","joinPhrase":" featuring ","artist":{"id":ENSEMBLE,"provider":"musicbrainz"}},
+            {"name":"Guest Singer","joinPhrase":"","artist":{"id":GUEST,"provider":"musicbrainz"}}
+        ]);
+        release["release-group"]["id"] = json!(GROUP);
+        release["status"] = json!("Official");
+        release["artist-credit"] = featured.clone();
+        let tracks = release["media"][0]["tracks"].as_array_mut().unwrap();
+        tracks[0]["id"] = json!(guid);
+        tracks[0]["length"] = json!(264280);
+        tracks[0]["recording"]["length"] = json!(264000);
+        tracks[0]["recording"]["artist-credit"] = featured;
+        tracks[1]["length"] = json!(197373);
+        tracks[1]["recording"]["artist-credit"] = original;
+        let mut linked = release.clone();
+        linked["id"] = json!(LINKED_RELEASE);
+        linked["media"][0]["tracks"][0]["length"] = json!(264000);
+        linked["media"][0]["tracks"][1]["length"] = json!(197080);
+        linked["relations"][0]["type"] = json!("free streaming");
+        linked["relations"][0]["ended"] = json!(false);
+        release["relations"] = json!([]);
+        source["trackinfo"][0]["duration"] = json!(264.280);
+        source["trackinfo"][1]["duration"] = json!(197.373);
+        (track, release, linked, source, url)
+    }
+
+    #[test]
+    fn alternate_linked_edition_requires_exact_ordered_recordings_credits_and_runtimes() {
+        let (track, release, linked, source, url) = alternate_fixture();
+        let verify_linked = |track: &Track, release: &Value, linked: &Value, source: &Value| {
+            let alternate = alternate_edition(release, linked, GROUP)?;
+            verify(track, release, source, &url, Some(alternate))
+        };
+        let (candidate, mut proof) = verify_linked(&track, &release, &linked, &source).unwrap();
+        assert_eq!(candidate.id, "bandcamp:51");
+        assert_eq!(proof["linkedReleaseId"], LINKED_RELEASE);
+        assert_eq!(
+            proof["catalogArtist"],
+            "Synthetic Band featuring Guest Singer"
+        );
+        assert_eq!(proof["sourceArtist"], "Synthetic Band");
+        let mut missing_credit = track.clone();
+        missing_credit.provenance["artistCredits"][1]["artist"]["id"] = json!(ENSEMBLE);
+        assert!(verify_linked(&missing_credit, &release, &linked, &source).is_none());
+        for (field, replacement) in [
+            ("id", json!("a3f02d7a-7296-4e38-a8ff-eca189a0aa65")),
+            ("artist-credit", source["artist"].clone()),
+        ] {
+            let mut changed = linked.clone();
+            changed["media"][0]["tracks"][0]["recording"][field] = replacement;
+            assert!(verify_linked(&track, &release, &changed, &source).is_none());
+        }
+        let mut wrong_group = linked.clone();
+        wrong_group["release-group"]["id"] = json!(GUEST);
+        assert!(verify_linked(&track, &release, &wrong_group, &source).is_none());
+        let mut wrong_runtime = source.clone();
+        wrong_runtime["trackinfo"][1]["duration"] = json!(197.08);
+        assert!(verify_linked(&track, &release, &linked, &wrong_runtime).is_none());
+        let mut wrong_artist = source.clone();
+        wrong_artist["artist"] = json!("Cover Band");
+        assert!(verify_linked(&track, &release, &linked, &wrong_artist).is_none());
+        let mut audio = crate::acquisition::PreviewAudio {
+            provider_session: None,
+            url: "https://audio.example/unused".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(264.28),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: Some(
+                json!({"channel":"Synthetic Band","albumId":99,"albumUrl":url.as_str()}),
+            ),
+            resolved_title: Some(format!("Synthetic Band - {}", candidate.title)),
+            resolved_provider_id: Some("51".into()),
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
+        };
+        assert!(bind_audio(&mut proof, &candidate, &audio));
+        assert!(strong_binding_id(&proof, &candidate, &audio).is_some());
+        audio.source_metadata.as_mut().unwrap()["channel"] = json!("Cover Band");
+        assert!(!bind_audio(&mut proof, &candidate, &audio));
+    }
+
+    #[test]
+    fn alternate_linked_edition_requires_one_unambiguous_official_streaming_relation() {
+        let (_, original, linked, _, url) = alternate_fixture();
+        let id = original["id"].as_str().unwrap();
+        let mut page = json!({"release-count":2,"releases":[original, linked]});
+        assert_eq!(
+            linked_edition(&page, id, GROUP),
+            Some((LINKED_RELEASE.into(), url))
+        );
+        page["release-count"] = json!(9);
+        assert!(linked_edition(&page, id, GROUP).is_none());
+        let mut other = linked.clone();
+        other["id"] = json!(GUEST);
+        page["release-count"] = json!(3);
+        page["releases"].as_array_mut().unwrap().push(other);
+        assert!(linked_edition(&page, id, GROUP).is_none());
+        page["releases"].as_array_mut().unwrap().pop();
+        page["release-count"] = json!(2);
+        page["releases"][1]["relations"][0]["ended"] = json!(true);
+        assert!(linked_edition(&page, id, GROUP).is_none());
+    }
+
     #[tokio::test]
     #[ignore = "Explicit public-network recording-specific playback qualification; local decoder only"]
     async fn live_gizzard_linked_release_resolves_and_decodes_correct_long_live_recording() {

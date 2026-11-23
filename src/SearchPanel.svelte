@@ -10,6 +10,7 @@
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { safeArtworkUrl, safeArtworkUrls } from "./lib/artwork-url";
   import { musicBrainzCover } from "./lib/catalog-artwork";
+  import { isLinkedAudioSearchCandidate } from "./lib/preview-source";
   import ArtworkImage from "./ArtworkImage.svelte";
   import TrackList from "./TrackList.svelte";
   import ActionMenu from "./ActionMenu.svelte";
@@ -19,8 +20,9 @@
   import { providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
   import { searchNavigationScopes, publicSearchNavigationScope } from "./lib/search-navigation-scope";
   import { takeCollectionRows } from "./lib/search-collection";
-  import { searchUiControlExpired, searchUiControlFingerprint } from "./lib/search-ui-control-revision";
+  import { captureSearchUiControlSnapshot, extendSearchUiControlSnapshot, searchUiControlExpired } from "./lib/search-ui-control-revision";
   import { addSearchHistoryEntry, readSearchHistory, removeSearchHistoryEntry, writeSearchHistory, type SearchHistoryEntry } from "./lib/search-history";
+  import { parseSpotifyLink, type SpotifyLink } from "./lib/spotify-link";
   import type { AutomationSearchErrorCode, AutomationSearchKind, AutomationSearchReport, AutomationSearchRequest, AutomationSearchSourceId } from "./lib/search-ui-automation";
 
   export type SearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
@@ -29,6 +31,9 @@
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
   export type SearchPlaybackChapters = { videoId: string; chapters: Pick<Chapter, "id" | "title" | "startTime" | "endTime">[] };
   export type SearchTrackActions = { trackForQueue: () => Track; checkChapters?: () => void };
+
+  // The compact track plus its one-pixel divider is the estimated row.
+  const searchTrackHeight = 63;
 
   const DEFAULT_SOURCES: Source[] = [
     { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" }, { id: "monochrome", name: "Monochrome", kinds: ["track", "artist", "album"] },
@@ -44,7 +49,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onOpenSpotifyLink, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {}, onInspectedChapters,
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, showProviderCounts = true,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -52,13 +57,14 @@
     navigationSnapshotKey?: string | null;
     startupReadStorage?: Pick<Storage, "getItem">;
     query?: string; initialSources?: string[]; availableSources?: { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string }[]; sourceCapabilities?: Record<string, boolean | string>;
-    searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number }) => Promise<SearchPage>;
+    searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number; exactVideoUrl?: boolean }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
     onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<unknown[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track, fromLibrary?: boolean) => void | Promise<void>;
     loadArtistProfile?: (artist: ArtistRef) => Promise<{ imageUrl?: string | null }>;
     onRemoteResult?: (row: SearchRow) => void;
     onOpenBandcampPlaylist?: (url: string) => void;
+    onOpenSpotifyLink?: (link: SpotifyLink) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
     onDownloadTracks?: (tracks: Track[]) => Promise<void> | void;
@@ -94,7 +100,7 @@
   let navigationRestoreEpoch = 0;
   let navigationAccountScopes: Record<string,string|null> = {};
   let navigationNotice = $state("");
-  let searchElement: HTMLElement | null = null;
+  let searchElement: HTMLDivElement | null = null;
   let text = $state("");
   let searchHistory = $state<SearchHistoryEntry[]>([]);
   let searchHistoryOpen = $state(false);
@@ -404,6 +410,8 @@
   const trackControlsApplicable = $derived(!["artists", "albums", "playlists", "profiles", "channels"].includes(kind));
   const enabledOnlineSources = $derived(sources.filter(source => ONLINE_SOURCE_IDS.includes(source.id) && sourceEnabled(source.id)));
   const selectedSource = $derived(searchMode === "library" || sourceChoice === "all" || sourceChoice === "custom" ? null : enabledOnlineSources.find(source => source.id === sourceChoice) ?? null);
+  const youtubeCollectionSearchUnavailable = $derived(selectedSource?.id === "youtube"
+    && (!sourceSupportsKind("youtube", "playlists") || !sourceSupportsKind("youtube", "channels")));
   const visibleKinds = $derived(searchMode === "library" ? kinds.filter(item => item.id === "all" || item.id === "tracks") : selectedSource ? kinds.filter(item => item.id === kind || sourceSupportsKind(selectedSource.id, item.id)) : kinds);
   const selectedSourceUnsupportedKinds = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource
     ? visibleKinds.filter(item => item.id === kind && !sourceSupportsKind(selectedSource.id, item.id))
@@ -637,8 +645,12 @@
     try { localStorage.setItem(AUTO_QUEUE_PREF_KEY, String(enabled)); } catch { /* preference remains active for this session */ }
   }
   async function requestSource(query: string, sourceId: string, cursor?: string | null, reads = providerReads, limit = 30): Promise<SearchPage> {
-    if (searchSource) return searchSource({ query, sourceIds: [sourceId], kinds: requestedKinds(), cursor, limit });
-    const args = { query, sourceIds: [sourceId], kinds: requestedKinds(), cursor: cursor ?? null, limit };
+    const activeSources = activeSourceIds();
+    const exactVideoUrl = !cursor && kind === "videos" && sourceId === "youtube"
+      && activeSources.length === 1 && activeSources[0] === "youtube";
+    const policy = exactVideoUrl ? { exactVideoUrl } : {};
+    if (searchSource) return searchSource({ query, sourceIds: [sourceId], kinds: requestedKinds(), cursor, limit, ...policy });
+    const args = { query, sourceIds: [sourceId], kinds: requestedKinds(), cursor: cursor ?? null, limit, ...policy };
     // Soulseek creates a separately polled job; its dedicated cancellation command owns that lifecycle.
     if (sourceId === "soulseek") return call<SearchPage>("search_source", args);
     return reads.read<SearchPage>("search_source", args);
@@ -819,24 +831,30 @@
   // Playback continuation follows the visible provider groups while the loaded
   // dataset remains intact for collection, sorting, selection, and snapshots.
   const playableOccurrences = $derived(loadedOccurrences.filter(item => !collapsedSources[item.sourceId]));
-  // Finite automation handles are tied to the exact loaded, filtered and sorted
-  // playable snapshot. They are invalidated synchronously before every action.
+  // Handles bind to a provider row's position within its group. Another provider
+  // can finish loading without invalidating an already inspected occurrence.
   let searchControlRevision = crypto.randomUUID();
-  let searchControlFingerprint = "";
-  const searchControlRows = new Map<string, { revision: string; sourceId: string; row: SearchRow }>();
+  let searchControlSnapshot: ReturnType<typeof captureSearchUiControlSnapshot> | undefined;
+  const searchControlRows = new Map<string, { sourceId: string; groupIndex: number }>();
   function syncSearchControlRevision() {
-    const fingerprint = searchUiControlFingerprint({
+    const snapshot = captureSearchUiControlSnapshot({
       text, submitted, mode: searchMode, source: sourceChoice, kind, sort: collectedSort,
       direction: collectedDirection, minimumDuration, maximumDuration, downloadAvailability, generation,
       collectionRequest, continueSearch,
+      visibleSources: displayedSources.filter(source => !collapsedSources[source.id]).map(source => source.id),
       occurrences: playableOccurrences.map(item => ({ sourceId: item.sourceId, rowId: item.row.id, rowKind: item.row.kind, track: item.track })),
     });
-    if (fingerprint !== searchControlFingerprint) {
-      searchControlFingerprint = fingerprint;
+    if (searchControlSnapshot) {
+      const extended = extendSearchUiControlSnapshot(searchControlSnapshot, snapshot);
+      if (extended) {
+        searchControlSnapshot = extended;
+        return extended;
+      }
       searchControlRevision = crypto.randomUUID();
       searchControlRows.clear();
     }
-    return searchControlRevision;
+    searchControlSnapshot = snapshot;
+    return snapshot;
   }
   function boundedAutomationText(value: unknown, max = 300) {
     if (typeof value !== "string") return "";
@@ -853,14 +871,15 @@
   }
   export function inspectAutomationSearchUi(offset = 0, limit = 100, expiresAtMs = Date.now() + 5_000) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    const snapshot = syncSearchControlRevision();
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
     const start = Math.max(0, Math.min(1_000_000, Math.floor(offset)));
     const count = Math.max(1, Math.min(200, Math.floor(limit)));
     const end = Math.min(playableOccurrences.length, start + count);
-    const rows = playableOccurrences.slice(start, end).map(item => {
+    const rows = playableOccurrences.slice(start, end).map((item, index) => {
       const token = crypto.randomUUID();
-      searchControlRows.set(token, { revision, sourceId: item.sourceId, row: item.row });
+      const groupIndex = start + index - snapshot.groups.get(item.sourceId)!.start;
+      searchControlRows.set(token, { sourceId: item.sourceId, groupIndex });
       return {
         occurrenceToken: token,
         sourceId: item.sourceId,
@@ -874,7 +893,7 @@
     const observedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, observedAtMs)) return { status: "expired" };
     return {
-      status: "ready", revision, observedAtMs, query: boundedAutomationText(submitted, 500),
+      status: "ready", revision: searchControlRevision, observedAtMs, query: boundedAutomationText(submitted, 500),
       mode: searchMode, sourceId: searchMode === "library" ? "library" : sourceChoice,
       queryInputPending: text.trim() !== submitted.trim(),
       kind, continueSearch, total: playableOccurrences.length, offset: start,
@@ -884,26 +903,29 @@
   }
   export async function setAutomationContinueSearch(expectedRevision: string, enabled: boolean, expiresAtMs: number) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    syncSearchControlRevision();
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    if (revision !== expectedRevision) return { status: "stale", revision };
+    if (searchControlRevision !== expectedRevision) return { status: "stale", revision: searchControlRevision };
     const appliedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, appliedAtMs)) return { status: "expired" };
     continueSearch = enabled;
     try { localStorage.setItem(CONTINUE_PREF_KEY, String(enabled)); } catch { /* preference remains active for this session */ }
     await tick();
-    return { status: "complete", revision: syncSearchControlRevision(), enabled: continueSearch, appliedAtMs };
+    syncSearchControlRevision();
+    return { status: "complete", revision: searchControlRevision, enabled: continueSearch, appliedAtMs };
   }
   export function playAutomationSearchResult(expectedRevision: string, occurrenceToken: string, expiresAtMs: number) {
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
-    const revision = syncSearchControlRevision();
+    const snapshot = syncSearchControlRevision();
+    const revision = searchControlRevision;
     if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
     if (revision !== expectedRevision) return { status: "stale", revision };
     const target = searchControlRows.get(occurrenceToken);
-    if (!target || target.revision !== revision) return { status: "stale", revision };
-    const index = playableOccurrences.findIndex(item => item.sourceId === target.sourceId && item.row === target.row);
-    if (index < 0) return { status: "stale", revision };
-    const item = playableOccurrences[index];
+    if (!target) return { status: "stale", revision };
+    const group = snapshot.groups.get(target.sourceId);
+    if (!group || target.groupIndex >= group.occurrences.length) return { status: "stale", revision };
+    const item = playableOccurrences[group.start + target.groupIndex];
+    if (!item || item.sourceId !== target.sourceId) return { status: "stale", revision };
     const dispatchedAtMs = Date.now();
     if (searchUiControlExpired(expiresAtMs, dispatchedAtMs)) return { status: "expired" };
     // Reuse the exact UI handler so the existing continuation/snapshot rules
@@ -924,6 +946,59 @@
     const tracksForSource = loadedOccurrences.filter(item => item.sourceId === source.id).map(item => item.row);
     return [source.id, [...rows.filter(row => !row.track), ...tracksForSource]];
   })));
+  const navigableSearchCards = $derived(displayedSources.flatMap(source =>
+    collapsedSources[source.id] ? [] : (displayedRowsBySource[source.id] ?? []).filter(row =>
+      !row.track && row.sourceId === source.id &&
+      ((row.kind === "playlist" && (source.id === "spotify" || source.id === "youtube")) ||
+        (row.kind === "channel" && source.id === "youtube")))));
+  const SEARCH_CARD_TOKEN_TTL_MS = 30_000;
+  let searchCardSnapshot: { signature: string; revision: string } | undefined;
+  const searchCardTokens = new Map<string, { index: number; expiresAtMs: number }>();
+
+  function syncSearchCardRevision() {
+    const signature = JSON.stringify([text, submitted, searchMode, sourceChoice, kind, generation,
+      navigableSearchCards.map(row => [row.sourceId, row.kind, row.id, row.title, row.url])]);
+    if (searchCardSnapshot?.signature !== signature) {
+      searchCardSnapshot = { signature, revision: crypto.randomUUID() };
+      searchCardTokens.clear();
+    }
+    return searchCardSnapshot.revision;
+  }
+
+  export function inspectAutomationSearchCards(offset = 0, limit = 100, expiresAtMs = Date.now() + 5_000) {
+    if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
+    const revision = syncSearchCardRevision();
+    const start = Math.max(0, Math.min(1_000_000, Math.floor(offset)));
+    const count = Math.max(1, Math.min(200, Math.floor(limit)));
+    const observedAtMs = Date.now();
+    if (searchUiControlExpired(expiresAtMs, observedAtMs)) return { status: "expired" };
+    for (const [token, entry] of searchCardTokens) {
+      if (searchUiControlExpired(entry.expiresAtMs, observedAtMs)) searchCardTokens.delete(token);
+    }
+    const cards = navigableSearchCards.slice(start, start + count).map((row, index) => {
+      const cardToken = crypto.randomUUID();
+      searchCardTokens.set(cardToken, { index: start + index, expiresAtMs: observedAtMs + SEARCH_CARD_TOKEN_TTL_MS });
+      return { cardToken, sourceId: row.sourceId, kind: row.kind, title: boundedAutomationText(row.title) };
+    });
+    while (searchCardTokens.size > 1000) searchCardTokens.delete(searchCardTokens.keys().next().value!);
+    return { status: "ready", revision, observedAtMs, total: navigableSearchCards.length, offset: start, cards };
+  }
+
+  export function openAutomationSearchCard(expectedRevision: string, cardToken: string, expiresAtMs: number) {
+    if (searchUiControlExpired(expiresAtMs, Date.now())) return { status: "expired" };
+    const revision = syncSearchCardRevision();
+    const dispatchedAtMs = Date.now();
+    if (searchUiControlExpired(expiresAtMs, dispatchedAtMs)) return { status: "expired" };
+    if (revision !== expectedRevision) return { status: "stale", revision };
+    const target = searchCardTokens.get(cardToken);
+    if (!target) return { status: "stale", revision };
+    searchCardTokens.delete(cardToken);
+    if (searchUiControlExpired(target.expiresAtMs, dispatchedAtMs)) return { status: "expired" };
+    const row = navigableSearchCards[target.index];
+    if (!row) return { status: "stale", revision };
+    openNonTrackResult(row);
+    return { status: "dispatched", revision, sourceId: row.sourceId, kind: row.kind, dispatchedAtMs };
+  }
   const loadedSearchTrackRows = $derived(Object.values(displayedRowsBySource).flat().filter(row => row.track));
   const selectedLoadedSearchRows = $derived(loadedSearchTrackRows.filter(row => selectedTrackRows.includes(row)));
   const selectedSearchTracks = $derived(selectedLoadedSearchRows
@@ -944,19 +1019,32 @@
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance : {};
     return { ...track, provenance: { ...provenance, searchPlaybackChapters: hint } };
   }
+  function selectMonochromeSearchSource(track: Track, sourceId?: string): Track {
+    if (sourceId !== "monochrome" || track.provider !== sourceId) return track;
+    const provenance = track.provenance && typeof track.provenance === "object"
+      ? track.provenance as Record<string, unknown> : {};
+    if (provenance.sourceKind !== "audioSearch" || !provenance.audioCandidate || typeof provenance.audioCandidate !== "object") return track;
+    const candidate = provenance.audioCandidate as Candidate;
+    const url = `https://tracks.monochrome.st/track/${track.providerId}`;
+    if (track.sourceUrl !== url || track.id !== `monochrome:${track.providerId}` ||
+        candidate.provider !== sourceId || candidate.url !== url || !isLinkedAudioSearchCandidate(track, candidate)) return track;
+    // Playing this result selects its exact audio source for this queue entry.
+    return { ...track, provenance: { ...provenance, userSelectedSource: true } };
+  }
   function publishInspectedChapters(row: SearchRow, track: Track, candidate?: Candidate) {
     if (!onInspectedChapters || (playingTrack?.id ?? playingTrackId) !== track.id) return;
     const hint = searchPlaybackChapters(track, row, candidate);
     if (hint) onInspectedChapters(hint);
   }
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
-    const playing = row ? trackWithSearchChapters(track, row) : track;
+    const playing = selectMonochromeSearchSource(row ? trackWithSearchChapters(track, row) : track, sourceId);
     if (!continueSearch) { onPlay?.(playing); return; }
     let index = sourceId && row ? playableOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
     if (index < 0) index = playableOccurrences.findIndex(item => item.track === track);
     let queue = playableOccurrences.map(item => trackWithSearchChapters(item.track, item.row));
     if (index < 0) { queue = [playing, ...queue]; index = 0; }
-    onPlay?.(queue[index] ?? playing, queue, index);
+    else queue[index] = playing;
+    onPlay?.(playing, queue, index);
   }
   async function collectMoreSearchResults() {
     const request = ++collectionRequest;
@@ -1075,9 +1163,11 @@
       return null;
     }
   });
+  const spotifyLink = $derived(onOpenSpotifyLink ? parseSpotifyLink(text) : null);
   function submitSearch(event: SubmitEvent) {
     event.preventDefault();
-    if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
+    if (spotifyLink) onOpenSpotifyLink?.(spotifyLink);
+    else if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
     else void runSearch();
   }
   function soulseekFolder(row: SearchRow): SoulseekFolder | null {
@@ -1279,7 +1369,7 @@
       </div>
     {/if}
   </div>
-  {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+  {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={track => track.localAvailability === "available" ? "On this device" : "Soulseek peer file · Download to play"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
   {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
 {/if}
 {/snippet}
@@ -1288,8 +1378,8 @@
   onpointerdown={(event) => { if (sourcePickerOpen && event.target instanceof Node && !sourcePicker?.contains(event.target) && !sourceButton?.contains(event.target)) closeSourcePicker(); }}
   onkeydown={(event) => { if (sourcePickerOpen && event.key === "Escape") { event.preventDefault(); closeSourcePicker(true); } }}
   onresize={() => closeSourcePicker()} />
-<section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
-  {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
+<section class="search-panel" aria-label="Discovery search">
+  <div class="search-content" bind:this={searchElement}>
   <form class="search-form" onsubmit={submitSearch}>
     <div class="search-input-wrap">
       <input aria-label="Search music" role="combobox" aria-autocomplete="none" aria-expanded={searchHistoryOpen && !text.trim()} aria-controls={searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined} aria-activedescendant={searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchHistoryKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); collectionSoulseekSource = null; statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
@@ -1298,9 +1388,11 @@
         {#each searchHistory as entry, index (entry.query.toLocaleLowerCase())}<div class="search-history-row" role="option" aria-selected={searchHistoryIndex === index}><button id={`search-history-item-${index}`} class="history-query" type="button" tabindex="-1" onclick={() => restoreSearchHistory(entry)}>{entry.query}<small>{entry.mode === "library" ? "My library" : entry.sourceChoice === "custom" ? "Selected sources" : entry.sourceChoice === "all" ? "All online sources" : sources.find(source => source.id === entry.sourceChoice)?.name ?? "Online"} · {kinds.find(option => option.id === entry.kind)?.label ?? "All"}</small></button><button class="remove-search-history" type="button" aria-label={`Remove ${entry.query} from search history`} title="Remove recent search" onclick={() => removeHistoryEntry(entry)}>×</button></div>{/each}
       </div>{/if}
     </div>
-    <button class="primary" type="submit" disabled={!bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
+    <button class="primary" type="submit" disabled={!spotifyLink && !bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{spotifyLink ? `Open Spotify ${spotifyLink.kind}` : bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
     {#if Object.values(statuses).some(status => status === "Searching…" || status === "Loading more…" || status.endsWith("…"))}<button type="button" onclick={cancel}>Cancel</button>{/if}
   </form>
+  {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
+  <div class="search-toolbar">
   <div class="primary-controls-toolbar">
   <div class="scope-controls">
     <div class="search-mode section-switcher" role="group" aria-label="Search scope">
@@ -1347,7 +1439,9 @@
     {/each}
   </div>
   </div>
-  {#if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
+  {#if youtubeCollectionSearchUnavailable}
+    <p id="unsupported-result-kinds" class="scope-hint" role="note">To search YouTube playlists and channels, connect YouTube in Settings or enable Browser-assisted access in the Burrata extension.</p>
+  {:else if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
   {#if trackControlsApplicable}<div class="track-toolbar">
     <fieldset class="track-controls">
       <legend class="sr-only">Loaded track controls</legend>
@@ -1374,8 +1468,9 @@
       {:else}<span>{loadedSearchTrackRows.length} tracks loaded</span><button type="button" class="start-search-selection" aria-label="Select search tracks" onclick={() => searchSelectionMode = true}>Select</button>{/if}
     </div>{/if}
   </div>{/if}
+  </div>
   {#if collectingSearch || collectionProgress}<div class="collection-status" role="status">{collectionProgress}{#if collectingSearch}<button type="button" onclick={cancelCollection}>Cancel collection</button>{/if}</div>{/if}
-  {#if selectedSourceUnsupported}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source in Search in or change the result type.</p>{/if}
+  {#if selectedSourceUnsupported && !(youtubeCollectionSearchUnavailable && (kind === "playlists" || kind === "channels"))}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source in Search in or change the result type.</p>{/if}
 
   <div class="source-results" aria-live="polite">
     {#each displayedSources as source (source.id)}
@@ -1393,7 +1488,7 @@
         {#if errors[source.id]}<p class="notice error">{errors[source.id]} <button onclick={() => void runSearch(source.id)}>Retry</button></p>{/if}
         {#each warnings[source.id] ?? [] as warning}<p class="notice">{warning}</p>{/each}
         {#if rows.length}
-          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}:${downloadAvailability}`} regionKey={source.id}>
+          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? searchTrackHeight + 1 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}:${downloadAvailability}`} regionKey={source.id} scrollRootSelector=".search-content">
           {#snippet children(row, _index)}
             {@const track = row.track}
             {@const lazyImage = row.sourceId === "musicbrainz" && row.kind === "artist" ? lazyArtistArtwork[rowArtist(row)?.id ?? ""] : null}
@@ -1410,7 +1505,7 @@
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" fixedRowHeight={searchTrackHeight} position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : track.provider === "slskd" ? "Download to play" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
                   {#if canLookUpChapters(row) && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
@@ -1460,6 +1555,7 @@
       </section>
     {/each}
   </div>
+  </div>
 </section>
 
 {#if albumSourceMenu}
@@ -1471,6 +1567,11 @@
 {/if}
 
 <style>
+  .search-toolbar { display:grid; flex:none; gap:.45rem; }
+  .search-content { display:flex; flex:1; flex-direction:column; gap:inherit; min-height:0; overflow-y:auto; overflow-x:hidden; }
+  .search-content > .search-form { position:sticky; top:0; flex:none; flex-wrap:nowrap; align-items:center; z-index:4; background:var(--panel); }
+  .search-content > .search-form .search-input-wrap { flex:1 1 0; min-width:0; }
+  .search-content > .search-form > button { flex:none; white-space:nowrap; }
   .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
   .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
   .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}
@@ -1487,7 +1588,7 @@
   @keyframes source-search-spin{to{transform:rotate(1turn)}}
   @media(prefers-reduced-motion:reduce){.source-search-spinner{animation:none}}
   .source-toggle{border:0;padding:.15rem .25rem;background:transparent;color:inherit;font:inherit;font-weight:650;text-align:left;cursor:pointer}.source-toggle:focus-visible{outline:2px solid var(--accent,#9dbfff);outline-offset:2px}
-  .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
+  .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
   .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.search-input-wrap{position:relative;flex:1;min-width:0}.search-form .search-input-wrap input{box-sizing:border-box;width:100%;min-width:0}.search-history-menu{position:absolute;z-index:60;top:calc(100% + 4px);left:0;right:0;max-height:300px;overflow:auto;margin:0;padding:4px;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--surface,#202328);box-shadow:0 8px 24px #0008}.search-history-menu button{display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:2px;padding:8px;text-align:left;border:0;background:transparent}.search-history-menu button:hover,.search-history-row[aria-selected="true"] .history-query{background:var(--raised,#2a2e34)}.search-history-menu small{color:var(--muted,#a3a8ae);font-size:.75rem}.search-history-heading,.search-history-row{display:flex;align-items:center;gap:4px}.search-history-heading{justify-content:space-between;padding:4px 6px 6px;color:var(--muted,#a3a8ae);font-size:.78rem}.search-history-heading .clear-search-history{padding:3px 6px;border:0;background:transparent;color:var(--accent,#9dbfff);font-size:.74rem}.search-history-row{border-radius:6px}.search-history-row .history-query{flex:1;min-width:0}.search-history-row .remove-search-history{flex:none;width:30px;height:30px;justify-content:center;align-items:center;padding:0;border:0;background:transparent;color:var(--muted,#a3a8ae);font-size:18px}.search-history-row .remove-search-history:hover{color:var(--text,#eee)}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
   .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}
   input,select{font:inherit}input,select{color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}select:disabled{opacity:.55;cursor:default}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}
@@ -1495,9 +1596,8 @@
   .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.search-result-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:4px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.search-result-art.portrait{border-radius:50%}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-check{margin:.25rem 0;padding:.2rem .4rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.chapter-lookup-status{margin:.25rem;color:var(--muted,#a3a8ae);font-size:.72rem}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:var(--danger)}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
   .search-playlist-selection{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border:1px solid var(--border,#454a50);border-radius:8px;margin:.4rem 0}.search-playlist-selection span{margin-right:auto}.search-track-select{display:inline-flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--muted,#a3a8ae)}.add-playlist-result{margin:.4rem .45rem 0 0}
   .queue-search-results{min-height:32px;padding:.3rem .6rem;font-size:.78rem}
-  .result-row:has(.compact-track){padding:.15rem}
+  .result-row:has(.compact-track){padding:0 .15rem}
   @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form .search-input-wrap{flex:1 1 100%}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}
-  @media(max-width:640px){.result-row:has(.compact-track){padding:0 .15rem}}
   @container search-pane (max-width:640px){.search-form{align-items:flex-start;flex-wrap:wrap}.search-form input{flex:1 1 100%}.scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.source-group>header{align-items:flex-start;flex-wrap:wrap}.result-title{align-items:flex-start}.chapter-row span{flex-basis:100%}}
   @media(min-width:641px){.search-panel{gap:.45rem;padding:.75rem}.scope-controls{display:flex;justify-content:flex-start;gap:.45rem;min-width:0;flex-wrap:wrap}.library-helper{margin:0}.filters{gap:.3rem}.filters button{padding:.32rem .55rem;font-size:.78rem}.track-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.track-toolbar .collection-controls{align-items:center;gap:.4rem}.track-toolbar .collection-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;font-size:.76rem;white-space:nowrap}.track-toolbar .collection-controls select{box-sizing:border-box;height:34px;min-height:34px;padding:0 .55rem;font-size:.78rem;line-height:normal;overflow:visible}.track-toolbar .collection-controls button{min-height:32px;padding:.25rem .55rem;font-size:.76rem}.loaded-track-filters{flex:none;min-width:0}.loaded-track-filters[open]{flex:1 1 100%}.loaded-track-filters>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#454a50);border-radius:7px;padding:.35rem .55rem;font-size:.78rem;color:var(--muted,#a3a8ae)}.loaded-track-filters>summary::-webkit-details-marker{display:none}.loaded-track-filters>summary::after{content:" ▾"}.loaded-track-filters[open]>summary::after{content:" ▴"}.active-filter-indicator{color:var(--accent,#9dbfff)}.loaded-filter-fields{display:flex;align-items:end;gap:.6rem;flex-wrap:wrap;max-width:100%;margin-top:.45rem;padding:.65rem;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--panel,#17191c)}.loaded-filter-fields>label:not(.continue-setting){display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.loaded-filter-fields input:not([type="checkbox"]){box-sizing:border-box;width:132px;min-width:0;height:32px;padding:.25rem .45rem;font-size:.76rem}.loaded-filter-fields .continue-setting{max-width:250px;line-height:1.3}.track-toolbar .collect-more{flex:none;margin:0;min-height:32px;padding:.3rem .6rem;font-size:.78rem}.collection-status{flex-wrap:wrap}}
   @media(min-width:641px){.primary-controls-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.primary-controls-toolbar .scope-controls{flex:0 1 auto}.primary-controls-toolbar .filters{flex:1 1 auto;align-items:center}.track-toolbar .search-playlist-selection{flex:0 1 auto;min-width:0;max-width:100%;margin:0;padding:0;gap:.3rem;flex-wrap:wrap;border:0;font-size:.76rem}.track-toolbar .search-playlist-selection span{margin-right:.2rem}.track-toolbar .search-playlist-selection button{min-height:30px;padding:.25rem .45rem;font-size:.76rem}}

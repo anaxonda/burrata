@@ -4185,6 +4185,14 @@ fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
         // The default Symphonia registry has no Opus decoder. Avoid opening a
         // seekable WebM reader only to fail codec creation and reopen via FFmpeg.
         || (!cfg!(feature = "experimental-opus") && is_finite_remote_opus_webm(source))
+        // Registered local Opus files already carry the probed codec. The
+        // default build can get straight to FFmpeg without a rejected decode.
+        || (!cfg!(feature = "experimental-opus")
+            && source.decoder_hint.as_ref().is_some_and(|hint|
+                hint.decode_policy == AudioSourceDecodePolicy::Automatic
+                    && hint.mime_type.is_none()
+                    && hint.codec.as_deref() == Some("opus"))
+            && !source.input.contains("://"))
         || source
             .decoder_hint
             .as_ref()
@@ -7321,6 +7329,31 @@ mod tests {
             started.elapsed() < Duration::from_secs(2),
             "cancelled child was not reaped promptly"
         );
+    }
+
+    #[test]
+    fn registered_local_opus_skips_unsupported_decoder_in_the_default_build() {
+        let mut source = AudioSource {
+            input: "/music/registered.opus".into(),
+            ffmpeg: "ffmpeg".into(),
+            headers: vec![],
+            decoder_hint: Some(AudioSourceDecoderHint {
+                mime_type: None,
+                codec: Some("opus".into()),
+                duration_seconds: Some(120.0),
+                content_length: None,
+                has_video: false,
+                decode_policy: AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
+            }),
+            cenc: None,
+        };
+        assert_eq!(
+            should_use_ffmpeg_for_source(&source),
+            !cfg!(feature = "experimental-opus")
+        );
+        source.input = "https://example.invalid/fixture.opus".into();
+        assert!(!should_use_ffmpeg_for_source(&source));
     }
 
     #[test]

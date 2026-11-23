@@ -32,7 +32,10 @@ const NIGHTLY_REPO: &str = "yt-dlp/yt-dlp-nightly-builds";
 const RECOMMENDED_REPO_API: &str =
     "https://api.github.com/repos/anaxonda/burrata/releases?per_page=10";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const BGUTIL_VERSION: &str = "2.0.2";
+const HELPER_HOST: &str = "127.0.0.1";
 const HELPER_PORT: u16 = 4416;
+const HELPER_PROBE_ATTEMPTS: usize = 20;
 const MAX_UPSTREAM_ASSET_BYTES: usize = 120 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +68,21 @@ pub struct UpdateCheck {
     pub published_at: Option<String>,
     pub available: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(
+    tag = "stage",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum UpdateProgress {
+    Checking,
+    Downloading {
+        received_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+    Verifying,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,6 +151,7 @@ pub struct YouTubeSupportManager {
     uses: Arc<std::sync::Mutex<provider_broker::Uses>>,
     exiting: Arc<AtomicBool>,
     helper_port: Arc<AtomicU64>,
+    helper_generation: Arc<AtomicU64>,
     last_used: Arc<AtomicU64>,
     update_lock: Arc<Mutex<()>>,
     provider_verified: Arc<AtomicBool>,
@@ -158,6 +177,7 @@ impl YouTubeSupportManager {
             uses: Arc::new(std::sync::Mutex::new(provider_broker::Uses::default())),
             exiting: Arc::new(AtomicBool::new(false)),
             helper_port: Arc::new(AtomicU64::new(HELPER_PORT.into())),
+            helper_generation: Arc::new(AtomicU64::new(0)),
             last_used: Arc::new(AtomicU64::new(now_secs())),
             update_lock: Arc::new(Mutex::new(())),
             provider_verified: Arc::new(AtomicBool::new(false)),
@@ -168,22 +188,63 @@ impl YouTubeSupportManager {
         self.data_dir.join("helper-tmp")
     }
 
+    fn managed_executable(&self, pointer: &VersionPointer) -> Option<PathBuf> {
+        if pointer.version == "@bundled" {
+            return None;
+        }
+        let executable = self.safe_version_executable(pointer);
+        executable.is_file().then_some(executable)
+    }
+
     pub fn active_executable(&self) -> PathBuf {
         self.read_pointer("current.json")
-            .map(|p| self.safe_version_executable(&p))
-            .filter(|p| p.is_file())
+            .and_then(|pointer| self.managed_executable(&pointer))
             .unwrap_or_else(|| self.bundled_executable.clone())
     }
 
+    fn executable_command(
+        &self,
+        executable: &Path,
+    ) -> Result<(Command, tempfile::TempDir), String> {
+        let temp = crate::acquisition::owned_helper_temp_dir(Some(&self.helper_temp_root()))?;
+        let mut command = Command::new(executable);
+        command
+            .env("TMPDIR", temp.path())
+            .env("TMP", temp.path())
+            .env("TEMP", temp.path());
+        Ok((command, temp))
+    }
+
+    async fn version(&self, executable: &Path) -> Result<String, String> {
+        if !executable.is_file() {
+            return Err("executable missing".into());
+        }
+        let (mut command, _temp) = self.executable_command(executable)?;
+        command
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let output = run_capped(command, Duration::from_secs(10), 4096).await?;
+        let version = String::from_utf8_lossy(&output.stdout);
+        let version = version.trim();
+        if !output.status.success() || version.is_empty() {
+            return Err("version probe failed".into());
+        }
+        Ok(version.to_owned())
+    }
+
     pub async fn status(&self) -> SupportStatus {
-        let bundled = version(&self.bundled_executable).await.ok();
         let pointer = self.read_pointer("current.json");
         let managed = pointer
             .as_ref()
-            .map(|p| p.version.clone())
-            .filter(|v| v != "@bundled");
-        let active = self.active_executable();
-        let active_version = version(&active).await.ok();
+            .and_then(|pointer| self.managed_executable(pointer));
+        let bundled = self.version(&self.bundled_executable).await.ok();
+        let active_version = match &managed {
+            Some(active) => self.version(active).await.ok(),
+            None => bundled.clone(),
+        };
         let running = {
             let mut helper = self.helper.lock().await;
             let exited = match helper.as_mut() {
@@ -198,9 +259,11 @@ impl YouTubeSupportManager {
         let provider_ok = self.provider_assets_ready();
         SupportStatus {
             bundled_version: bundled,
-            managed_version: managed.clone(),
+            managed_version: pointer
+                .filter(|pointer| pointer.version != "@bundled")
+                .map(|pointer| pointer.version),
             active_version,
-            active_source: if managed.is_some() && active != self.bundled_executable {
+            active_source: if managed.is_some() {
                 "managed"
             } else {
                 "bundled"
@@ -211,7 +274,7 @@ impl YouTubeSupportManager {
                 "Check the recommended update feed from Burrata's configured trusted GitHub release.".into(),
             advanced_update: "Check GitHub for the official yt-dlp nightly build.".into(),
             provider: ProviderStatus {
-                version: "2.0.2".into(),
+                version: BGUTIL_VERSION.into(),
                 available: provider_ok && self.provider_verified.load(Ordering::Relaxed),
                 helper_running: running,
                 message: if provider_ok && self.provider_verified.load(Ordering::Relaxed) {
@@ -231,7 +294,7 @@ impl YouTubeSupportManager {
     pub async fn check_recommended_update(&self) -> UpdateCheck {
         match self.load_recommended().await {
             Ok(Some((release_version, published))) => {
-                let current = version(&self.active_executable()).await.ok();
+                let current = self.version(&self.active_executable()).await.ok();
                 UpdateCheck { channel: "recommended".into(),
                     available: current.as_deref() != Some(&release_version),
                     version: Some(release_version), published_at: published,
@@ -256,47 +319,65 @@ impl YouTubeSupportManager {
         }
     }
 
+    pub async fn check_stable_update(&self) -> Result<UpdateCheck, String> {
+        self.check_official_update(STABLE_REPO, "stable").await
+    }
+
     pub async fn check_advanced_update(&self) -> Result<UpdateCheck, String> {
-        let release = fetch_official_release(&github_client()?, NIGHTLY_REPO).await?;
-        let release_version = official_release_version(&release)?.to_owned();
-        validate_nightly_assets(&release)?;
-        let published = release["published_at"].as_str().map(str::to_owned);
-        let current = version(&self.active_executable()).await.ok();
+        self.check_official_update(NIGHTLY_REPO, "official-nightly")
+            .await
+    }
+
+    async fn check_official_update(
+        &self,
+        repo: &str,
+        channel: &str,
+    ) -> Result<UpdateCheck, String> {
+        let release = fetch_official_release(&github_client()?, repo).await?;
+        let release_version = official_release_version(&release)?;
+        let assets = parse_assets(&release)?;
+        for name in [platform_asset_name()?, "SHA2-256SUMS", "SHA2-512SUMS"] {
+            official_release_asset(&assets, repo, release_version, name)?;
+        }
+        let current = self.version(&self.active_executable()).await.ok();
         Ok(UpdateCheck {
-            channel: "official-nightly".into(),
-            available: current.as_deref() != Some(&release_version),
-            version: Some(release_version),
-            published_at: published,
-            message: "Official yt-dlp nightly release metadata is available.".into(),
+            channel: channel.into(),
+            available: official_update_available(repo, current.as_deref(), release_version)?,
+            version: Some(release_version.into()),
+            published_at: release["published_at"].as_str().map(str::to_owned),
+            message: "Official yt-dlp release metadata is available.".into(),
         })
     }
 
-    pub async fn update_stable(&self) -> Result<SupportStatus, String> {
-        self.update_official(STABLE_REPO).await
+    pub async fn update_stable(
+        &self,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
+        self.update_official(STABLE_REPO, progress).await
     }
 
-    pub async fn update_advanced(&self) -> Result<SupportStatus, String> {
-        self.update_official(NIGHTLY_REPO).await
+    pub async fn update_advanced(
+        &self,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
+        self.update_official(NIGHTLY_REPO, progress).await
     }
 
     /// Both official channels verify the platform binary against the upstream
     /// manifests before using the existing compatibility probe and activation.
-    async fn update_official(&self, repo: &str) -> Result<SupportStatus, String> {
+    async fn update_official(
+        &self,
+        repo: &str,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
         let _update_guard = self.update_lock.lock().await;
+        progress(UpdateProgress::Checking);
         let client = github_client()?;
         let release = fetch_official_release(&client, repo).await?;
         let release_version = official_release_version(&release)?;
-        if repo == STABLE_REPO {
-            let newest = numeric_yt_dlp_version(release_version)
-                .ok_or("The stable yt-dlp release has an unexpected version")?;
-            if version(&self.active_executable())
-                .await
-                .ok()
-                .and_then(|value| numeric_yt_dlp_version(&value))
-                .is_some_and(|current| current >= newest)
-            {
-                return Ok(self.status().await);
-            }
+        let current = self.version(&self.active_executable()).await.ok();
+        if !official_update_available(repo, current.as_deref(), release_version)? {
+            return Ok(self.status().await);
         }
         let assets = parse_assets(&release)?;
         let binary_name = platform_asset_name()?;
@@ -306,10 +387,16 @@ impl YouTubeSupportManager {
             official_release_asset(&assets, repo, release_version, "SHA2-512SUMS")?,
         ];
         let (bytes, manifest256, manifest512) = tokio::try_join!(
-            fetch_bytes(&client, binary),
+            fetch_bytes_with_progress(&client, binary, |received_bytes, total_bytes| {
+                progress(UpdateProgress::Downloading {
+                    received_bytes,
+                    total_bytes,
+                });
+            }),
             fetch_bytes(&client, sums256),
             fetch_bytes(&client, sums512),
         )?;
+        progress(UpdateProgress::Verifying);
         verify_manifest_sha256(binary_name, &bytes, &manifest256)?;
         verify_manifest_sha512(binary_name, &bytes, &manifest512)?;
         self.stage_activate(release_version, &bytes).await
@@ -354,7 +441,7 @@ impl YouTubeSupportManager {
             if existing_bytes != bytes {
                 return Err("Existing managed version differs from the verified download; active version was kept.".into());
             }
-            let actual = version(&existing).await.map_err(|e| {
+            let actual = self.version(&existing).await.map_err(|e| {
                 format!("Existing managed version probe failed; active version was kept: {e}")
             })?;
             if actual != expected_version {
@@ -397,7 +484,7 @@ impl YouTubeSupportManager {
             let _ = fs::remove_dir_all(&staging);
             return Err(e);
         }
-        let actual_version = match version(&staged_exe).await {
+        let actual_version = match self.version(&staged_exe).await {
             Ok(actual) => actual,
             Err(error) => {
                 let _ = fs::remove_dir_all(&staging);
@@ -567,6 +654,73 @@ impl YouTubeSupportManager {
             return Err("BgUtils provider is unavailable. Install/package the matching 2.0.2 plugin, server build and bundled Node runtime.".into());
         }
         let _ = self.stop_helper_if_idle().await;
+        let mut helper = self.start_or_reuse_helper().await?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let mut retried = false;
+        for attempt in 1..=HELPER_PROBE_ATTEMPTS {
+            let (port, generation) = helper;
+            let url = format!("http://{HELPER_HOST}:{port}");
+            let ready = match client.get(format!("{url}/ping")).send().await {
+                Ok(response) if response.status().is_success() => response
+                    .json::<Value>()
+                    .await
+                    .is_ok_and(|body| body["version"].as_str() == Some(BGUTIL_VERSION)),
+                _ => false,
+            };
+            let mut lock = self.helper.lock().await;
+            self.ensure_helper_admission()?;
+            let current_generation = self.helper_generation.load(Ordering::Relaxed);
+            if generation != current_generation && lock.is_some() {
+                retried = true;
+                helper = (
+                    self.helper_port.load(Ordering::Relaxed) as u16,
+                    current_generation,
+                );
+                continue;
+            }
+            let Some(child) = lock.as_mut() else {
+                return Err("BgUtils helper was unavailable before readiness".into());
+            };
+            if ready {
+                return Ok(url);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    *lock = None;
+                    self.provider_verified.store(false, Ordering::Relaxed);
+                    // The bundled server uses exit 1 when its only bind fails.
+                    // A terminated child can be replaced without killing an
+                    // in-use worker. Reuse the remaining probe attempts.
+                    if status.code() != Some(1) || retried || attempt == HELPER_PROBE_ATTEMPTS {
+                        return Err("BgUtils helper exited before readiness".into());
+                    }
+                    retried = true;
+                    helper = self.spawn_helper(&mut lock).await?;
+                }
+                Ok(None) => {
+                    drop(lock);
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                Err(_) => {
+                    self.provider_verified.store(false, Ordering::Relaxed);
+                    return Err("Could not inspect BgUtils helper readiness state".into());
+                }
+            }
+        }
+        // Invocation leases own cleanup. A failed readiness probe must not
+        // terminate a worker still in use by another independent invocation.
+        let lock = self.helper.lock().await;
+        if lock.is_some() && self.helper_generation.load(Ordering::Relaxed) == helper.1 {
+            self.provider_verified.store(false, Ordering::Relaxed);
+        }
+        Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
+    }
+
+    async fn start_or_reuse_helper(&self) -> Result<(u16, u64), String> {
         let mut lock = self.helper.lock().await;
         self.ensure_helper_admission()?;
         if let Some(child) = lock.as_mut() {
@@ -579,71 +733,39 @@ impl YouTubeSupportManager {
             }
         }
         if lock.is_none() {
-            let port = pick_port().await?;
-            let node = self.node_executable.as_ref().expect("checked assets");
-            let script = self.helper_script.as_ref().expect("checked assets");
-            let mut command = Command::new(node);
-            crate::tools::configure_no_console_tokio(&mut command);
-            let child = command
-                .arg(script)
-                .args(["--port", &port.to_string()])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|e| {
-                    format!("Could not start bundled BgUtils helper with bundled Node: {e}")
-                })?;
-            *lock = Some(child);
-            self.helper_port.store(port.into(), Ordering::Relaxed);
-            self.start_idle_monitor();
+            return self.spawn_helper(&mut lock).await;
         }
         self.last_used.store(now_secs(), Ordering::Relaxed);
-        let port = self.helper_port.load(Ordering::Relaxed) as u16;
-        drop(lock);
-        let url = format!("http://127.0.0.1:{port}");
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(2))
-            .build()
-            .map_err(|e| e.to_string())?;
-        for _ in 0..20 {
-            // A successful ping remains authoritative even if a test wrapper
-            // exits immediately after serving it. On failed probes, detect an
-            // exited child rather than spending the remaining attempts waiting.
-            if let Ok(r) = client.get(format!("{url}/ping")).send().await {
-                if r.status().is_success() {
-                    return Ok(url);
-                }
-            }
-            {
-                let mut helper = self.helper.lock().await;
-                match helper.as_mut() {
-                    Some(child) => match child.try_wait() {
-                        Ok(Some(_)) => {
-                            *helper = None;
-                            self.provider_verified.store(false, Ordering::Relaxed);
-                            return Err("BgUtils helper exited before readiness".into());
-                        }
-                        Ok(None) => {}
-                        Err(_) => {
-                            self.provider_verified.store(false, Ordering::Relaxed);
-                            return Err("Could not inspect BgUtils helper readiness state".into());
-                        }
-                    },
-                    None => {
-                        self.provider_verified.store(false, Ordering::Relaxed);
-                        return Err("BgUtils helper was unavailable before readiness".into());
-                    }
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-        self.provider_verified.store(false, Ordering::Relaxed);
-        // Invocation leases own cleanup. A failed readiness probe must not
-        // terminate a worker still in use by another independent invocation.
-        Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
+        Ok((
+            self.helper_port.load(Ordering::Relaxed) as u16,
+            self.helper_generation.load(Ordering::Relaxed),
+        ))
+    }
+
+    async fn spawn_helper(&self, helper: &mut Option<Child>) -> Result<(u16, u64), String> {
+        let port = pick_port().await?;
+        self.ensure_helper_admission()?;
+        let node = self.node_executable.as_ref().expect("checked assets");
+        let script = self.helper_script.as_ref().expect("checked assets");
+        let mut command = Command::new(node);
+        crate::tools::configure_no_console_tokio(&mut command);
+        let child = command
+            .arg(script)
+            .args(["--port", &port.to_string(), "--host", HELPER_HOST])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                format!("Could not start bundled BgUtils helper with bundled Node: {e}")
+            })?;
+        *helper = Some(child);
+        self.helper_port.store(port.into(), Ordering::Relaxed);
+        let generation = self.helper_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.last_used.store(now_secs(), Ordering::Relaxed);
+        self.start_idle_monitor();
+        Ok((port, generation))
     }
 
     /// Reduce readiness failures to stable, non-sensitive diagnostic labels.
@@ -788,7 +910,7 @@ impl YouTubeSupportManager {
     }
 
     async fn diagnose_executable(&self, executable: &Path, url: &str) -> SupportDiagnosis {
-        let version = version(executable).await.ok();
+        let version = self.version(executable).await.ok();
         let provider = self.provider_invocation().await;
         let provider_available =
             !provider.as_ref().is_ok_and(|v| v.args.is_empty()) && self.provider_assets_ready();
@@ -805,7 +927,19 @@ impl YouTubeSupportManager {
                 );
             }
         };
-        let mut command = Command::new(executable);
+        let (mut command, _temp) = match self.executable_command(executable) {
+            Ok(command) => command,
+            Err(_) => {
+                return diagnosis(
+                    false,
+                    DiagnosisCategory::MissingRuntime,
+                    version,
+                    provider_available,
+                    false,
+                    "Could not create a private temporary directory for yt-dlp.",
+                );
+            }
+        };
         command.args([
             "--ignore-config",
             "--no-cache-dir",
@@ -1292,24 +1426,6 @@ fn candidate_probe_succeeded(result: &SupportDiagnosis) -> bool {
     result.ok && result.audio_accessible
 }
 
-async fn version(executable: &Path) -> Result<String, String> {
-    if !executable.is_file() {
-        return Err("executable missing".into());
-    }
-    let mut command = Command::new(executable);
-    command
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let output = run_capped(command, Duration::from_secs(10), 4096).await?;
-    if !output.status.success() {
-        return Err("version probe failed".into());
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
 async fn run_capped(
     mut command: Command,
     timeout: Duration,
@@ -1389,29 +1505,42 @@ fn github_client() -> Result<Client, String> {
         .map_err(|e| e.to_string())
 }
 async fn fetch_bytes(client: &Client, url: &str) -> Result<Vec<u8>, String> {
+    fetch_bytes_with_progress(client, url, |_, _| {}).await
+}
+
+async fn fetch_bytes_with_progress(
+    client: &Client,
+    url: &str,
+    progress: impl Fn(u64, Option<u64>),
+) -> Result<Vec<u8>, String> {
     let response = client
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Could not fetch upstream checksum manifest: {e}"))?;
+        .map_err(|e| format!("Could not request upstream release asset: {e}"))?;
     let response = response
         .error_for_status()
         .map_err(|e| format!("Could not fetch upstream release asset: {e}"))?;
-    if response
-        .content_length()
-        .is_some_and(|n| n > MAX_UPSTREAM_ASSET_BYTES as u64)
-    {
+    let total = response.content_length().filter(|size| *size > 0);
+    if total.is_some_and(|n| n > MAX_UPSTREAM_ASSET_BYTES as u64) {
         return Err("Upstream YouTube support asset exceeds the 120 MiB size limit".into());
     }
     let mut stream = response.bytes_stream();
     let mut output = Vec::new();
+    progress(0, total);
+    let mut last_report = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Could not read upstream release asset: {e}"))?;
         if output.len().saturating_add(chunk.len()) > MAX_UPSTREAM_ASSET_BYTES {
             return Err("Upstream YouTube support asset exceeds the 120 MiB size limit".into());
         }
         output.extend_from_slice(&chunk);
+        if last_report.elapsed() >= Duration::from_millis(100) {
+            progress(output.len() as u64, total);
+            last_report = std::time::Instant::now();
+        }
     }
+    progress(output.len() as u64, total);
     Ok(output)
 }
 async fn fetch_official_release(client: &Client, repo: &str) -> Result<Value, String> {
@@ -1447,6 +1576,22 @@ fn numeric_yt_dlp_version(version: &str) -> Option<Vec<u32>> {
         .collect::<Result<Vec<u32>, _>>()
         .ok()?;
     (3..=4).contains(&fields.len()).then_some(fields)
+}
+
+fn official_update_available(
+    repo: &str,
+    current: Option<&str>,
+    newest: &str,
+) -> Result<bool, String> {
+    if repo == STABLE_REPO {
+        let newest = numeric_yt_dlp_version(newest)
+            .ok_or("The stable yt-dlp release has an unexpected version")?;
+        Ok(current
+            .and_then(numeric_yt_dlp_version)
+            .is_none_or(|installed| installed < newest))
+    } else {
+        Ok(current != Some(newest))
+    }
 }
 
 fn official_release_asset<'a>(
@@ -1493,6 +1638,7 @@ fn select_recommended_release(releases: &Value) -> Option<&Value> {
             })
     })
 }
+#[cfg(test)]
 fn validate_nightly_assets(release: &Value) -> Result<(), String> {
     let assets = parse_assets(release)?;
     let binary = platform_asset_name()?;
@@ -1579,7 +1725,7 @@ fn validate_version(version: &str) -> Result<(), String> {
     Ok(())
 }
 async fn pick_port() -> Result<u16, String> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+    let listener = tokio::net::TcpListener::bind((HELPER_HOST, 0))
         .await
         .map_err(|e| format!("Could not reserve local BgUtils port: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -1764,6 +1910,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn update_download_reports_bytes_with_and_without_a_known_length() {
+        use std::sync::Mutex;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for total in [Some(4), None] {
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .unwrap();
+            let url = format!("http://{}/asset", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 1024];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                let header = if total.is_some() {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n"
+                } else {
+                    "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
+                };
+                socket.write_all(header.as_bytes()).await.unwrap();
+                socket.write_all(b"test").await.unwrap();
+                socket.shutdown().await.unwrap();
+            });
+            let client = Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(3))
+                .build()
+                .unwrap();
+            let reports = Mutex::new(Vec::new());
+            let result = fetch_bytes_with_progress(&client, &url, |bytes, size| {
+                reports.lock().unwrap().push((bytes, size));
+            })
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(result, b"test");
+            let reports = reports.into_inner().unwrap();
+            assert_eq!(reports.first(), Some(&(0, total)));
+            assert_eq!(reports.last(), Some(&(4, total)));
+        }
+    }
+
     #[test]
     fn verifies_upstream_checksum_manifest_entries() {
         let bytes = b"managed yt-dlp";
@@ -1841,7 +2029,7 @@ mod tests {
             Some(bgutil.join("plugin")),
         );
         let original = manager.status().await;
-        let result = manager.update_stable().await;
+        let result = manager.update_stable(|_| {}).await;
         manager.shutdown().await.unwrap();
         match result {
             Ok(updated) => {
@@ -1850,7 +2038,7 @@ mod tests {
                     "no newer stable build to test"
                 );
                 assert_ne!(updated.active_version, original.active_version);
-                let repeated = manager.update_stable().await.unwrap();
+                let repeated = manager.update_stable(|_| {}).await.unwrap();
                 assert_eq!(repeated.active_version, updated.active_version);
                 let restored = manager.rollback().await.unwrap();
                 assert_eq!(restored.active_version, original.active_version);
@@ -1953,7 +2141,13 @@ mod tests {
                 &source,
                 r#"fn main() {
                 match std::env::args().nth(1).as_deref() {
-                    Some("--version") => println!("fixture.1"),
+                    Some("--version") => {
+                        let scratch = std::env::var_os("TMPDIR").expect("private temporary directory");
+                        let scratch = std::path::Path::new(&scratch);
+                        assert_eq!(scratch.parent().unwrap().file_name().unwrap(), "helper-tmp");
+                        assert!(scratch.is_dir());
+                        println!("fixture.1");
+                    }
                     Some("--fixture-probe") => (),
                     _ => std::process::exit(1),
                 }
@@ -1991,7 +2185,8 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(30)).await;
             drop(writer);
         });
-        assert_eq!(version(&executable).await.unwrap(), "fixture.1");
+        let manager = YouTubeSupportManager::new(tmp.path(), &executable, None, None, None);
+        assert_eq!(manager.version(&executable).await.unwrap(), "fixture.1");
         release.await.unwrap();
     }
 
@@ -2053,7 +2248,7 @@ mod tests {
             .join("versions/fixture.1")
             .join(executable_filename());
         assert_eq!(manager.active_executable(), managed);
-        assert_eq!(version(&managed).await.unwrap(), "fixture.1");
+        assert_eq!(manager.version(&managed).await.unwrap(), "fixture.1");
         manager.rollback().await.unwrap();
         assert_eq!(manager.active_executable(), bundled);
         let differing = manager
@@ -2420,11 +2615,54 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manager = helper_test_manager(
             dir.path(),
-            "import http.server, sys\nport = int(sys.argv[2])\nclass Handler(http.server.BaseHTTPRequestHandler):\n def do_GET(self):\n  if self.path != '/ping':\n   self.send_error(404); return\n  self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n def log_message(self, *args):\n  pass\nhttp.server.HTTPServer(('127.0.0.1', port), Handler).handle_request()\n",
+            "import http.server, sys\nport = int(sys.argv[2])\nclass Handler(http.server.BaseHTTPRequestHandler):\n def do_GET(self):\n  if self.path != '/ping':\n   self.send_error(404); return\n  self.send_response(200); self.end_headers(); self.wfile.write(b'{\"version\":\"2.0.2\"}')\n def log_message(self, *args):\n  pass\nhttp.server.HTTPServer(('127.0.0.1', port), Handler).handle_request()\n",
         );
         let ready = manager.ensure_provider().await.unwrap();
         assert!(ready.starts_with("http://127.0.0.1:"));
         assert!(!ready.contains('?'));
+        manager.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn readiness_uses_ipv4_and_retries_one_failed_bind() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = helper_test_manager(
+            dir.path(),
+            r#"
+import http.server, json, pathlib, sys
+
+assert sys.argv[1] == '--port'
+assert sys.argv[3:] == ['--host', '127.0.0.1']
+address = (sys.argv[4], int(sys.argv[2]))
+launch_log = pathlib.Path(__file__).with_name('launches')
+first_launch = not launch_log.exists()
+with launch_log.open('a') as output:
+    print(address[1], file=output)
+
+# The real helper exits with code 1 after a failed bind. Exercise that
+# contract directly instead of relying on a probe to end the first child.
+if first_launch:
+    sys.exit(1)
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != '/ping':
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps({'version': '2.0.2'}).encode())
+
+with http.server.HTTPServer(address, Handler) as server:
+    server.serve_forever()
+"#,
+        );
+        let ready = manager.ensure_provider().await.unwrap();
+        let launches = fs::read_to_string(dir.path().join("launches")).unwrap();
+        let ports: Vec<_> = launches.lines().collect();
+        assert_eq!(ports.len(), 2);
+        assert_eq!(ready, format!("http://127.0.0.1:{}", ports[1]));
         manager.shutdown().await.unwrap();
     }
 }

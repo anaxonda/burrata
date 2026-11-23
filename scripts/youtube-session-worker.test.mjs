@@ -1714,6 +1714,64 @@ test('initial selected WEB indexed lockups preserve all 62 occurrences without u
   assert.equal(r.result.entries[0].entryId, null);
 });
 
+test('large WEB indexed playlists use their trailing membership cursor and load the next page', async () => {
+  const playlist = indexedLockupPlaylist(200);
+  const contents = playlist.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents;
+  const laterRows = contents[0].itemSectionRenderer.contents.splice(100);
+  const membershipCursor = { continuationItemViewModel: { continuationCommand: { innertubeCommand: {
+    continuationCommand: { token: 'web-playlist-page-two', request: 'CONTINUATION_REQUEST_TYPE_BROWSE' }
+  } } } };
+  contents[0].itemSectionRenderer.contents.push(membershipCursor);
+  const pageTwo = { onResponseReceivedActions: [{ appendContinuationItemsAction: {
+    targetId: 'PLfixture123', continuationItems: laterRows
+  } }] };
+  const fixture = fetchFixture();
+  const original = fixture.fetchImpl;
+  fixture.fetchImpl = async (url, options) => {
+    if (new URL(url).pathname !== '/youtubei/v1/browse') return original(url, options);
+    const { continuation } = JSON.parse(options.body);
+    return response(continuation === 'web-playlist-page-two' ? pageTwo : playlist);
+  };
+  const args = { playlistId: 'PLfixture123' };
+  const first = await executeYouTubeJob(job({ operation: 'getPlaylist', args }), fixture);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(first.result.total, 200);
+  assert.equal(first.result.entries.length, 100);
+  assert.equal(first.result.complete, false);
+  const cursor = JSON.parse(decodeURIComponent(first.result.nextCursor.slice('yt-playlist-v2:'.length)));
+  assert.equal(cursor.token, 'web-playlist-page-two');
+  assert.equal(cursor.offset, 100);
+  const second = await executeYouTubeJob(job({ operation: 'getPlaylist', args: { ...args, cursor: first.result.nextCursor } }), fixture);
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.equal(second.result.total, 200);
+  assert.equal(second.result.entries.length, 100);
+  assert.equal(second.result.entries[0].title, 'Occurrence 100');
+  assert.equal(second.result.entries.at(-1).title, 'Occurrence 199');
+  assert.equal(second.result.nextCursor, null);
+  assert.equal(second.result.complete, true);
+});
+
+test('initial WEB indexed pages reject malformed, multiple, or misplaced membership cursors', async () => {
+  const cursor = (token, request = 'CONTINUATION_REQUEST_TYPE_BROWSE') => ({
+    continuationItemViewModel: { continuationCommand: { continuationCommand: { token, request } } }
+  });
+  const badLayouts = [
+    rows => rows.push(cursor('wrong-operation', 'CONTINUATION_REQUEST_TYPE_SEARCH')),
+    rows => rows.push(cursor('page-two'), cursor('a-second-cursor')),
+    rows => rows.splice(1, 0, cursor('interleaved-cursor')),
+  ];
+  for (const addBadCursor of badLayouts) {
+    const playlist = indexedLockupPlaylist(2);
+    const rows = playlist.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].itemSectionRenderer.contents;
+    addBadCursor(rows);
+    const r = await executeYouTubeJob(job({ operation: 'getPlaylist', args: { playlistId: 'PLfixture123' } }), fetchFixture({ playlist }));
+    assert.equal(r.ok, true);
+    assert.equal(r.result.entries.length, 0);
+    assert.equal(r.result.nextCursor, null);
+    assert.equal(r.result.complete, false);
+  }
+});
+
 test('initial indexed lockups reject wrong playlist, wrong index, and unselected tabs', async () => {
   for (const mutate of [p => { p.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.selected = false; }, p => { p.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].itemSectionRenderer.contents[1].lockupViewModel.rendererContext.commandContext.onTap.innertubeCommand.watchEndpoint.playlistId = 'PLother12345'; }, p => { p.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[0].itemSectionRenderer.contents[1].lockupViewModel.rendererContext.commandContext.onTap.innertubeCommand.watchEndpoint.index = 0; }]) {
     const playlist = indexedLockupPlaylist(2); mutate(playlist);

@@ -32,6 +32,18 @@ function render(extra: Record<string, unknown> = {}, activeState?: { readonly cu
 }
 
 describe('saved library views', () => {
+  it('loads a missing portrait by exact provider ID in the artist list', async () => {
+    const id = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const portrait = 'https://i.scdn.co/image/library-portrait';
+    const entry = { ...artist, id: `artist:ref:spotify:${id}`, provider: 'spotify', providerId: id, artworkUrl: null };
+    const call = vi.fn(async (command: string) => command === 'get_artist_artwork'
+      ? { imageUrl: portrait } : { items: [entry], total: 1 });
+    const { target } = render({ call });
+    await vi.waitFor(() => expect(target.querySelector<HTMLImageElement>('.entity-card img')?.src).toBe(portrait));
+    expect(call).toHaveBeenCalledWith('get_artist_artwork', { artist: { provider: 'spotify', id } });
+    expect(target.querySelector('[aria-label="Filter saved artists"]')).not.toBeNull();
+  });
+
   it('keeps a non-own-scrolling album in the outer scroll flow so Load more remains below it', async () => {
     const pageTracks = Array.from({ length: 200 }, (_, index) => ({
       ...saved, id: `fixture:page:${index + 1}`, providerId: `page:${index + 1}`, title: `Fixture track ${index + 1}`,

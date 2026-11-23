@@ -14,7 +14,16 @@ export function providerFor(url) {
 const text = (root, selector) => root.querySelector(selector)?.textContent.trim() || null;
 const num = value => { const n = Number(value); return Number.isFinite(n) && n > 0 ? n : null; };
 const rankNumber = value => {const n=num(value);return Number.isInteger(n)?n:null;};
-const time = value => {const m = value?.match(/\b(\d+):(\d{2})\b/); return m ? Number(m[1])*60+Number(m[2]) : null;};
+const time = value => {
+  const clock = value?.match(/(?<!:)\b(\d+):(\d{2})(?::(\d{2}))?\b(?!:)/);
+  if (!clock) return null;
+  const [,leading,middle,trailing] = clock;
+  if (Number(middle) >= 60 || (trailing !== undefined && Number(trailing) >= 60)) return null;
+  const seconds = trailing === undefined
+    ? Number(leading) * 60 + Number(middle)
+    : Number(leading) * 3600 + Number(middle) * 60 + Number(trailing);
+  return Number.isSafeInteger(seconds) ? seconds : null;
+};
 const link = (value, base) => { if(typeof value!=='string'||!value.trim())return null; try { const u = new URL(value,base); return u.protocol === 'https:' ? u.href : null; } catch { return null; } };
 function canonicalSpotifyUrl(value) {
   const u = new URL(value);
@@ -578,11 +587,13 @@ export function extract(doc, url) {
       const bpmKey=text(row,'.cell.bpm-key,[data-testid="track-bpm-key"]');
       const bpmText=text(row,'.cell.bpm,[data-testid="track-bpm"],.bpm') || bpmKey;
       const combined=bpmText?.match(/^\s*(\d+(?:\.\d+)?)\s*BPM(?:\s*[-–—]\s*(.+))?\s*$/i);
+      const labelNode=(row.querySelector('a[href*="/label/"]')??row.querySelector('.cell.label,.label'))?.cloneNode(true);
+      for(const nested of labelNode?.querySelectorAll('a[href*="/artist/"],[role="tooltip"],[data-testid="tooltip"],.remixers,.remixer')||[])nested.remove();
       domEntries.push(entry(id,sourceUrl,artist,title,rank,{artistCredits:renderedArtistCredits(row,url,'beatport'),rank,
         version:mixName,
         durationSeconds:time(text(row,'.cell.length,.cell.duration,[data-testid="track-length"],[data-testid="track-duration"]')),
         bpm:num(combined?.[1] || bpmText),key:text(row,'.cell.key,[data-testid="track-key"],.key') || combined?.[2]?.trim() || null,
-        label:text(row,'.cell.label a,a[href*="/label/"],.label'),genre:text(row,'.cell.genre a,.cell.genre,[data-testid="track-genre"]'),
+        label:labelNode?.textContent.trim()||null,genre:text(row,'.cell.genre a,.cell.genre,[data-testid="track-genre"]'),
         releaseDate:text(row,'.cell.release-date,.cell.released,.cell.date,[data-testid="track-release-date"]'),
         artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),metadata:rowMetadata(row,url)}));
     }
@@ -592,7 +603,16 @@ export function extract(doc, url) {
       entries=domEntries.map(e=>{
         const metadata=entries.find(v=>v.providerId===e.providerId);
         if(!metadata)return e;
-        return {...metadata,...Object.fromEntries(Object.entries(e).filter(([,v])=>v!==null)),metadata:{...(metadata.metadata||{}),...Object.fromEntries(Object.entries(e.metadata||{}).filter(([,v])=>v!=null&&(!Array.isArray(v)||v.length)))},title:metadata.title || e.title,artist:metadata.artist || e.artist};
+        const renderedFields=Object.fromEntries(Object.entries(e).filter(([,v])=>v!==null));
+        const renderedMetadata=Object.fromEntries(Object.entries(e.metadata||{}).filter(([,v])=>v!=null&&(!Array.isArray(v)||v.length)));
+        return {
+          ...metadata,...renderedFields,
+          metadata:{...metadata.metadata,...renderedMetadata},
+          title:metadata.title || e.title,
+          artist:metadata.artist || e.artist,
+          artistCredits:metadata.artistCredits??e.artistCredits,
+          label:metadata.label??e.label,
+        };
       });
     }
     entries.sort((a,b)=>a.rank-b.rank);

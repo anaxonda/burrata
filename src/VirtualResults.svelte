@@ -30,7 +30,7 @@
   let raf = 0;
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => {
     if (disposed) return;
-    let anchor = currentWindow.start;
+    const anchor = currentWindow.start;
     let scrollDelta = 0;
     let changed = false;
     for (const entry of entries) {
@@ -49,6 +49,7 @@
       const key = element.dataset.virtualKey;
       if (!key) continue;
       const next = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      if (next <= 0) continue; // A collapsed source does not have a measurable row.
       const prior = sizes.get(key);
       if (prior === undefined || Math.abs(prior - next) > 0.5) {
         const index = indices.get(key);

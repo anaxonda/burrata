@@ -1,11 +1,13 @@
 <script lang="ts">
   import { tick, onMount, untrack } from 'svelte';
   import ArtworkImage from './ArtworkImage.svelte';
+  import { observeArtwork } from './lib/visible-artwork';
   import ArtistBanner from './ArtistBanner.svelte';
   import { musicBrainzCover } from './lib/catalog-artwork';
   import TrackList from './TrackList.svelte';
   import InfoPopover from './InfoPopover.svelte';
   import AlbumDetailView from './AlbumDetailView.svelte';
+  import ClassicalWorks from './ClassicalWorks.svelte';
   import LocalAlbumMatch from './LocalAlbumMatch.svelte';
   import { parseDurationBound } from './lib/track-sort';
   import { groupLibraryEntities, initialLibraryBrowserState, saveLibraryArtistGrouping, saveLibraryEntityLayouts, type LibraryArtistGrouping, type LibraryBrowserState, type LibraryEntity, type LibraryEntityPage } from './lib/library';
@@ -42,6 +44,7 @@
   const localAlbumIds=$derived(browserState.entity?.kind==='album'?[...new Set([browserState.entity.id,...(browserState.entity.aliases??[])].filter(id=>id.startsWith('album:ref:local:')))]:[]);
   const trackView = $derived(Boolean(browserState.entity && (browserState.entity.kind === 'album' || browserState.section === 'tracks')));
   const albumDetailView = $derived(browserState.entity?.kind === 'album');
+  const worksView = $derived(browserState.tab === 'works' && !browserState.entity);
   const familyProvider = $derived.by(() => {
     if (!browserState.familyListingId || !tracks.length) return null;
     const provider = tracks[0]?.provider;
@@ -51,6 +54,22 @@
   const combinationListView = $derived(artistListView && browserState.artistGrouping === 'credited');
   const entityLayout = $derived(artistListView ? browserState.artistLayout : browserState.albumLayout);
   const layoutLabel = $derived(artistListView ? 'artists' : 'albums');
+  let portrait = $state<{ id: string; url: string } | null>(null);
+  function artistArtworkLookup(entry: LibraryEntity) {
+    const provider = entry.provider;
+    const id = entry.providerId;
+    if (entry.kind !== 'artist' || entry.artworkUrl || !id || !provider) return undefined;
+    const providerIds: Record<string, RegExp> = {
+      spotify: /^[A-Za-z0-9]{22}$/,
+      discogs: /^[0-9]{1,20}$/,
+      musicbrainz: /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
+    };
+    if (!providerIds[provider]?.test(id)) return undefined;
+    return {
+      key: `artist:${provider}:${id}`,
+      load: async () => (await call<{ imageUrl?: string | null }>('get_artist_artwork', { artist: { provider, id } }))?.imageUrl ?? null,
+    };
+  }
   function countLabel(count: number, singular: string, plural = `${singular}s`) {
     return `${count} ${count === 1 ? singular : plural}`;
   }
@@ -175,9 +194,9 @@
   }
   // Scroll updates do not trigger a new query.
   const queryKey = $derived(JSON.stringify([browserState.tab,browserState.entity?.id,browserState.section,browserState.query,browserState.sort,browserState.descending,browserState.availability,browserState.minDuration,browserState.maxDuration,browserState.entitySource,browserState.entityYear,browserState.entitySort,browserState.entityDescending,artistListView ? browserState.artistGrouping : null]));
-  $effect(() => { queryKey; trackActionGeneration++; trackActionPending = ''; trackActionError = ''; untrack(() => void load({ ...browserState })); return () => { generation++; trackActionGeneration++; trackActionPending = ''; }; });
+  $effect(() => { queryKey; trackActionGeneration++; trackActionPending = ''; trackActionError = ''; if (!worksView) untrack(() => void load({ ...browserState })); return () => { generation++; trackActionGeneration++; trackActionPending = ''; }; });
   onMount(() => {
-    const refresh = () => { scopeRevision++; trackActionGeneration++; trackActionPending = ''; trackActionError = ''; void load({ ...browserState }); };
+    const refresh = () => { if (worksView) return; scopeRevision++; trackActionGeneration++; trackActionPending = ''; trackActionError = ''; void load({ ...browserState }); };
     window.addEventListener('library-changed', refresh);
     return () => { generation++; trackActionGeneration++; window.removeEventListener('library-changed', refresh); };
   });
@@ -194,9 +213,18 @@
 </script>
 
 <section class="library-browser" aria-label="Saved library" bind:this={scrollElement} onscroll={() => onStateChange({ ...browserState, scroll: scrollElement.scrollTop })}>
+  {#if worksView}
+    <ClassicalWorks {call} query={browserState.query} workKey={browserState.workKey ?? null}
+      onQuery={query => change({ query })} onOpen={workKey => { scrollElement.scrollTop = 0; onNavigate({ ...browserState, workKey, scroll: 0 }); }}
+      trackActions={{ onPlay, onDownload, onFavorite, onPlaylist, onArtist, onAlbum, onContext, onQueue: track => onQueue([track], 'append'),
+        onNext: track => onQueue([track], 'next'), playingTrack, bufferingTrack, bufferingTrackId, playbackFailed, paused, showProviderCounts }} />
+  {:else}
   {#if browserState.entity?.kind === 'artist'}
     {@const isCombination = browserState.entity.id.startsWith('artist:combination:')}
-    <ArtistBanner class="entity-header" name={browserState.entity.name} label={isCombination ? 'Credited combination' : 'Library artist'} artworkUrl={browserState.entity.artworkUrl}>
+    {@const entry = browserState.entity}
+    {@const lookup = artistArtworkLookup(entry)}
+    {#if lookup}{#key lookup.key}<span class="portrait-sentinel" use:observeArtwork={{ ...lookup, apply: url => portrait = { id: entry.id, url } }}></span>{/key}{/if}
+    <ArtistBanner class="entity-header" name={browserState.entity.name} label={isCombination ? 'Credited combination' : 'Library artist'} artworkUrl={entry.artworkUrl ?? (portrait?.id === entry.id ? portrait.url : null)}>
       {#snippet actions()}
         {#if !isCombination}<button onclick={() => onBrowse(browserState.entity!)}>Browse catalog</button>{/if}
         {#if browserState.entity?.explicitlySaved}<button onclick={() => void removeSave()}>Remove artist save</button>{/if}
@@ -204,7 +232,7 @@
     </ArtistBanner>
     <nav class="section-switcher" aria-label="Library artist sections"><button aria-pressed={browserState.section === 'albums'} onclick={() => change({ section: 'albums' })}>Albums</button><button aria-pressed={browserState.section === 'tracks'} onclick={() => change({ section: 'tracks' })}>All tracks</button></nav>
   {/if}
-  {#if !albumDetailView}<div class="controls"><input type="search" aria-label={trackView ? 'Filter saved tracks' : browserState.entity ? 'Filter saved albums' : browserState.tab === 'artists' ? 'Filter saved artists' : 'Filter saved albums'} placeholder={trackView ? 'Filter saved tracks…' : browserState.entity ? 'Filter albums by title, artist, year, or source…' : browserState.tab === 'artists' ? 'Filter artists by name or source…' : 'Filter albums by title, artist, year, or source…'} value={browserState.query} oninput={event => change({ query: event.currentTarget.value })} />
+  {#if !albumDetailView}<div class="controls"><input type="search" aria-label={trackView ? 'Filter saved tracks' : browserState.entity ? 'Filter saved albums' : browserState.tab === 'artists' ? 'Filter saved artists' : 'Filter saved albums'} placeholder={trackView ? 'Filter saved tracks…' : browserState.entity ? 'Filter albums by title, artist, year, or source…' : browserState.tab === 'artists' ? 'Artist name or source…' : 'Filter albums by title, artist, year, or source…'} value={browserState.query} oninput={event => change({ query: event.currentTarget.value })} />
     {#if artistListView}
       <select aria-label="Artist grouping" value={browserState.artistGrouping} onchange={event => setArtistGrouping(event.currentTarget.value === 'credited' ? 'credited' : 'individual')}>
         <option value="individual">Individual artists</option>
@@ -258,14 +286,17 @@
   {:else if trackView}
     <div class="controls"><button disabled={!total || Boolean(trackActionPending)} onclick={() => void runTrackAction('play')}>Play saved tracks</button><button disabled={!total || Boolean(trackActionPending)} onclick={() => void runTrackAction('queue')}>Queue saved tracks</button><small>{tracks.length} of {total} saved tracks loaded</small></div>
     <TrackList showProviderCounts={showProviderCounts && browserState.entity?.kind === "artist"} presentation="playlist" position={(_, index) => index + 1} {tracks} {onPlay} {onDownload} {onFavorite} {onPlaylist} {onArtist} {onAlbum} {onContext} {onAddSelectedToPlaylist} onQueue={track => onQueue([track], 'append')} onQueueSelected={items => onQueue(items, 'append')} onNext={track => onQueue([track], 'next')} {playingTrack} {bufferingTrack} {bufferingTrackId} {playbackFailed} {paused} listLabel="Saved tracks" selectionContext={`library:${browserState.entity?.id}`} />
-  {:else}<small>{items.length} of {total} {combinationListView ? 'credited combinations' : artistListView ? 'saved artists' : 'saved albums'} · {entityGroups.length} cards</small><div class="entity-grid" class:entity-list={entityLayout === 'list'}>{#each entityGroups as group (group.key)}{@const entry = group.entries[0]}{#if entry.kind === 'album' && group.entries.length > 1}<article class="entity-card album-family"><div class="card-art"><ArtworkImage urls={group.entries.flatMap(version => [version.artworkUrl, musicBrainzCover(version.sourceUrl)])} /></div><strong>{entry.name}</strong><span>{entry.artist}</span><small>{group.entries.length} versions · {[...new Set(group.entries.map(version => version.provider ?? 'Unknown source'))].length} sources</small><details><summary>Choose a version</summary><div class="family-versions">{#each group.entries as version (version.id)}<button class="version-choice" aria-label={`Open ${version.name}, ${version.artist}, ${version.releaseDate ?? 'unknown year'}, ${version.provider ?? 'unknown source'}`} onclick={() => open(version)}><strong>{version.provider ?? 'Unknown source'}{version.providerId ? ` · ${version.providerId}` : ''}</strong><small>{version.releaseDate ?? 'Year unknown'} · {countLabel(version.trackCount, 'saved track')}{version.totalTracks != null ? ` of ${countLabel(version.totalTracks, 'track')}` : ''}</small>{#if version.explicitlySaved}<small>Saved album</small>{/if}</button>{/each}</div></details></article>{:else if entry.kind === 'artist' && group.entries.length > 1}<article class="entity-card artist-family"><div class="card-art"><ArtworkImage urls={entry.artworkUrl ? [entry.artworkUrl] : []} /></div><strong>{entry.name}</strong><small>{group.entries.length} source profiles · {[...new Set(group.entries.map(profile => profile.provider ?? 'Metadata'))].length} sources</small><small>Same display name; profiles remain separate</small><details><summary>Choose a profile</summary><div class="family-versions">{#each group.entries as profile (profile.id)}<button class="version-choice" aria-label={`Open ${profile.name}, ${profile.provider ?? 'metadata'} profile ${profile.providerId ?? profile.id}`} onclick={() => open(profile)}><strong>{profile.provider ?? 'Metadata profile'}{profile.providerId ? ` · ${profile.providerId}${profile.providerId === '0' ? ' · identity unresolved' : ''}` : ''}</strong><small>{countLabel(profile.trackCount, 'saved track')} · {countLabel(profile.albumCount, 'album')}</small>{#if profile.aliases && profile.aliases.length > 1}<small>{profile.aliases.length} linked catalog references</small>{/if}{#if profile.explicitlySaved}<small>Saved artist</small>{/if}</button>{/each}</div></details></article>{:else}<button class="entity-card" onclick={() => open(entry)}><div class="card-art"><ArtworkImage urls={[entry.artworkUrl, entry.kind === 'album' ? musicBrainzCover(entry.sourceUrl) : null]} /></div><strong>{entry.name}</strong>{#if entry.kind === 'album'}<span>{entry.artist}</span><small>{entry.releaseDate?.slice(0,4) ?? ''} · {entry.trackCount}{entry.totalTracks != null ? ` of ${entry.totalTracks}` : ''} {(entry.totalTracks ?? entry.trackCount) === 1 ? 'track' : 'tracks'} saved</small>{:else}<small>{countLabel(entry.trackCount, 'saved track')} · {countLabel(entry.albumCount, 'album')}</small>{/if}{#if entry.explicitlySaved}<small>Saved {entry.kind}</small>{/if}{#if entry.provider}<small>{entry.provider}</small>{/if}</button>{/if}{/each}</div>{/if}
+  {:else}<small>{items.length} of {total} {combinationListView ? 'credited combinations' : artistListView ? 'saved artists' : 'saved albums'} · {entityGroups.length} cards</small><div class="entity-grid" class:entity-list={entityLayout === 'list'}>{#each entityGroups as group (group.key)}{@const entry = group.entries[0]}{#if entry.kind === 'album' && group.entries.length > 1}<article class="entity-card album-family"><div class="card-art"><ArtworkImage urls={group.entries.flatMap(version => [version.artworkUrl, musicBrainzCover(version.sourceUrl)])} /></div><strong>{entry.name}</strong><span>{entry.artist}</span><small>{group.entries.length} versions · {[...new Set(group.entries.map(version => version.provider ?? 'Unknown source'))].length} sources</small><details><summary>Choose a version</summary><div class="family-versions">{#each group.entries as version (version.id)}<button class="version-choice" aria-label={`Open ${version.name}, ${version.artist}, ${version.releaseDate ?? 'unknown year'}, ${version.provider ?? 'unknown source'}`} onclick={() => open(version)}><strong>{version.provider ?? 'Unknown source'}{version.providerId ? ` · ${version.providerId}` : ''}</strong><small>{version.releaseDate ?? 'Year unknown'} · {countLabel(version.trackCount, 'saved track')}{version.totalTracks != null ? ` of ${countLabel(version.totalTracks, 'track')}` : ''}</small>{#if version.explicitlySaved}<small>Saved album</small>{/if}</button>{/each}</div></details></article>{:else if entry.kind === 'artist' && group.entries.length > 1}<article class="entity-card artist-family"><div class="card-art"><ArtworkImage urls={group.entries.map(profile => profile.artworkUrl)} artworkLookup={group.entries.map(artistArtworkLookup).find(Boolean)} /></div><strong>{entry.name}</strong><small>{group.entries.length} source profiles · {[...new Set(group.entries.map(profile => profile.provider ?? 'Metadata'))].length} sources</small><small>Same display name; profiles remain separate</small><details><summary>Choose a profile</summary><div class="family-versions">{#each group.entries as profile (profile.id)}<button class="version-choice" aria-label={`Open ${profile.name}, ${profile.provider ?? 'metadata'} profile ${profile.providerId ?? profile.id}`} onclick={() => open(profile)}><strong>{profile.provider ?? 'Metadata profile'}{profile.providerId ? ` · ${profile.providerId}${profile.providerId === '0' ? ' · identity unresolved' : ''}` : ''}</strong><small>{countLabel(profile.trackCount, 'saved track')} · {countLabel(profile.albumCount, 'album')}</small>{#if profile.aliases && profile.aliases.length > 1}<small>{profile.aliases.length} linked catalog references</small>{/if}{#if profile.explicitlySaved}<small>Saved artist</small>{/if}</button>{/each}</div></details></article>{:else}<button class="entity-card" onclick={() => open(entry)}><div class="card-art"><ArtworkImage artworkLookup={artistArtworkLookup(entry)} urls={[entry.artworkUrl, entry.kind === 'album' ? musicBrainzCover(entry.sourceUrl) : null]} /></div><strong>{entry.name}</strong>{#if entry.kind === 'album'}<span>{entry.artist}</span><small>{entry.releaseDate?.slice(0,4) ?? ''} · {entry.trackCount}{entry.totalTracks != null ? ` of ${entry.totalTracks}` : ''} {(entry.totalTracks ?? entry.trackCount) === 1 ? 'track' : 'tracks'} saved</small>{:else}<small>{countLabel(entry.trackCount, 'saved track')} · {countLabel(entry.albumCount, 'album')}</small>{/if}{#if entry.explicitlySaved}<small>Saved {entry.kind}</small>{/if}{#if entry.provider}<small>{entry.provider}</small>{/if}</button>{/if}{/each}</div>{/if}
   {#if (trackView ? tracks.length : items.length) < total}<button disabled={loading} onclick={() => { onStateChange({ ...browserState, loadedCount: (trackView ? tracks.length : items.length) + 200 }); void load({ ...browserState }, true); }}>Load more</button>{/if}
+  {/if}
 </section>
 {#if showLocalMatch && localAlbumIds.length}<LocalAlbumMatch {localAlbumIds} {call} onClose={()=>showLocalMatch=false} onChanged={entry=>{showLocalMatch=false;onNavigate({...browserState,entity:entry,scroll:0,loadedCount:200});}} />{/if}
 
 <style>
   .library-browser{min-height:0;flex:1;overflow:auto;padding:1rem;display:flex;flex-direction:column;gap:1rem}.controls,nav{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}.controls input{min-width:160px}.layout-toggle{display:flex;gap:.25rem}.entity-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:1rem}.entity-card{display:flex;flex-direction:column;gap:.4rem;padding:.7rem;text-align:left;min-width:0;max-width:100%;box-sizing:border-box;white-space:normal}.entity-grid .entity-card>strong,.entity-grid .entity-card>span,.entity-grid .entity-card>small{display:block;width:100%;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;line-height:1.4}.entity-grid .card-art{flex:none}.entity-grid .entity-card>details{min-width:0;max-width:100%;box-sizing:border-box}.entity-grid .entity-card>details>summary{white-space:normal;overflow-wrap:anywhere}.album-family,.artist-family{border:1px solid var(--border);border-radius:8px}.card-art{width:100%;aspect-ratio:1;overflow:hidden;border-radius:6px}.entity-card span,.entity-card small{color:var(--muted);overflow-wrap:anywhere}.family-versions{display:flex;flex-direction:column;gap:.4rem;width:100%;min-width:0;max-width:100%;box-sizing:border-box;margin-top:.5rem}.version-choice{display:flex;flex-direction:column;gap:.25rem;width:100%;min-width:0;max-width:100%;box-sizing:border-box;text-align:left;white-space:normal;overflow-wrap:anywhere}.entity-list{display:flex;flex-direction:column;gap:.4rem}.entity-list .entity-card{width:100%;min-height:4.25rem;flex-direction:row;align-items:center;gap:.75rem;padding:.45rem .65rem}.entity-list .card-art{width:3.25rem;height:3.25rem;aspect-ratio:1;flex:none}.entity-list .entity-card>strong{min-width:9rem;flex:1 1 12rem}.entity-list .entity-card>span,.entity-list .entity-card>small{flex:0 1 auto}.entity-list .album-family,.entity-list .artist-family{flex-wrap:wrap}.entity-list .family-versions{flex:1 1 calc(100% - 4rem);width:calc(100% - 4rem);min-width:0;max-width:100%;box-sizing:border-box;margin:.2rem 0 0 4rem}.entity-list .version-choice{max-width:100%}
+  .portrait-sentinel{height:1px;flex:none;margin-bottom:calc(-1rem - 1px);pointer-events:none}
   .entity-list .entity-card{box-sizing:border-box;flex-wrap:wrap}
+  .entity-list .entity-card>strong,.entity-list .entity-card>span,.entity-list .entity-card>small{width:auto}
   .entity-list .entity-card>strong{min-width:0;flex-basis:9rem;white-space:normal;overflow-wrap:anywhere}
   .entity-list .entity-card>span,.entity-list .entity-card>small{min-width:0;white-space:normal}
 </style>

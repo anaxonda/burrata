@@ -92,10 +92,15 @@ describe("RemotePlaylists", () => {
     await settle();
     expect(target.querySelector('[aria-label="YouTube channel content"] [aria-pressed="true"]')?.textContent).toBe("Videos");
     expect(target.querySelector('[aria-label="YouTube channel"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Playlist source"]')).toBeNull();
     expect(target.querySelector(".artist-link")).toBeNull();
     expect(target.textContent).toContain("Uploaded by MAJ · recording artist unverified");
     target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(2)')!.click(); await settle();
     expect(target.querySelector('[aria-label="Browse Channel playlist"]')).not.toBeNull();
+    expect(target.textContent).toContain("Public playlists from this YouTube channel");
+    expect(call.mock.calls.filter(([command]) => command === "list_remote_playlists")).toEqual([
+      ["list_remote_playlists", expect.objectContaining({ provider: "youtube", ownerId: channelId })],
+    ]);
     target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(1)')!.click(); await settle();
     expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(1);
   });

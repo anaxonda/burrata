@@ -66,6 +66,14 @@ test('Chromium worker restart retains request association for manual import',asy
   assert.equal(w.messages[0].type,'import');
   assert.equal(w.session.requestTabs.length,0);
 });
+test('manual import from an unsupported Firefox page stops before capture or native messaging',async()=>{
+  const w=worker({}, {pageUrl:'about:debugging#/runtime/this-firefox'});
+  const result=await w.send({type:'importCurrent'});
+  assert.equal(result.ok,false);
+  assert.equal(result.error,'Open a supported provider page.');
+  assert.equal(w.scripts.length,0);
+  assert.equal(w.connectionCount,0);
+});
 test('app-driven import opens a new tab and retains verification request',async()=>{
   const url='https://www.beatport.com/genre/afro-house/89/top-100';
   const w=worker({}, {enabled:true,verification:true,requests:[{id:'pending-2',url}]});
@@ -105,6 +113,56 @@ test('track context menu persists a selected target and appends one parser-selec
  assert.equal(append.collectionId,'playlist-1');assert.equal(append.targetUrl,entry.sourceUrl);assert.equal(append.snapshot.entries.length,1);
  assert.equal(w.local.lastContextAction,'Added Artist — Song to Fixture');
  assert.equal(w.messages.some(message=>message.type==='import'),false);
+});
+
+test('Spotify context menus send one canonical page or link without capturing any content', async () => {
+  const id = '2u9k9X8d1uD4qDLjMhVxU0';
+  const page = `https://open.spotify.com/intl-pt-BR/album/${id}?si=share`;
+  const link = `https://open.spotify.com/track/${id}?si=share`;
+  const w = worker({}, {pageUrl:page});
+  await new Promise(resolve => setImmediate(resolve));
+  const pageMenu = w.menus.find(menu => menu.id === 'burrata-open-spotify-page');
+  const linkMenu = w.menus.find(menu => menu.id === 'burrata-open-spotify-link');
+  assert.ok(pageMenu.contexts.includes('page') && pageMenu.documentUrlPatterns.includes('https://open.spotify.com/intl-*/album/*'));
+  assert.ok(linkMenu.contexts.includes('link') && linkMenu.targetUrlPatterns.includes('https://open.spotify.com/track/*'));
+  w.clickMenu({menuItemId:pageMenu.id,pageUrl:page},{id:8,url:page});
+  await new Promise(resolve => setImmediate(resolve));
+  w.clickMenu({menuItemId:linkMenu.id,linkUrl:link,pageUrl:'https://example.org/blog'},{id:9,url:'https://example.org/blog'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(w.messages)), [
+    {type:'openSpotifyLink',url:`https://open.spotify.com/album/${id}`},
+    {type:'openSpotifyLink',url:`https://open.spotify.com/track/${id}`},
+  ]);
+  assert.equal(w.local.lastContextAction,'Sent Spotify link to Burrata.');
+  assert.deepEqual(w.scripts,[]);
+  assert.deepEqual(w.created,[]);
+});
+
+test('Spotify handoff rejects unsupported links and shows bridge failure without importing', async () => {
+  const id = '2u9k9X8d1uD4qDLjMhVxU0';
+  const validPage = `https://open.spotify.com/playlist/${id}`;
+  const w = worker({}, {nativeReplies:[{ok:false,error:'Burrata is not running'}]});
+  await new Promise(resolve => setImmediate(resolve));
+  for (const linkUrl of [
+    `https://open.spotify.com.evil.example/track/${id}`,
+    `https://user@open.spotify.com/track/${id}`,
+    `https://open.spotify.com:8443/track/${id}`,
+    `https://open.spotify.com/embed/track/${id}`,
+    `https://open.spotify.com/episode/${id}`,
+    `https://open.spotify.com/track/${id}/more`,
+    `https://open.spotify.com/artist/${id}#fragment`,
+    `spotify:track:${id}`,
+  ]) {
+    w.clickMenu({menuItemId:'burrata-open-spotify-link',linkUrl,pageUrl:validPage},{id:8,url:validPage});
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(w.messages.length,0);
+  w.clickMenu({menuItemId:'burrata-open-spotify-page',pageUrl:validPage},{id:8,url:validPage});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(w.local.lastContextAction,'Burrata is not running');
+  assert.equal(w.messages.length,1);
+  assert.equal(w.messages[0].type,'openSpotifyLink');
+  assert.deepEqual(w.scripts,[]);
 });
 
 test('track context menu asks for a playlist before parsing or sending data',async()=>{
@@ -245,6 +303,7 @@ test('provider work triggers bounded follow-up polls while idle and disabled pol
  assert.equal(paused.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,1);
  await paused.send({type:'enable',enabled:false});
  assert.equal(paused.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,0,'disabling cancels a scheduled prompt poll');
+ assert.ok(paused.messages.some(message=>message.type==='heartbeat'&&message.providerProtocolVersion===0));
 });
 
 test('YouTube session is handed off only from the explicit extension popup action',async()=>{

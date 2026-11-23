@@ -360,14 +360,15 @@
       <button disabled={!visibleTracks.length} onclick={() => queueAll("append")}><MenuIcon name="queue" /><span>Queue {actionScope}</span></button>
     </ActionMenu>
   {/if}
-  <div class="remote-detail-tools">
+  <div class="remote-detail-tools sticky-toolbar compact-track-filter-bar">
     <input aria-label="Filter playlist tracks" bind:value={filter} oninput={cancelRestore} placeholder="Filter tracks by title, artist, or album" />
-    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />
-    <label>Sort
-      <select aria-label="Sort playlist tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Playlist order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", [provider])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", [provider])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", [provider])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", [provider])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", [provider])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", [provider])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", [provider])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", [provider])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", [provider])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", [provider])}</option></select>
-    </label>
-    <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-
+    <select aria-label="Sort playlist tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Playlist order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", [provider])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", [provider])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", [provider])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", [provider])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", [provider])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", [provider])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", [provider])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", [provider])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", [provider])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", [provider])}</option></select>
+    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} extraFiltersActive={downloadAvailability !== "all" || sortDirection !== "asc"}>
+      {#snippet extraFilters()}
+        <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+        <TrackDownloadFilter bind:value={downloadAvailability} />
+      {/snippet}
+    </TrackDurationFilter>
   </div>
   {#if loading}<p class="remote-detail-status" role="status">Loading playlist…</p>{/if}
   {#if error}<p class="remote-detail-error" role="alert">{error}</p>{/if}
@@ -379,7 +380,7 @@
 </section>
 
 <style>
-  .remote-playlist-detail { box-sizing:border-box; flex:1 1 0; min-width:0; min-height:0; height:auto; overflow:auto; display:flex; flex-direction:column; align-items:stretch; gap:8px; color:var(--text); }
+  .remote-playlist-detail { box-sizing:border-box; flex:1 1 0; min-width:0; min-height:0; height:auto; overflow:auto; display:flex; flex-direction:column; align-items:stretch; gap:8px; color:var(--text); container:remote-playlist / inline-size; }
   .remote-playlist-detail h2 { flex:1 1 220px; min-width:0; margin:0; overflow-wrap:anywhere; }
   .remote-detail-header { box-sizing:border-box; flex:none; min-width:0; min-height:0; height:auto; display:flex; flex-direction:row; flex-wrap:wrap; justify-content:flex-start; align-content:flex-start; gap:6px 12px; }
   .remote-detail-back,.remote-detail-owner { justify-self:start; padding:0; border:0; background:transparent; color:var(--accent,#8e9df2); font-size:11px; line-height:1.4; }
@@ -388,6 +389,11 @@
   .remote-detail-actions,.remote-detail-tools { display:flex; flex:none; flex-wrap:wrap; align-items:center; align-content:flex-start; gap:6px; min-width:0; min-height:0; height:auto; }
   .remote-detail-actions button,.remote-detail-more,.remote-detail-progress button { min-height:32px; height:auto; padding:6px 9px; font-size:11px; white-space:nowrap; }
   .remote-detail-actions .playlist-more { width:34px; padding:0; font-size:20px; }
+  @container remote-playlist (max-width: 700px) {
+    .remote-detail-header .playlist-identity { flex-basis:100%; align-items:flex-start; gap:12px; }
+    .remote-detail-actions { flex-basis:100%; justify-content:flex-start; }
+    .playlist-hero-cover { width:clamp(64px, 20cqi, 96px); flex-basis:clamp(64px, 20cqi, 96px); }
+  }
   .remote-detail-tools { box-sizing:border-box; padding:4px 12px; }
   .remote-detail-tools > input { flex:1 1 240px; width:auto; min-width:160px; }
   .remote-detail-tools label { flex:0 0 auto; display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; color:var(--muted); font-size:10px; white-space:nowrap; }
