@@ -12,7 +12,7 @@ const PNG_HEADER: &[u8] = b"\x89PNG\r\n\x1a\n";
 fn assert_authenticated(headers: &HeaderMap) {
     let value = headers[header::AUTHORIZATION].to_str().unwrap();
     assert!(value.starts_with("MediaBrowser "));
-    assert!(value.contains("Token=\"jellyfin-fixture-token\""));
+    assert!(value.contains("Token=\"jellyfin-example-token\""));
 }
 
 fn song_item() -> serde_json::Value {
@@ -32,7 +32,7 @@ fn jellyfin_upstream(album_removed: Arc<AtomicBool>) -> Router {
             let auth = headers[header::AUTHORIZATION].to_str().unwrap();
             assert!(auth.contains("Client=\"Burrata\""));
             assert!(!auth.contains("Token="));
-            Json(json!({"User":{"Id":USER_ID},"ServerId":SERVER_ID,"AccessToken":"jellyfin-fixture-token"}))
+            Json(json!({"User":{"Id":USER_ID},"ServerId":SERVER_ID,"AccessToken":"jellyfin-example-token"}))
         }))
         .route("/Items", get(|headers: HeaderMap, Query(query): Query<HashMap<String, String>>| async move {
             assert_authenticated(&headers);
