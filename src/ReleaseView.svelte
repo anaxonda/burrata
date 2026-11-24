@@ -6,7 +6,7 @@
   import AlbumDetailView from "./AlbumDetailView.svelte";
   import type { AlbumDetailMetadata } from "./lib/album-detail-view";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
-  import type { ArtistReleaseRef } from "./lib/artist-types";
+  import type { ArtistRef, ArtistReleaseRef } from "./lib/artist-types";
   import type { Track } from "./lib/types";
   import type { LoudnessResourceIdentity } from "./lib/loudness-normalization";
   import TrackList from "./TrackList.svelte";
@@ -14,7 +14,7 @@
 
   let {
     release, tracks = [], loading = false, error = "", onPlay = () => {}, onQueue = () => {}, onQueueAlbum,
-    onDownload = () => {}, onDownloadAlbum, onSearchAlbumSoulseek, soulseekSearchAvailable = false, onAnalyzeLoudness, onPlayAlbum, onAddAlbumToPlaylist, onSaveToLibrary, onSaveCompleteAlbum, onArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
+    onDownload = () => {}, onDownloadAlbum, onSearchAlbumSoulseek, soulseekSearchAvailable = false, onAnalyzeLoudness, onPlayAlbum, onAddAlbumToPlaylist, onSaveToLibrary, onSaveCompleteAlbum, onArtist, onReleaseArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
     playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false,
   }: {
     release: ArtistReleaseRef & { artworkUrl?: string | null };
@@ -22,6 +22,7 @@
     onPlay?: (track: Track, tracks: Track[], index: number) => void;
     onQueue?: (tracks: Track[], mode: "next" | "append") => void; onQueueAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void; onDownload?: (track: Track) => void; onDownloadAlbum?: (tracks: Track[], onReceipt?: (receipt: unknown) => void | Promise<void>) => unknown | Promise<unknown>; onSearchAlbumSoulseek?: () => unknown | Promise<unknown>; soulseekSearchAvailable?: boolean; onAnalyzeLoudness?: (tracks: Track[], gapSeconds: number) => Promise<{ jobId: string; playbackTracks: Track[] }>; onPlayAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void | Promise<void>; onAddAlbumToPlaylist?: (tracks: Track[], title: string) => void | Promise<void>; onSaveToLibrary?: (tracks: Track[]) => Promise<void>;
     onSaveCompleteAlbum?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>;
+    onReleaseArtist?: (name: string, artist: ArtistRef | null) => void | Promise<void>;
     onArtist?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void; onPlaylist?: (track: Track) => void; onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onFavorite?: (track: Track) => void;
     playingTrack?: Track | null; bufferingTrack?: Track | null;
     playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
@@ -107,6 +108,16 @@
   });
   const visibleTracks = $derived(visibleOccurrences.map(row => row.track));
   const artists = $derived([...new Set(release.credits.map(credit => credit.name).filter(Boolean))]);
+  function openReleaseArtist(name: string) {
+    const identities = new Map<string, ArtistRef>();
+    for (const credit of release.credits) {
+      if (credit.name === name && credit.artist) {
+        identities.set(`${credit.artist.provider}:${credit.artist.id}`, credit.artist);
+      }
+    }
+    const artist = identities.size === 1 ? identities.values().next().value ?? null : null;
+    return onReleaseArtist?.(name, artist);
+  }
   const cover = $derived(release.artworkUrl || release.artworkUrls?.[0] || tracks.find(track => track.artworkUrl)?.artworkUrl || null);
   const detailMetadata = $derived<AlbumDetailMetadata>({
     title: release.title,
@@ -192,7 +203,7 @@
     {#if loading && !tracks.length}<p class="muted" role="status">Loading release tracks…</p>{/if}
   {/snippet}
   <AlbumDetailView
-    metadata={detailMetadata} albumTracks={albumTracks} {analysisIdentity} {loading} ownsScroll={false} onArtistClick={() => tracks[0] && onArtist?.(tracks[0])}
+    metadata={detailMetadata} albumTracks={albumTracks} {analysisIdentity} {loading} ownsScroll={false} onArtistClick={onReleaseArtist ? openReleaseArtist : undefined}
     onPlayAlbum={playAlbumWithResource} onQueueAlbum={queueAlbumWithResource}
     onDownloadAlbum={onDownloadAlbum ? (items => onDownloadAlbum?.(items)) : undefined}
     onSearchAlbumSoulseek={onSearchAlbumSoulseek} {soulseekSearchAvailable}

@@ -3875,14 +3875,14 @@ impl PlaybackService {
     // Caller holds the command lock, so a newer pause, seek or queue change
     // cannot interleave between checking ownership and starting the next item.
     fn expire_generation_checked(&self, generation: u64, expected_seek_epoch: Option<u64>) -> bool {
-        let (eligible, diagnostic) = {
+        let (message, diagnostic) = {
             let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-            let eligible =
-                deadline_owned_by_active_operation(&state, generation, expected_seek_epoch);
-            let diagnostic = eligible
+            let message =
+                deadline_failure_for_active_operation(&state, generation, expected_seek_epoch);
+            let diagnostic = message.is_some()
                 .then(|| state.native_decoder_diagnostic.take())
                 .flatten();
-            (eligible, diagnostic)
+            (message, diagnostic)
         };
         if let Some(context) = diagnostic.as_ref() {
             record_native_decoder_diagnostic(
@@ -3892,15 +3892,10 @@ impl PlaybackService {
                 Some("timeout"),
             );
         }
-        if eligible {
-            let message = if expected_seek_epoch.is_some() {
-                "Playback seek timed out"
-            } else {
-                "Playback startup timed out"
-            };
+        if let Some(message) = message {
             self.recover_failure(generation, message, RecoveryTrigger::SourceResolution);
         }
-        eligible
+        message.is_some()
     }
     fn watch_ready_seek(&self, generation: u64, epoch: u64, deadline: Instant) {
         let service = self.clone();
@@ -4838,6 +4833,7 @@ impl PlaybackService {
                 s.radio_metadata_identity = None;
             }
             if !resume || s.session.is_empty() {
+                s.decoder_diagnostics = None;
                 s.recovery_deadline = None;
                 s.recovered_audio_since = None;
                 s.request_started = startup_deadline
@@ -5178,10 +5174,7 @@ impl PlaybackService {
                                 }
                             });
                         s.native_decoder_diagnostic = decoder_diagnostic.clone();
-                        s.source_ready_ms = Some(s.request_started.elapsed().as_millis() as u64);
-                        s.operation_source_ready_ms = s
-                            .operation_received_at
-                            .map(|at| at.elapsed().as_millis() as u64);
+                        note_startup_source_ready(&mut s, Instant::now());
                         if station.is_none() && offset == 0.0 && end.is_none() {
                             service.inner.observed_analysis.begin(
                                 service.inner.output.tap(),
@@ -8573,15 +8566,23 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
             || decoder_terminated)
 }
 
-fn deadline_owned_by_active_operation(
+fn deadline_failure_for_active_operation(
     state: &State,
     generation: u64,
     seek_epoch: Option<u64>,
-) -> bool {
-    state.generation == generation
-        && matches!(state.status.as_str(), "resolving" | "buffering")
-        && seek_epoch.is_none_or(|epoch| state.seek_watchdog_epoch == epoch)
-        && !state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
+) -> Option<&'static str> {
+    if state.generation != generation
+        || seek_epoch.is_some_and(|epoch| state.seek_watchdog_epoch != epoch)
+        || state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
+    {
+        return None;
+    }
+    match (state.status.as_str(), seek_epoch) {
+        ("resolving" | "buffering", Some(_)) => Some("Playback seek timed out"),
+        ("resolving", None) => Some("Playback startup timed out"),
+        ("buffering", None) => Some(crate::playback_failure::STARTUP_BUFFERING_TIMEOUT),
+        _ => None,
+    }
 }
 
 fn claim_recovery_failure_generation(state: &mut State, generation: u64) -> bool {
@@ -8972,6 +8973,21 @@ fn finish_external_queued_owner(state: &mut State, action: &str) {
         state.queued_intent_epoch = state.queued_intent_epoch.wrapping_add(1);
     }
 }
+fn note_startup_source_ready(state: &mut State, ready_at: Instant) {
+    // Reopening a stream after initial audio must not rewrite the completed
+    // startup timeline. A new operation still has its own independent clock.
+    if state.first_audio_ms.is_none() {
+        state.source_ready_ms = Some(
+            ready_at.saturating_duration_since(state.request_started).as_millis() as u64,
+        );
+    }
+    if state.operation_first_audio_ms.is_none() {
+        state.operation_source_ready_ms = state.operation_received_at.map(|received_at| {
+            ready_at.saturating_duration_since(received_at).as_millis() as u64
+        });
+    }
+}
+
 fn begin_operation(
     state: &mut State,
     id: Option<&str>,
@@ -9252,12 +9268,33 @@ fn source_bounds_for_track(track: &Track, cropped_excerpt: bool) -> (f64, Option
 // Replacing the upcoming queue may retain the active decoder. Its selected
 // audition source must follow that retained playback onto the new occurrence.
 fn replace_queued_tracks(state: &mut State, tracks: Vec<Track>, preserve_current: bool) {
-    let preserve_preview = preserve_current
-        && state.preview_source_entry.is_some()
-        && state.preview_source_entry.as_ref() == state.entries.get(state.index)
+    let retained = preserve_current
         && state
             .track()
             .is_some_and(|current| tracks.first().is_some_and(|next| next.id == current.id));
+    let preserve_preview = retained
+        && state.preview_source_entry.is_some()
+        && state.preview_source_entry.as_ref() == state.entries.get(state.index);
+    if !retained {
+        // The new selection is unloaded. Decoder and operation fields must not
+        // describe the discarded occurrence or make Resume reuse its ID.
+        reset_failed_resume_diagnostics(state);
+        state.decoder_diagnostics = None;
+        state.native_decoder_diagnostic = None;
+        state.operation_id = None;
+        state.operation_kind = None;
+        state.operation_received_at = None;
+        state.operation_client_started_at_ms = None;
+        state.operation_click_to_ipc_ms = None;
+        state.operation_command_bytes = None;
+        state.operation_source_ready_ms = None;
+        state.operation_first_audio_ms = None;
+        state.seek_operation_id = None;
+        state.seek_operation_received_at = None;
+        state.seek_client_started_at_ms = None;
+        state.seek_click_to_ipc_ms = None;
+        state.seek_command_bytes = None;
+    }
     state.queue = tracks;
     state.entries = state
         .queue
@@ -10509,6 +10546,77 @@ mod tests {
         state.preview_source_entry = Some(state.entries[1].clone());
         replace_queued_tracks(&mut state, vec![current], true);
         assert!(state.preview_source_entry.is_none());
+    }
+
+    #[test]
+    fn replacing_unloaded_queue_discards_the_previous_tracks_diagnostics() {
+        let current = Track {
+            id: "old".into(),
+            ..Track::default()
+        };
+        let next = Track {
+            id: "new".into(),
+            ..Track::default()
+        };
+        let mut state = State::default();
+        replace_play_queue(&mut state, vec![current.clone()], 0);
+        begin_operation(
+            &mut state,
+            Some("native-old"),
+            "startup",
+            Instant::now(),
+            None,
+            None,
+            None,
+        );
+        state.first_audio_ms = Some(100);
+        state.source_ready_ms = Some(50);
+        state.operation_first_audio_ms = Some(100);
+        state.operation_source_ready_ms = Some(50);
+        state.seek_operation_id = Some("seek-old".into());
+        state.seek_operation_received_at = Some(Instant::now());
+        state.decoder_diagnostics = Some(DecoderDiagnostics {
+            startup_reserve: None,
+            failed_native_attempt: None,
+            decoder_kind: "ffmpeg".into(),
+            codec_hint: None,
+            content_type: None,
+            input_content_length: None,
+            content_range_total: None,
+            bytes_read: 0,
+            bytes_received: 100,
+            sample_rate: 44100,
+            channels: 2,
+            total_duration_seconds: Some(3722.),
+            reader_setup_ms: None,
+            decoder_setup_ms: None,
+            first_decoded_block_ms: Some(50),
+            reader_reused: false,
+            decoder_reused: false,
+        });
+
+        replace_queued_tracks(&mut state, vec![current, next.clone()], true);
+        let retained = state.snapshot(true, false);
+        assert_eq!(retained["diagnostics"]["operationId"], "native-old");
+        assert_eq!(
+            retained["diagnostics"]["decoder"]["totalDurationSeconds"],
+            3722.
+        );
+
+        replace_queued_tracks(&mut state, vec![next], false);
+        let replaced = state.snapshot(true, false);
+        assert_eq!(replaced["trackId"], "new");
+        for field in [
+            "operationId",
+            "seekOperationId",
+            "sourceReadyMs",
+            "firstAudioMs",
+            "decoder",
+        ] {
+            assert!(replaced["diagnostics"][field].is_null(), "{field}");
+        }
+        assert_eq!(replaced["diagnostics"]["operationTrace"], json!([]));
+        assert_eq!(replaced["diagnostics"]["seekTrace"], json!([]));
     }
 
     #[test]
@@ -12540,6 +12648,29 @@ mod tests {
     }
 
     #[test]
+    fn reopening_a_stream_preserves_completed_startup_timings() {
+        let started = Instant::now();
+        let mut state = State {
+            request_started: started,
+            ..State::default()
+        };
+        begin_operation(&mut state, None, "startup", started, None, None, None);
+        note_startup_source_ready(&mut state, started + Duration::from_millis(150));
+        state.first_audio_ms = Some(200);
+        state.operation_first_audio_ms = Some(200);
+
+        let reopened = started + Duration::from_secs(45);
+        note_startup_source_ready(&mut state, reopened);
+        assert_eq!(state.source_ready_ms, Some(150));
+        assert_eq!(state.operation_source_ready_ms, Some(150));
+
+        begin_operation(&mut state, None, "recovery", reopened, None, None, None);
+        note_startup_source_ready(&mut state, reopened + Duration::from_millis(75));
+        assert_eq!(state.source_ready_ms, Some(150));
+        assert_eq!(state.operation_source_ready_ms, Some(75));
+    }
+
+    #[test]
     fn operation_ids_are_bounded_and_snapshot_traces_startup_and_seek_phases() {
         assert_eq!(
             parse_operation_id(Some(&json!("op-123"))).unwrap(),
@@ -13442,16 +13573,27 @@ mod tests {
         state.status = "buffering".into();
         state.generation = 7;
         state.seek_watchdog_epoch = 3;
-        assert!(deadline_owned_by_active_operation(&state, 7, Some(3)));
-        assert!(deadline_owned_by_active_operation(&state, 7, None));
-        assert!(!deadline_owned_by_active_operation(&state, 6, Some(3)));
-        assert!(!deadline_owned_by_active_operation(&state, 7, Some(2)));
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, Some(3)),
+            Some("Playback seek timed out")
+        );
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, None),
+            Some(crate::playback_failure::STARTUP_BUFFERING_TIMEOUT)
+        );
+        assert_eq!(deadline_failure_for_active_operation(&state, 6, Some(3)), None);
+        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(2)), None);
+        state.status = "resolving".into();
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, None),
+            Some("Playback startup timed out")
+        );
         state.status = "paused".into();
-        assert!(!deadline_owned_by_active_operation(&state, 7, Some(3)));
+        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(3)), None);
         state.status = "buffering".into();
         let (cancel, _) = watch::channel(true);
         state.cancel = Some(cancel);
-        assert!(!deadline_owned_by_active_operation(&state, 7, Some(3)));
+        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(3)), None);
     }
 
     #[test]

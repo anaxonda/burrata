@@ -36,6 +36,30 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("ReleaseView", () => {
+  it("opens the selected release credit even before the tracks load", async () => {
+    const composer = { provider: "musicbrainz" as const, id: "composer" };
+    const onReleaseArtist = vi.fn();
+    const onArtist = vi.fn();
+    const target = render({
+      release: {
+        ...release,
+        credits: [...release.credits, {
+          name: "The Composer", artist: composer, role: "composer",
+          sourceUrl: "https://musicbrainz.org/artist/composer",
+        }],
+      },
+      tracks: [],
+      loading: true,
+      onReleaseArtist,
+      onArtist,
+    });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>("button.artist-credit")];
+    buttons.find(button => button.textContent?.trim() === "The Composer")!.click();
+    expect(onReleaseArtist).toHaveBeenCalledWith("The Composer", composer);
+    expect(onArtist).not.toHaveBeenCalled();
+  });
+
   it("spells out the worldwide territory in the album header without modifying source metadata", async()=>{
     const worldwide={...release,country:"XW"};const target=render({release:worldwide});await settle();expect(target.querySelector(".release-meta")?.textContent).toContain("Worldwide");expect(target.querySelector(".release-meta")?.textContent).not.toContain("XW");expect(worldwide.country).toBe("XW");
   });
@@ -102,13 +126,12 @@ describe("ReleaseView", () => {
     expect(target.querySelector('[role="status"]')?.textContent).toContain("Opened Soulseek album search");
   });
 
-  it("explains unavailable Soulseek configuration and exposes download callback failures", async () => {
+  it("hides unconfigured Soulseek and still exposes download callback failures", async () => {
     const onDownloadAlbum = vi.fn().mockRejectedValue(new Error("music folder is unavailable"));
     const target = render({ onDownloadAlbum, onSearchAlbumSoulseek: vi.fn(), soulseekSearchAvailable: false });
     const menu = target.querySelector<HTMLDetailsElement>(".download-menu")!;
     menu.querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(target.textContent).toContain("Enable and configure Soulseek in Settings → Connections.");
-    expect(target.querySelector<HTMLButtonElement>('[aria-label^="Search album"]')?.disabled).toBe(true);
+    expect(target.querySelector('[aria-label^="Search album"]')).toBeNull();
     target.querySelector<HTMLButtonElement>('[type="button"]')!.click(); await settle();
     expect(onDownloadAlbum).toHaveBeenCalledOnce();
     expect(target.querySelector('[role="status"]')?.textContent).toContain("Album download failed: music folder is unavailable");

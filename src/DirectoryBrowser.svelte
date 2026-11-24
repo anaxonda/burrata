@@ -441,7 +441,7 @@
     <div class="directory-view-tools" aria-label="Directory track view options">
       <TrackDownloadFilter bind:value={downloadAvailability} />
       <input aria-label="Filter directory tracks" placeholder="Filter tracks by title, artist, album, or filename" bind:value={query} oninput={filterChanged} />
-      <details class="directory-duration-filters"><summary>Duration</summary><div>
+      <details class="directory-duration-filters"><summary class="dropdown-trigger">Duration</summary><div class="dropdown-menu">
         <label>Minimum<input aria-label="Minimum directory track duration" placeholder="seconds or mm:ss" bind:value={durationMinimum} oninput={filterChanged} /></label>
         <label>Maximum<input aria-label="Maximum directory track duration" placeholder="seconds or mm:ss" bind:value={durationMaximum} oninput={filterChanged} /></label>
       </div></details>
@@ -488,10 +488,11 @@
   .directory-sort-controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; max-width:100%; }
   .directory-file-count { flex:none; margin-left:auto; color:var(--muted); font-size:.8rem; white-space:nowrap; }
   .directory-duration-filters { position:relative; flex:none; color:var(--muted); font-size:.8rem; }
-  .directory-duration-filters > summary { display:flex; align-items:center; cursor:pointer; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--text); list-style:none; white-space:nowrap; }
+  .directory-duration-filters > summary { display:flex; align-items:center; cursor:pointer; padding:6px 8px; list-style:none; white-space:nowrap; }
   .directory-duration-filters > summary::-webkit-details-marker { display:none; }
   .directory-duration-filters > summary::after { content:"▾"; margin-left:8px; color:var(--muted); }
-  .directory-duration-filters[open] > div { position:absolute; z-index:30; top:calc(100% + 6px); right:0; display:flex; gap:8px; flex-wrap:wrap; width:max-content; max-width:calc(100vw - 32px); padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--surface); box-shadow:0 10px 28px #0008; }
+  .directory-duration-filters[open] > summary::after { transform:rotate(180deg); }
+  .directory-duration-filters[open] > div { position:absolute; z-index:30; top:calc(100% + 4px); right:0; display:flex; gap:8px; flex-wrap:wrap; width:max-content; max-width:calc(100vw - 32px); padding:8px; }
   .directory-duration-filters > div label { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:0; font-size:.75rem; color:var(--muted); }
   .directory-duration-filters input { width:132px; }
   .directory-browser :global(.playlist-selection-actions) { box-sizing:border-box; min-height:34px; padding:0 0 6px; margin:0; border-bottom:0; }

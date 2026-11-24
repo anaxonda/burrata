@@ -764,6 +764,7 @@ const PLAYBACK_ACCESS_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 pub(crate) const PLAYBACK_EXTRACTION_RESERVE: Duration = Duration::from_secs(8);
 const PREVIEW_AUDIO_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_AUDIO_CACHE_MAX: usize = 64;
+const DIRECT_YOUTUBE_FORMAT_MISS_TTL: Duration = Duration::from_secs(300);
 const PLAYBACK_EXTRACTION_PROFILE: &str = "playback-metadata-v1-managed-mweb-progressive";
 const PLAYBACK_PROFILE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const PLAYBACK_PROFILE_COOLDOWN_MAX: usize = 256;
@@ -997,6 +998,32 @@ pub(crate) fn base_args(settings: &Settings) -> Vec<String> {
 pub(crate) fn uses_managed_ytdlp(configured: &str) -> bool {
     let configured = configured.trim();
     configured.is_empty() || configured == "yt-dlp" || configured.starts_with("bundled:")
+}
+
+pub(crate) async fn youtube_caption_metadata(video_id: &str, settings: &Settings) -> Result<Value, String> {
+    let url = format!("https://www.youtube.com/watch?v={video_id}");
+    if youtube_video_id(&url).as_deref() != Some(video_id) {
+        return Err("Invalid YouTube video ID".into());
+    }
+    let (_cancel_sender, cancel) = watch::channel(false);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(14);
+    let mut args = vec!["--ignore-config".into(), "--no-warnings".into()];
+    let (_, mut invocation) = add_youtube_support_args(
+        &mut args, "youtube", settings, Some((deadline, cancel.clone(), None)),
+    ).await?;
+    args.extend([
+        "--dump-single-json".into(), "--no-playlist".into(), "--skip-download".into(),
+        "--".into(), url,
+    ]);
+    let output = run_tool_until(settings, args, cancel, deadline, |_| {}).await?;
+    if let Some(invocation) = &mut invocation {
+        invocation.complete();
+    }
+    let info: Value = serde_json::from_str(&output).map_err(|_| "Invalid YouTube caption metadata")?;
+    if info["id"].as_str() != Some(video_id) {
+        return Err("YouTube returned a different video".into());
+    }
+    Ok(info)
 }
 
 async fn add_youtube_support_args(
@@ -1591,18 +1618,114 @@ async fn run_tool<F: FnMut(&str)>(
     .await
 }
 
-// Each helper gets its own RAII directory in the managed app profile, so a
-// restricted system temp quota cannot prevent the bundled binary from unpacking.
+// The bundled helper unpacks a private runtime before executing. Keep enough
+// room for the extraction and its temporary files before choosing a volume.
+const MANAGED_HELPER_TEMP_HEADROOM: u64 = 128 * 1024 * 1024;
+const HELPER_TEMP_NO_SPACE: &str = "Not enough free space for audio extraction temporary storage";
+
 pub(crate) fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::TempDir, String> {
+    helper_temp_dir_with(root, &std::env::temp_dir(), helper_free_bytes)
+}
+
+#[cfg(unix)]
+use crate::backup_manager::free_bytes_available as helper_free_bytes;
+
+#[cfg(windows)]
+fn helper_free_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let mut path = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if path.contains(&0) {
+        return None;
+    }
+    path.push(0);
+    let mut available = 0;
+    // The path is NUL-terminated and available points to writable u64 storage.
+    (unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } != 0)
+        .then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn helper_free_bytes(_: &Path) -> Option<u64> {
+    None
+}
+
+fn helper_temp_dir_with(
+    root: Option<&Path>,
+    system_temp: &Path,
+    free_bytes: impl Fn(&Path) -> Option<u64>,
+) -> Result<tempfile::TempDir, String> {
+    let create = |parent: &Path| {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("burrata-yt-dlp-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        builder.tempdir_in(parent)
+    };
     let Some(root) = root else {
-        return tempfile::Builder::new()
-            .prefix("burrata-yt-dlp-")
-            .tempdir()
+        return create(system_temp)
             .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"));
     };
+    let has_room =
+        |path| free_bytes(path).is_none_or(|bytes| bytes >= MANAGED_HELPER_TEMP_HEADROOM);
+    let out_of_space = |error: &std::io::Error| {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded
+        )
+    };
+    match prepare_managed_helper_root(root) {
+        Ok(()) if has_room(root) => match create(root) {
+            Ok(dir) => return Ok(dir),
+            Err(error) if out_of_space(&error) => {}
+            Err(error) => {
+                return Err(format!(
+                    "Could not create yt-dlp temporary directory: {error}"
+                ))
+            }
+        },
+        Ok(()) => {}
+        Err(error) if out_of_space(&error) => {}
+        Err(error) => {
+            return Err(format!(
+                "Could not prepare yt-dlp temporary storage: {error}"
+            ))
+        }
+    }
+    if !has_room(system_temp) {
+        return Err(HELPER_TEMP_NO_SPACE.into());
+    }
+    let meta = std::fs::symlink_metadata(system_temp).map_err(|_| HELPER_TEMP_NO_SPACE)?;
+    if !system_temp.is_absolute() || !meta.file_type().is_dir() {
+        return Err(HELPER_TEMP_NO_SPACE.into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if (meta.uid() != unsafe { libc::geteuid() } && meta.uid() != 0)
+            || (meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0)
+        {
+            return Err(HELPER_TEMP_NO_SPACE.into());
+        }
+    }
+    create(system_temp).map_err(|_| HELPER_TEMP_NO_SPACE.into())
+}
+
+fn prepare_managed_helper_root(root: &Path) -> std::io::Result<()> {
     let parent = root
         .parent()
-        .ok_or("Invalid yt-dlp storage temporary directory root")?;
+        .ok_or_else(|| std::io::Error::other("Invalid yt-dlp storage temporary directory root"))?;
     // The manager supplies exactly <profile>/youtube-support/helper-tmp.
     // Create one component at a time and refuse symlinks and non-directories.
     for path in [parent, root] {
@@ -1615,12 +1738,13 @@ pub(crate) fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::Tem
         match builder.create(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(format!("Could not create yt-dlp temporary root: {error}")),
+            Err(error) => return Err(error),
         }
-        let meta = std::fs::symlink_metadata(path)
-            .map_err(|error| format!("Could not inspect yt-dlp temporary root: {error}"))?;
+        let meta = std::fs::symlink_metadata(path)?;
         if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
-            return Err("Unsafe yt-dlp storage temporary directory root".into());
+            return Err(std::io::Error::other(
+                "Unsafe yt-dlp storage temporary directory root",
+            ));
         }
         #[cfg(unix)]
         {
@@ -1628,14 +1752,13 @@ pub(crate) fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::Tem
             if meta.uid() != unsafe { libc::geteuid() }
                 || (path == root && meta.mode() & 0o077 != 0)
             {
-                return Err("Unsafe yt-dlp storage temporary directory owner".into());
+                return Err(std::io::Error::other(
+                    "Unsafe yt-dlp storage temporary directory owner",
+                ));
             }
         }
     }
-    tempfile::Builder::new()
-        .prefix("burrata-yt-dlp-")
-        .tempdir_in(root)
-        .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"))
+    Ok(())
 }
 
 async fn run_tool_until<F: FnMut(&str)>(
@@ -2413,6 +2536,10 @@ async fn search_provider_candidates(
     canonical_only: bool,
     trace: Option<crate::playback_sources::SourceTrace>,
 ) -> (Vec<Candidate>, Vec<String>) {
+    let per_provider_timeout = trace
+        .as_ref()
+        .and_then(|trace| trace.provider_search_timeout(provider))
+        .map_or(per_provider_timeout, |limit| limit.min(per_provider_timeout));
     let alternate_titles = trace
         .as_ref()
         .map_or(&[][..], |trace| trace.verified_search_titles());
@@ -2832,6 +2959,11 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
         ..Track::default()
     };
     if candidate.provider == "youtube" {
+        if info["live_status"].as_str() == Some("is_upcoming") {
+            track.provenance["youtubeUpcoming"] = Value::Bool(true);
+            track.provenance["youtubeUpcomingObservedAt"] = Value::from(chrono::Utc::now().timestamp());
+            track.duration_seconds = None;
+        }
         crate::metadata_normalization::normalize_selected_track(
             &mut track,
             &candidate.title,
@@ -4612,6 +4744,94 @@ fn optional_playback_research_budget(remaining: Duration) -> Duration {
         .min(OPTIONAL_PLAYBACK_RESEARCH_MAX)
 }
 
+fn spotify_catalog_lookup_can_overlap(
+    track: &Track,
+    providers: &[String],
+    settings: &Settings,
+) -> bool {
+    let provenance = &track.provenance;
+    providers.len() == 1
+        && providers[0] == "youtube"
+        && crate::playback_sources::spotify_role_context::request_is_unmodified_exact_spotify_track(track)
+        && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
+        && track.asset_id.is_none()
+        && provenance["portablePlaybackSource"].is_null()
+        && provenance["userSelectedSource"].is_null()
+        && provenance["sourceKind"] != "audioSearch"
+        && provenance["chapters"].as_array().is_none_or(Vec::is_empty)
+        && (provenance["manualFields"].is_null()
+            || provenance["manualFields"]
+                .as_object()
+                .is_some_and(|fields| fields.values().all(|value| value.as_bool() == Some(false))))
+        && provenance["classicalWork"].is_null()
+        && crate::spotify_catalog_identity::numbered_movement_album_request(track).is_none()
+        && crate::recording_identity::RecordingIdentity::from_track(track)
+            .work_ids
+            .is_empty()
+        && [track.genre.as_deref(), track.normalized_genre.as_deref()]
+            .into_iter()
+            .flatten()
+            .all(|genre| !genre.to_ascii_lowercase().contains("classical"))
+}
+
+async fn overlap_spotify_catalog_lookup<F, C, CF>(
+    track: &Track,
+    providers: &[String],
+    flat: F,
+    catalog: C,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<(Vec<Candidate>, bool), String>
+where
+    F: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
+    C: FnOnce(tokio::time::Instant) -> CF,
+    CF: std::future::Future<Output = Result<OptionalPlaybackCatalogSearch, String>>,
+{
+    let started = tokio::time::Instant::now();
+    let budget =
+        optional_playback_research_budget(deadline.instant().saturating_duration_since(started));
+    let catalog_deadline = started + budget;
+    let catalog = async {
+        let research_deadline = started + budget.saturating_sub(Duration::from_millis(25));
+        tokio::time::timeout_at(catalog_deadline, catalog(research_deadline))
+            .await
+            .unwrap_or_else(|_| Err("Optional playback catalog search timed out".into()))
+    };
+    tokio::pin!(flat, catalog);
+    // Keep both lookups in this cache fill. Returning early drops the other
+    // request, and final completion still uses the ordinary flat-first merge.
+    let lookup = async {
+        tokio::select! {
+            biased;
+            result = &mut flat => result.map(|flat| (flat, None)),
+            result = &mut catalog => flat.await.map(|flat| (flat, Some(result))),
+        }
+    };
+    let ((found, flat_complete), catalog_result) = tokio::select! {
+        biased;
+        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        result = lookup => result?,
+    };
+    let (candidates, catalog_complete) = complete_playback_candidate_search_observed_with_level(
+        track,
+        providers,
+        None,
+        found,
+        cancel,
+        deadline,
+        || async {
+            match catalog_result {
+                Some(result) => result,
+                None => catalog.await,
+            }
+        },
+        None,
+        crate::recording_match::MatchLevel::Balanced,
+    )
+    .await?;
+    Ok((candidates, flat_complete && catalog_complete))
+}
+
 /// Complete the flat search before publishing its shared cache entry. The
 /// catalog supplies locators only; normal recording/identity gates still apply.
 async fn complete_playback_candidate_search<F, Fut>(
@@ -5219,11 +5439,13 @@ async fn extract_preview_audio_with_prepared_alternate(
                 return Err(error);
             }
         };
-        let (inspected, expected_content_length) =
-            traced_monochrome_probe(trace.clone(), cancel.clone(), || {
-                client.inspect_with_content_length(candidate)
-            })
-            .await?;
+        let (inspected, expected_content_length) = traced_monochrome_probe(
+            trace.clone(),
+            cancel.clone(),
+            monochrome_playback_probe_deadline(deadline),
+            || client.inspect_with_content_length(candidate),
+        )
+        .await?;
         return Ok(PreviewAudio {
             provider_session: None,
             url: inspected.url,
@@ -5510,9 +5732,25 @@ pub(crate) async fn diagnostic_validate_prepared_preview_audio(
     validate_prepared_preview_audio(audio, cancel, None, "youtube", deadline).await
 }
 
+fn monochrome_playback_probe_deadline(
+    startup: crate::playback_sources::PlaybackDeadline,
+) -> tokio::time::Instant {
+    // A timed-out request can retry once. Budget the individual probe so the
+    // retry can run and still leave time for the decoder to read its own bytes.
+    const MAX_PROBE: Duration = Duration::from_secs(12);
+    const DECODER_RESERVE: Duration = Duration::from_secs(4);
+    let now = tokio::time::Instant::now();
+    now + startup
+        .instant()
+        .saturating_duration_since(now)
+        .saturating_sub(DECODER_RESERVE)
+        .min(MAX_PROBE)
+}
+
 async fn traced_monochrome_probe<F, Fut, T>(
     trace: Option<crate::playback_sources::SourceTrace>,
     cancel: watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
     probe: F,
 ) -> Result<T, String>
 where
@@ -5527,9 +5765,17 @@ where
             "monochrome_probe_end",
         )
     });
+    const PROBE_TIMEOUT: &str = "Monochrome audio transport timeout failed";
     let result = tokio::select! {
-        result = probe() => result,
+        biased;
         _ = crate::playback_sources::wait_for_cancellation(cancel) => Err("Cancelled".into()),
+        _ = tokio::time::sleep_until(deadline) => Err(PROBE_TIMEOUT.into()),
+        result = async {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(PROBE_TIMEOUT.into());
+            }
+            probe().await
+        } => result,
     };
     if let Some(span) = span {
         span.finish(if result.is_ok() {
@@ -6475,8 +6721,7 @@ pub(super) fn preview_audio_from_metadata(
     } else {
         None
     };
-    let resolved_title = source_metadata
-        .as_ref()
+    let resolved_title = source_metadata.as_ref()
         .filter(|metadata| metadata["youtubeGeneratedComposer"].is_string())
         .and_then(|metadata| metadata["track"].as_str())
         .or_else(|| info["title"].as_str())
@@ -6675,16 +6920,13 @@ fn playback_music_catalog_candidate_for_search(
         .zip(candidate.duration_seconds)
         .is_some_and(|(fingerprint, duration)| {
             crate::spotify_catalog_identity::numbered_movement_caption_matches(
-                &fingerprint,
-                &candidate.title,
-                duration,
+                &fingerprint, &candidate.title, duration,
             )
         });
-    (movement
-        || std::iter::once(&track.title)
-            .chain(alternate_titles)
-            .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title)))
-    .then_some(candidate)
+    (movement || std::iter::once(&track.title)
+        .chain(alternate_titles)
+        .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title)))
+        .then_some(candidate)
 }
 
 /// Retain the narrowly useful, fresh YouTube channel identity exposed by the
@@ -7149,14 +7391,8 @@ fn resolved_extractor_identity_metadata(
         crate::youtube_recording_metadata::corroborated_topic_credits(candidate, info, &metadata)
     {
         metadata.insert("youtubeGeneratedAlbum".into(), serde_json::json!(album));
-        metadata.insert(
-            "youtubeGeneratedComposer".into(),
-            serde_json::json!(composer),
-        );
-        metadata.insert(
-            "youtubeGeneratedArtistCredits".into(),
-            serde_json::json!(credits),
-        );
+        metadata.insert("youtubeGeneratedComposer".into(), serde_json::json!(composer));
+        metadata.insert("youtubeGeneratedArtistCredits".into(), serde_json::json!(credits));
     }
     Some(Value::Object(metadata))
 }
@@ -7447,6 +7683,7 @@ struct Inner {
     connections: Arc<ConnectionManager>,
     monochrome_playback: Mutex<Option<Arc<crate::monochrome_playback::MonochromePlaybackService>>>,
     subsonic: std::sync::OnceLock<Arc<crate::subsonic::Service>>,
+    jellyfin: std::sync::OnceLock<Arc<crate::subsonic::Service>>,
     remote_playlists: Mutex<Option<Arc<crate::remote_playlists::RemotePlaylistService>>>,
     analysis: Mutex<Option<Arc<crate::analysis::AnalysisManager>>>,
     autotag: Mutex<Option<Arc<crate::autotag::AutoTagger>>>,
@@ -7463,6 +7700,7 @@ struct Inner {
     playback_metadata_cache: PreviewAudioCache,
     playback_access_cache: PreviewAudioCache,
     playback_session_epochs: Mutex<HashMap<String, Arc<AtomicU64>>>,
+    direct_youtube_format_misses: Mutex<HashMap<String, (Instant, ProviderSessionStamp)>>,
     chapter_source_cache: Arc<ChapterSourceCache>,
     preview_search: PreviewSearchState,
     slots: Semaphore,
@@ -7657,6 +7895,7 @@ impl AcquisitionManager {
                 connections,
                 monochrome_playback: Mutex::new(None),
                 subsonic: std::sync::OnceLock::new(),
+                jellyfin: std::sync::OnceLock::new(),
                 remote_playlists: Mutex::new(None),
                 analysis: Mutex::new(None),
                 autotag: Mutex::new(None),
@@ -7673,6 +7912,7 @@ impl AcquisitionManager {
                 playback_metadata_cache: PreviewAudioCache::default(),
                 playback_access_cache: PreviewAudioCache::for_signed_stream_access(),
                 playback_session_epochs: Mutex::new(HashMap::new()),
+                direct_youtube_format_misses: Mutex::default(),
                 chapter_source_cache: Arc::new(ChapterSourceCache::default()),
                 preview_search: PreviewSearchState::default(),
                 slots: Semaphore::new(2),
@@ -7989,8 +8229,11 @@ impl AcquisitionManager {
     pub(crate) fn set_subsonic_service(&self, service: Arc<crate::subsonic::Service>) {
         let _ = self.inner.subsonic.set(service);
     }
-    pub(crate) fn subsonic_service(&self) -> Option<&Arc<crate::subsonic::Service>> {
-        self.inner.subsonic.get()
+    pub(crate) fn set_jellyfin_service(&self, service: Arc<crate::subsonic::Service>) {
+        let _ = self.inner.jellyfin.set(service);
+    }
+    pub(crate) fn media_server_service(&self, provider: &str) -> Option<&Arc<crate::subsonic::Service>> {
+        match provider { "subsonic" => self.inner.subsonic.get(), "jellyfin" => self.inner.jellyfin.get(), _ => None }
     }
     pub fn set_autotag_manager(&self, manager: Arc<crate::autotag::AutoTagger>) {
         if let Ok(mut slot) = self.inner.autotag.lock() {
@@ -9002,11 +9245,22 @@ impl AcquisitionManager {
             .as_ref()
             .map(|trace| trace.verified_search_titles().to_vec())
             .unwrap_or_default();
+        let fallback_search_timeout = trace.as_ref().and_then(|trace| {
+            provider_ids
+                .iter()
+                .find_map(|provider| trace.provider_search_timeout(provider))
+        });
         let search_key = |key: String| {
-            if edition_query.is_some() || !alternate_titles.is_empty() {
+            let key = if edition_query.is_some() || !alternate_titles.is_empty() {
                 serde_json::json!([key, edition_query, alternate_titles]).to_string()
             } else {
                 key
+            };
+            // Keep the bounded fallback from waiting on a whole, uncapped
+            // search flight. Individual query pages still share their cache.
+            match fallback_search_timeout {
+                Some(limit) => format!("bounded-search:{}:{key}", limit.as_millis()),
+                None => key,
             }
         };
         // The completed cache stores only full request-scoped results; warmup
@@ -9052,20 +9306,116 @@ impl AcquisitionManager {
                         )
                         .await
                     };
-                    let (found, flat_complete) = if let Some(flat_key) = flat_key {
-                        self.inner
-                            .search_cache
-                            .get_or_search_cancelled_observed_decided_with_completeness_until(
-                                flat_key,
-                                cancel.clone(),
-                                None,
-                                Some(deadline.instant()),
-                                search_flat,
-                            )
-                            .await?
-                    } else {
-                        search_flat().await?
+                    let flat = async {
+                        if let Some(flat_key) = flat_key {
+                            self.inner
+                                .search_cache
+                                .get_or_search_cancelled_observed_decided_with_completeness_until(
+                                    flat_key,
+                                    cancel.clone(),
+                                    None,
+                                    Some(deadline.instant()),
+                                    search_flat,
+                                )
+                                .await
+                        } else {
+                            search_flat().await
+                        }
                     };
+                    let catalog = |catalog_research_deadline| {
+                        let search_track = &search_track;
+                        let alternate_artist = alternate_artist.as_deref();
+                        let alternate_titles = &alternate_titles;
+                        let cancel = cancel.clone();
+                        async move {
+                            let queries = playback_music_catalog_queries_with_title_alternatives(
+                                search_track,
+                                alternate_artist,
+                                alternate_titles,
+                                settings,
+                            );
+                            let classical_album =
+                                crate::spotify_catalog_identity::numbered_movement_album_request(search_track);
+                            let mut queries = queries.into_iter();
+                            let first_pass = if classical_album.is_some() {
+                                queries.by_ref().take(1).collect()
+                            } else {
+                                queries.by_ref().collect()
+                            };
+                            let mut search = |query: String, query_cancel| async move {
+                                let items = crate::youtube_music::search_playback_candidates(
+                                    &query,
+                                    PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT,
+                                    query_cancel,
+                                    deadline,
+                                )
+                                .await?;
+                                Ok(playback_music_catalog_candidates_with_title_alternatives(
+                                    search_track,
+                                    items,
+                                    alternate_titles,
+                                ))
+                            };
+                            let mut result = collect_optional_playback_catalog_candidates(
+                                first_pass,
+                                cancel.clone(),
+                                catalog_research_deadline,
+                                &mut search,
+                            ).await?;
+                            if let Some((album, fingerprint)) = classical_album {
+                                if !result.candidates.iter().any(|candidate| {
+                                    crate::youtube_recording_metadata::preferred_album_locator(search_track, candidate)
+                                }) {
+                                    let album_rows = tokio::select! {
+                                        biased;
+                                        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+                                        result = tokio::time::timeout_at(
+                                            catalog_research_deadline,
+                                            crate::youtube_music::numbered_movement_album_tracks(
+                                                album, &fingerprint, cancel.clone(), deadline,
+                                            ),
+                                        ) => result,
+                                    };
+                                    if let Ok(Ok(items)) = album_rows {
+                                        result.candidates = merge_playback_candidate_rows(
+                                            result.candidates,
+                                            playback_music_catalog_candidates_with_title_alternatives(
+                                                search_track, items, alternate_titles,
+                                            ),
+                                        );
+                                    } else {
+                                        result.complete = false;
+                                    }
+                                }
+                                if !result.candidates.iter().any(|candidate| {
+                                    crate::youtube_recording_metadata::preferred_album_locator(search_track, candidate)
+                                }) {
+                                    let rest = collect_optional_playback_catalog_candidates(
+                                        queries.collect(), cancel.clone(), catalog_research_deadline, &mut search,
+                                    ).await?;
+                                    result.complete &= rest.complete;
+                                    result.candidates = merge_playback_candidate_rows(result.candidates, rest.candidates);
+                                }
+                            }
+                            Ok(result)
+                        }
+                    };
+                    if observe_flat_batch.is_none()
+                        && query_trace.is_some()
+                        && spotify_catalog_lookup_can_overlap(track, provider_ids, settings)
+                        && !optional_playback_research_budget(deadline.remaining()).is_zero()
+                    {
+                        return overlap_spotify_catalog_lookup(
+                            &search_track,
+                            provider_ids,
+                            flat,
+                            catalog,
+                            cancel.clone(),
+                            deadline,
+                        )
+                        .await;
+                    }
+                    let (found, flat_complete) = flat.await?;
                     // Leave a small scheduling margin so the single outer
                     // optional-research timeout cannot drop rows from query 1
                     // while query 2 reaches the same absolute cutoff.
@@ -9080,83 +9430,7 @@ impl AcquisitionManager {
                             found,
                             cancel.clone(),
                             deadline,
-                            || async {
-                                let queries = playback_music_catalog_queries_with_title_alternatives(
-                                    &search_track,
-                                    alternate_artist.as_deref(),
-                                    &alternate_titles,
-                                    settings,
-                                );
-                                let classical_album =
-                                    crate::spotify_catalog_identity::numbered_movement_album_request(&search_track);
-                                let mut queries = queries.into_iter();
-                                let first_pass = if classical_album.is_some() {
-                                    queries.by_ref().take(1).collect()
-                                } else {
-                                    queries.by_ref().collect()
-                                };
-                                let mut search = |query: String, query_cancel| {
-                                    let query_track = search_track.clone();
-                                    let alternate_titles = &alternate_titles;
-                                    async move {
-                                        let items =
-                                            crate::youtube_music::search_playback_candidates(
-                                                &query,
-                                                PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT,
-                                                query_cancel,
-                                                deadline,
-                                            )
-                                            .await?;
-                                        Ok(playback_music_catalog_candidates_with_title_alternatives(
-                                            &query_track,
-                                            items,
-                                            alternate_titles,
-                                        ))
-                                    }
-                                };
-                                let mut result = collect_optional_playback_catalog_candidates(
-                                    first_pass,
-                                    cancel.clone(),
-                                    catalog_research_deadline,
-                                    &mut search,
-                                ).await?;
-                                if let Some((album, fingerprint)) = classical_album {
-                                    if !result.candidates.iter().any(|candidate| {
-                                        crate::youtube_recording_metadata::preferred_album_locator(&search_track, candidate)
-                                    }) {
-                                        let album_rows = tokio::select! {
-                                            biased;
-                                            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
-                                            result = tokio::time::timeout_at(
-                                                catalog_research_deadline,
-                                                crate::youtube_music::numbered_movement_album_tracks(
-                                                    album, &fingerprint, cancel.clone(), deadline,
-                                                ),
-                                            ) => result,
-                                        };
-                                        if let Ok(Ok(items)) = album_rows {
-                                            result.candidates = merge_playback_candidate_rows(
-                                                result.candidates,
-                                                playback_music_catalog_candidates_with_title_alternatives(
-                                                    &search_track, items, &alternate_titles,
-                                                ),
-                                            );
-                                        } else {
-                                            result.complete = false;
-                                        }
-                                    }
-                                    if !result.candidates.iter().any(|candidate| {
-                                        crate::youtube_recording_metadata::preferred_album_locator(&search_track, candidate)
-                                    }) {
-                                        let rest = collect_optional_playback_catalog_candidates(
-                                            queries.collect(), cancel.clone(), catalog_research_deadline, &mut search,
-                                        ).await?;
-                                        result.complete &= rest.complete;
-                                        result.candidates = merge_playback_candidate_rows(result.candidates, rest.candidates);
-                                    }
-                                }
-                                Ok(result)
-                            },
+                            || catalog(catalog_research_deadline),
                             observe_flat_batch,
                             settings.matching_level,
                         )
@@ -9233,6 +9507,61 @@ impl AcquisitionManager {
             .clone();
         let expected = epoch.load(Ordering::SeqCst);
         Ok(ProviderSessionStamp { epoch, expected })
+    }
+
+    pub(crate) fn direct_youtube_skip_reason(
+        &self,
+        candidate: &Candidate,
+        settings: &Settings,
+    ) -> Option<&'static str> {
+        let key = preview_audio_cache_key(candidate, settings, false);
+        if self
+            .inner
+            .playback_metadata_cache
+            .entries
+            .lock()
+            .is_ok_and(|entries| {
+                entries.get(&key).is_some_and(|cached| {
+                    cached.cached_at.elapsed() < cached.ttl && cached.audio.provider_session_current()
+                })
+            })
+        {
+            return Some("cached_extractor_metadata");
+        }
+        self.inner
+            .direct_youtube_format_misses
+            .lock()
+            .ok()?
+            .get(&candidate.id)
+            .filter(|(time, session)| {
+                time.elapsed() < DIRECT_YOUTUBE_FORMAT_MISS_TTL && session.is_current()
+            })
+            .map(|_| "recent_direct_format_miss")
+    }
+
+    pub(crate) fn remember_direct_youtube_format_miss(
+        &self,
+        candidate: &Candidate,
+        session: ProviderSessionStamp,
+    ) {
+        if !session.is_current() {
+            return;
+        }
+        if let Ok(mut misses) = self.inner.direct_youtube_format_misses.lock() {
+            misses.retain(|_, (time, session)| {
+                time.elapsed() < DIRECT_YOUTUBE_FORMAT_MISS_TTL && session.is_current()
+            });
+            if misses.len() >= PREVIEW_AUDIO_CACHE_MAX {
+                if let Some(oldest) = misses
+                    .iter()
+                    .min_by_key(|(_, (time, _))| time)
+                    .map(|(id, _)| id.clone())
+                {
+                    misses.remove(&oldest);
+                }
+            }
+            misses.insert(candidate.id.clone(), (Instant::now(), session));
+        }
     }
 
     /// Playback must verify the full extractor identity before touching its CDN URL.
@@ -14338,6 +14667,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn spotify_catalog_lookup_overlaps_flat_search_and_keeps_merge_order() {
+        let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let providers = ["youtube".to_owned()];
+        let (_cancel_tx, cancel) = idle_cancel();
+        let (catalog_started, wait_for_catalog) = tokio::sync::oneshot::channel();
+        let (flat_finished, wait_for_flat) = tokio::sync::oneshot::channel();
+        let candidate = |id: &str| Candidate {
+            id: format!("youtube:{id}"),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let flat_rows = vec![candidate("flat-only"), candidate("shared")];
+        let catalog_rows = vec![
+            Candidate {
+                duration_seconds: Some(190.),
+                ..candidate("shared")
+            },
+            candidate("catalog-only"),
+        ];
+        let expected = merge_playback_candidate_rows(flat_rows.clone(), catalog_rows.clone());
+        let deadline = crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20));
+        let (rows, complete) = tokio::time::timeout(
+            Duration::from_secs(1),
+            overlap_spotify_catalog_lookup(
+                &track,
+                &providers,
+                async move {
+                    wait_for_catalog.await.unwrap();
+                    flat_finished.send(()).unwrap();
+                    Ok((flat_rows, true))
+                },
+                |research_deadline| async move {
+                    assert!(research_deadline <= deadline.instant() - PLAYBACK_EXTRACTION_RESERVE);
+                    catalog_started.send(()).unwrap();
+                    wait_for_flat.await.unwrap();
+                    Ok(catalog_rows.into())
+                },
+                cancel,
+                deadline,
+            ),
+        )
+        .await
+        .expect("the catalog lookup must start while flat search is pending")
+        .unwrap();
+        assert!(complete);
+        assert_eq!(
+            serde_json::to_value(rows).unwrap(),
+            serde_json::to_value(expected).unwrap(),
+        );
+    }
+
+    #[tokio::test]
+    async fn spotify_catalog_overlap_cancels_without_waiting_for_flat_search() {
+        let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let providers = ["youtube".to_owned()];
+        let (cancel_tx, cancel) = idle_cancel();
+        let (catalog_done, wait_for_catalog) = tokio::sync::oneshot::channel();
+        let request = overlap_spotify_catalog_lookup(
+            &track,
+            &providers,
+            std::future::pending::<Result<(Vec<Candidate>, bool), String>>(),
+            |_| async move {
+                catalog_done.send(()).unwrap();
+                Ok(Vec::<Candidate>::new().into())
+            },
+            cancel,
+            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20)),
+        );
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(request, async {
+                wait_for_catalog.await.unwrap();
+                cancel_tx.send_replace(true);
+            })
+        })
+        .await
+        .expect("cancellation must finish while the flat branch is pending");
+        assert_eq!(result.unwrap_err(), "Cancelled");
+    }
+
+    #[tokio::test]
+    async fn spotify_catalog_overlap_timeout_preserves_flat_rows_without_caching() {
+        let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let providers = ["youtube".to_owned()];
+        let (_cancel_tx, cancel) = idle_cancel();
+        let cache = CandidateSearchCache::default();
+        let key = "spotify-overlap-timeout".to_owned();
+        let first = cache
+            .get_or_search_cancelled_observed_decided(key.clone(), cancel.clone(), None, || {
+                overlap_spotify_catalog_lookup(
+                    &track,
+                    &providers,
+                    async {
+                        Ok((
+                            vec![Candidate {
+                                id: "flat".into(),
+                                ..Candidate::default()
+                            }],
+                            true,
+                        ))
+                    },
+                    |_| std::future::pending(),
+                    cancel.clone(),
+                    crate::playback_sources::PlaybackDeadline::after(
+                        PLAYBACK_EXTRACTION_RESERVE + Duration::from_millis(25),
+                    ),
+                )
+            })
+            .await
+            .unwrap();
+        assert_eq!(first[0].id, "flat");
+        let second = cache
+            .get_or_search_cancelled(key, cancel, || async {
+                Ok(vec![Candidate {
+                    id: "retry".into(),
+                    ..Candidate::default()
+                }])
+            })
+            .await
+            .unwrap();
+        assert_eq!(second[0].id, "retry");
+    }
+
+    #[test]
+    fn spotify_catalog_overlap_skips_edited_pinned_and_classical_tracks() {
+        let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
+        let providers = ["youtube".to_owned()];
+        let settings = Settings::default();
+        assert!(spotify_catalog_lookup_can_overlap(&track, &providers, &settings));
+        for overlay in [
+            serde_json::json!({"manualFields":{"title":true}}),
+            serde_json::json!({"explicitSourceLock":true}),
+            serde_json::json!({"classicalWork":{"classical":true}}),
+        ] {
+            let mut excluded = track.clone();
+            excluded
+                .provenance
+                .as_object_mut()
+                .unwrap()
+                .extend(overlay.as_object().unwrap().clone());
+            assert!(!spotify_catalog_lookup_can_overlap(&excluded, &providers, &settings));
+        }
+        assert!(!spotify_catalog_lookup_can_overlap(&track, &["soundcloud".into()], &settings));
+    }
+
+    #[tokio::test]
     async fn flat_warm_cache_is_distinct_and_foreground_completes_catalog_before_caching() {
         let cache = CandidateSearchCache::default();
         let track = Track {
@@ -15900,7 +16374,7 @@ mod tests {
 
     #[test]
     fn official_generated_remix_roles_from_full_extractor_respect_flat_credit_evidence() {
-        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
+        use crate::recording_match::{MatchAction, MatchLevel, MatchStage, assess};
 
         let id = "RJaQjFrqvXQ";
         let title = "Plástico (Bugz In The Attic Remix)";
@@ -20447,6 +20921,40 @@ printf 'BURRATA_FILE "%s"\n' "$destination"
 
     #[cfg(unix)]
     #[test]
+    fn managed_helper_temp_uses_private_system_temp_under_storage_pressure() {
+        use std::os::unix::fs::MetadataExt;
+
+        let profile = tempfile::tempdir().unwrap();
+        let system = tempfile::tempdir().unwrap();
+        let root = profile.path().join("youtube-support/helper-tmp");
+        let temp = helper_temp_dir_with(Some(&root), system.path(), |path| {
+            Some(if path == root {
+                51 * 1024 * 1024
+            } else {
+                MANAGED_HELPER_TEMP_HEADROOM
+            })
+        })
+        .unwrap();
+        let path = temp.path().to_owned();
+        assert_eq!(path.parent(), Some(system.path()));
+        assert_eq!(std::fs::metadata(&path).unwrap().mode() & 0o077, 0);
+        drop(temp);
+        assert!(!path.exists());
+
+        let failure = helper_temp_dir_with(Some(&root), system.path(), |_| Some(0)).unwrap_err();
+        assert_eq!(failure, HELPER_TEMP_NO_SPACE);
+        assert_eq!(
+            crate::playback_failure::classify(&failure).category,
+            crate::playback_failure::FailureCategory::Storage
+        );
+        assert_eq!(
+            crate::playback_failure::extractor_diagnostic_reason(&failure),
+            "storage_unavailable"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn managed_helper_temp_rejects_unsafe_or_malformed_roots() {
         use std::os::unix::fs::{symlink, PermissionsExt};
         let profile = tempfile::tempdir().unwrap();
@@ -21364,6 +21872,49 @@ echo "$result"
         assert_eq!(ranges, vec!["0-1023", "2096128-2097151"]);
     }
 
+    #[tokio::test]
+    async fn preview_access_rejects_a_denied_tail_even_when_the_head_works() {
+        use axum::{extract::Path, http::{HeaderMap, StatusCode}, response::IntoResponse, routing::get, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        const STREAM_BYTES: u64 = 2 * 1024 * 1024;
+        let denied_tails = Arc::new(AtomicUsize::new(0));
+        let observed_denials = denied_tails.clone();
+        let router = Router::new().route("/{url_state}", get(
+            move |Path(url_state): Path<String>, headers: HeaderMap| async move {
+                let start = match headers.get("range").and_then(|value| value.to_str().ok()) {
+                    Some("bytes=0-1023") => 0,
+                    Some("bytes=2096128-2097151") => STREAM_BYTES - 1024,
+                    other => panic!("Unexpected playback probe range {other:?}"),
+                };
+                if url_state == "stale" && start != 0 {
+                    observed_denials.fetch_add(1, Ordering::Relaxed);
+                    return (StatusCode::FORBIDDEN, "expired stream access").into_response();
+                }
+                (StatusCode::PARTIAL_CONTENT, [
+                    ("content-type", "audio/mp4".to_owned()),
+                    ("content-range", format!("bytes {start}-{}/{STREAM_BYTES}", start + 1023)),
+                ], vec![b'a'; 1024]).into_response()
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(4)).build().unwrap();
+        let (_cancel, mut cancellation) = watch::channel(false);
+        let stale = url::Url::parse(&format!("http://{address}/stale")).unwrap();
+        let result = verify_preview_audio_access(&client, &stale, &[], Some(STREAM_BYTES), &mut cancellation).await;
+        assert!(result.unwrap_err().contains("HTTP 403"));
+        assert_eq!(denied_tails.load(Ordering::Relaxed), 2);
+
+        let fresh = url::Url::parse(&format!("http://{address}/fresh")).unwrap();
+        verify_preview_audio_access(&client, &fresh, &[], Some(STREAM_BYTES), &mut cancellation).await.unwrap();
+        server.abort();
+    }
+
     #[test]
     fn fresh_stream_forbidden_gets_longer_bounded_retry_than_throttling() {
         assert_eq!(
@@ -22193,6 +22744,76 @@ echo "$result"
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    #[test]
+    fn direct_youtube_prefers_current_metadata_and_remembers_only_recent_source_format_misses() {
+        let store = Arc::new(Store::open(Path::new(":memory:")).unwrap());
+        let manager = AcquisitionManager::new_for_playback_test(
+            store.clone(),
+            Arc::new(ConnectionManager::new(store)),
+        );
+        let settings = Settings::default();
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:_l1DbqVacBc".into(),
+            url: "https://www.youtube.com/watch?v=_l1DbqVacBc".into(),
+            ..Default::default()
+        };
+        let other = Candidate {
+            id: "youtube:mq-AtefGO9M".into(),
+            url: "https://www.youtube.com/watch?v=mq-AtefGO9M".into(),
+            ..candidate.clone()
+        };
+        let skip = |candidate| manager.direct_youtube_skip_reason(candidate, &settings);
+        assert_eq!(skip(&candidate), None);
+        let stamp = manager.playback_provider_stamp("youtube").unwrap();
+        manager.remember_direct_youtube_format_miss(&candidate, stamp.clone());
+        assert_eq!(skip(&candidate), Some("recent_direct_format_miss"));
+        assert_eq!(skip(&other), None);
+        manager
+            .inner
+            .direct_youtube_format_misses
+            .lock()
+            .unwrap()
+            .get_mut(&candidate.id)
+            .unwrap()
+            .0 = Instant::now() - DIRECT_YOUTUBE_FORMAT_MISS_TTL;
+        assert_eq!(skip(&candidate), None);
+        manager.remember_direct_youtube_format_miss(&candidate, stamp.clone());
+        let key = preview_audio_cache_key(&candidate, &settings, false);
+        manager
+            .inner
+            .playback_metadata_cache
+            .entries
+            .lock()
+            .unwrap()
+            .insert(
+                key,
+                CachedPreviewAudio {
+                    cached_at: Instant::now(),
+                    ttl: Duration::from_secs(30),
+                    audio: PreviewAudio {
+                        provider_session: Some(stamp),
+                        url: "https://r1---fixture.googlevideo.com/audio".into(),
+                        mime_type: "audio/mp4".into(),
+                        codec: None,
+                        bitrate_kbps: None,
+                        duration_seconds: None,
+                        selected_format_id: None,
+                        selected_format_has_video: false,
+                        source_metadata: None,
+                        resolved_title: None,
+                        resolved_provider_id: None,
+                        chapters: None,
+                        expected_content_length: None,
+                        headers: vec![],
+                    },
+                },
+            );
+        assert_eq!(skip(&candidate), Some("cached_extractor_metadata"));
+        manager.invalidate_playback_provider_session("youtube");
+        assert_eq!(skip(&candidate), None);
+    }
+
     #[tokio::test]
     async fn preview_audio_cache_hit_is_correlated_but_emits_no_monochrome_probe() {
         let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
@@ -22234,6 +22855,7 @@ echo "$result"
                     traced_monochrome_probe(
                         Some(worker_trace.with_shared_lookup(lookup_id)),
                         probe_cancel,
+                        tokio::time::Instant::now() + Duration::from_secs(1),
                         || async { Ok(crate::models::Candidate::default()) },
                     )
                     .await
@@ -22274,6 +22896,44 @@ echo "$result"
     }
 
     #[tokio::test]
+    async fn monochrome_playback_probe_stops_early_enough_for_decoder_startup() {
+        use crate::playback_sources::PlaybackDeadline;
+
+        let startup = PlaybackDeadline::after(Duration::from_secs(20));
+        let now = tokio::time::Instant::now();
+        let first_probe = monochrome_playback_probe_deadline(startup);
+        assert!(first_probe >= now + Duration::from_secs(12));
+        assert!(first_probe <= tokio::time::Instant::now() + Duration::from_secs(12));
+
+        let short_startup = PlaybackDeadline::after(Duration::from_secs(5));
+        let retry_probe = monochrome_playback_probe_deadline(short_startup);
+        assert_eq!(short_startup.instant() - retry_probe, Duration::from_secs(4));
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let failure = traced_monochrome_probe(
+            None,
+            cancel.clone(),
+            tokio::time::Instant::now() + Duration::from_millis(5),
+            std::future::pending::<Result<(), String>>,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            crate::playback_failure::classify(&failure).category,
+            crate::playback_failure::FailureCategory::Timeout
+        );
+
+        let too_late = PlaybackDeadline::after(Duration::from_secs(1));
+        let result = traced_monochrome_probe::<_, _, ()>(
+            None,
+            cancel,
+            monochrome_playback_probe_deadline(too_late),
+            || async { panic!("exhausted probe must not open another connection") },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), failure);
+    }
+
+    #[tokio::test]
     async fn monochrome_probe_trace_marks_explicit_cancel_and_outer_deadline_drop() {
         let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
         let output = events.clone();
@@ -22289,10 +22949,15 @@ echo "$result"
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let cancel_trace = trace.clone().with_shared_lookup(lookup_id);
         let cancelled_probe = tokio::spawn(async move {
-            traced_monochrome_probe(Some(cancel_trace), cancel_rx, || async move {
-                let _ = started_tx.send(());
-                std::future::pending::<Result<crate::models::Candidate, String>>().await
-            })
+            traced_monochrome_probe(
+                Some(cancel_trace),
+                cancel_rx,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                || async move {
+                    let _ = started_tx.send(());
+                    std::future::pending::<Result<crate::models::Candidate, String>>().await
+                },
+            )
             .await
         });
         started_rx.await.unwrap();
@@ -22303,9 +22968,12 @@ echo "$result"
         let deadline_trace = trace.clone().with_shared_lookup(lookup_id);
         let deadline = tokio::time::timeout(
             Duration::from_millis(5),
-            traced_monochrome_probe(Some(deadline_trace.clone()), deadline_cancel, || async {
-                std::future::pending::<Result<crate::models::Candidate, String>>().await
-            }),
+            traced_monochrome_probe(
+                Some(deadline_trace.clone()),
+                deadline_cancel,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                std::future::pending::<Result<crate::models::Candidate, String>>,
+            ),
         )
         .await;
         assert!(

@@ -232,7 +232,9 @@ the frontend to cancel its outstanding reads.
 The visible search can also be inspected and controlled through three bounded
 tools. `inspect_search_ui` reads a page of currently loaded, filtered and sorted
 playable track occurrences from the Search view (up to 200 rows), with a fresh
-UUID revision and short-lived opaque occurrence tokens. `set_search_continuation`
+UUID revision and short-lived opaque occurrence tokens. `unavailableSourceIds`
+lists visible providers whose requests failed. A `ready` response means the
+inspection succeeded. A provider may still be unavailable. `set_search_continuation`
 changes whether playing a displayed result snapshots the loaded search results
 into the queue; it requires the current revision and the preference remains
 off by default. `play_search_result` requires the same revision and one token

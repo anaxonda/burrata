@@ -11,7 +11,6 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Duration;
 
 const MAX_PAGE: usize = 50;
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -466,6 +465,22 @@ fn rank_youtube_results(
     });
 }
 
+fn rank_bandcamp_results(rows: &mut [crate::providers::bandcamp::SearchResult], query: &str) {
+    use crate::matching::normalize;
+
+    let query = normalize(query);
+    // Preserve Bandcamp's ordering except for explicit artist-and-title matches.
+    rows.sort_by_cached_key(|row| {
+        !row.track.as_ref().is_some_and(|track| {
+            let artist = normalize(&track.artist);
+            let title = normalize(&track.title);
+            !artist.is_empty()
+                && !title.is_empty()
+                && (query == format!("{artist} {title}") || query == format!("{title} {artist}"))
+        })
+    });
+}
+
 fn append_remote_catalog_results(out: &mut DiscoveryPage, source_id: &str, page: &Value) {
     out.next_cursor = page
         .get("nextCursor")
@@ -582,13 +597,12 @@ fn library_search_page(
     Ok((rows, next))
 }
 async fn search_musicbrainz_recordings(
+    artists: &ArtistService,
     query: &str,
     isrc: Option<&str>,
     limit: usize,
     page: u32,
 ) -> Result<(Vec<Value>, bool), String> {
-    let mut url =
-        url::Url::parse("https://musicbrainz.org/ws/2/recording").map_err(|e| e.to_string())?;
     let isrc = isrc.filter(|s| {
         !s.trim().is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     });
@@ -599,35 +613,10 @@ async fn search_musicbrainz_recordings(
                 .unwrap_or_else(|| query.split_whitespace().collect::<Vec<_>>().join(" "))
         });
     let limit = limit.clamp(1, 50);
-    url.query_pairs_mut()
-        .append_pair("query", &lucene)
-        .append_pair("fmt", "json")
-        .append_pair("limit", &limit.to_string())
-        .append_pair(
-            "offset",
-            &page
-                .saturating_sub(1)
-                .saturating_mul(limit as u32)
-                .to_string(),
-        )
-        .append_pair("inc", "artist-credits+isrcs+genres+releases");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent("Burrata/0.1.0 (music discovery)")
-        .build()
-        .map_err(|e| e.to_string())?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("MusicBrainz recording search failed: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("MusicBrainz returned HTTP {}", response.status()));
-    }
-    let body: Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Invalid MusicBrainz recording response: {e}"))?;
+    let offset = page.saturating_sub(1).saturating_mul(limit as u32);
+    let body = artists
+        .discovery_recording_search(&lucene, limit, offset)
+        .await?;
     let more = body["count"]
         .as_u64()
         .is_some_and(|count| count > page.saturating_mul(limit as u32) as u64);
@@ -643,7 +632,7 @@ fn classical_musicbrainz_query(query: &str) -> Option<String> {
     }
     let normalized = crate::matching::normalize(query);
     let words = normalized.split_whitespace().take(32).collect::<Vec<_>>();
-    let (start, end) = words.iter().enumerate().find_map(|(index, title)| {
+    let (start, end, required_recording) = words.iter().enumerate().find_map(|(index, title)| {
         if !matches!(
             *title,
             "symphony" | "concerto" | "sonata" | "suite" | "quartet" | "partita"
@@ -656,15 +645,22 @@ fn classical_musicbrainz_query(query: &str) -> Option<String> {
             } else {
                 1
             };
-        let number_word = words.get(number)?;
-        (number_word.len() <= 3 && number_word.bytes().all(|b| b.is_ascii_digit()))
-            .then_some((index, number))
+        if let Some(number_word) = words.get(number).filter(|word| {
+            word.len() <= 3 && word.bytes().all(|byte| byte.is_ascii_digit())
+        }) {
+            return Some((index, number, format!("({title} AND {number_word})")));
+        }
+        let instrument_index = index.checked_sub(1)?;
+        let instrument = words[instrument_index];
+        (*title == "concerto"
+            && matches!(instrument, "violin" | "viola" | "cello" | "piano" | "flute" | "oboe" | "clarinet" | "bassoon" | "harp" | "trumpet" | "horn"))
+            .then(|| (instrument_index, index, format!("\"{instrument} concerto\"")))
     })?;
-    let mut query = format!("+recording:({} AND {})", words[start], words[end]);
+    let mut query = format!("+recording:{required_recording}");
     for word in words[..start].iter().chain(&words[end + 1..]).take(18) {
         if word.len() >= 2 && word.chars().all(char::is_alphanumeric) {
             // Composer/performer words can occur in either indexed field.
-            // Require the numbered work itself so a rare name cannot fill the page.
+            // Require the work words so a rare name cannot fill the page.
             query.push_str(&format!(
                 " (artistname:\"{word}\"^4 OR recording:\"{word}\")"
             ));
@@ -751,6 +747,7 @@ fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
             "releaseGroupId":release.and_then(|release| release["release-group"]["id"].as_str()),
             "artworkAlternates":artwork,"catalog":{
             "provider":"musicbrainz","recordingId":rid,"artistCredit":credit_names,
+            "video":recording["video"].as_bool(),
             "artists":artist_refs,"isrcs":recording["isrcs"],"verified":true,
         }}),
         ..Track::default()
@@ -1033,11 +1030,12 @@ impl DiscoveryService {
                 }
                 if kind_ok(&request, "track") {
                     let search_limit = limit.min(crate::monochrome::INTERACTIVE_SEARCH_LIMIT);
-                    let (tracks, raw_count) = self.search_monochrome(q, search_limit).await?;
+                    let (mut tracks, raw_count) = self.search_monochrome(q, search_limit).await?;
                     // The public API provides no total count or continuation
                     // cursor. Mark a full result batch incomplete without
                     // inventing an offset that the endpoint ignores.
                     note_monochrome_search_coverage(&mut out, raw_count, search_limit);
+                    filter_monochrome_track_results(q, &mut tracks);
                     for (track, _) in tracks.into_iter().take(limit) {
                         let track = self.store.cache_track(&track)?;
                         out.results.push(track_result(source_id, track));
@@ -1045,9 +1043,10 @@ impl DiscoveryService {
                 }
             }
             "bandcamp" => {
-                let items = crate::providers::bandcamp::Bandcamp::new()
+                let mut items = crate::providers::bandcamp::Bandcamp::new()
                     .search(q, &request.kinds)
                     .await?;
+                rank_bandcamp_results(&mut items, q);
                 for mut item in items {
                     if let Some(track) = item.track.take() {
                         let track = self.store.cache_track(&track)?;
@@ -1101,9 +1100,14 @@ impl DiscoveryService {
                     out.warnings = p.warnings;
                 }
                 if kind_ok(&request, "track") {
-                    let (recordings, more) =
-                        search_musicbrainz_recordings(q, request.isrc.as_deref(), limit, page)
-                            .await?;
+                    let (recordings, more) = search_musicbrainz_recordings(
+                        &self.artists,
+                        q,
+                        request.isrc.as_deref(),
+                        limit,
+                        page,
+                    )
+                    .await?;
                     if more && out.next_cursor.is_none() {
                         out.next_cursor = Some((page + 1).to_string());
                     }
@@ -1918,6 +1922,46 @@ fn note_monochrome_search_coverage(page: &mut DiscoveryPage, raw_count: usize, l
     }
 }
 
+fn filter_monochrome_track_results(
+    query: &str,
+    tracks: &mut Vec<(Track, crate::models::Candidate)>,
+) {
+    use crate::matching::normalize;
+
+    let query = normalize(query);
+    let terms = query.split_whitespace().collect::<Vec<_>>();
+    if terms.len() < 2 {
+        return;
+    }
+    // Keep the provider's fuzzy matches unless a row already covers the
+    // query. Only prune rows with no shared title, artist, or album terms.
+    let has_full_match = tracks.iter().any(|(track, _)| {
+        let title = normalize(&track.title);
+        let artist = normalize(&track.artist);
+        terms.iter().all(|term| {
+            title.split_whitespace().any(|word| word == *term)
+                || artist.split_whitespace().any(|word| word == *term)
+        })
+    });
+    if has_full_match {
+        tracks.retain(|(track, _)| {
+            [
+                Some(track.title.as_str()),
+                Some(track.artist.as_str()),
+                track.album.as_deref(),
+                track.album_artist.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|field| {
+                normalize(field)
+                    .split_whitespace()
+                    .any(|word| terms.contains(&word))
+            })
+        });
+    }
+}
+
 /// Convenient entry points for Tauri command registration.
 pub async fn search_source(
     service: &DiscoveryService,
@@ -2059,13 +2103,14 @@ mod tests {
 
         async fn search(Query(query): Query<HashMap<String, String>>) -> Json<Value> {
             assert_eq!(query.get("q").map(String::as_str), Some("Fixture Song"));
-            Json(json!({"tracks":[{
-                "trackId":"12345678901234567",
-                "title":"Fixture Song",
-                "artistNames":["Fixture Artist"],
-                "duration":180000,
-                "playable":true
-            }]}))
+            Json(json!({"tracks":[
+                {"trackId":"12345678901234567", "title":"Fixture Song",
+                 "artistNames":["Fixture Artist"], "duration":180000, "playable":true},
+                {"trackId":"12345678901234568", "title":"Animals",
+                 "artistNames":["Maroon 5"], "duration":180000, "playable":true},
+                {"trackId":"12345678901234569", "title":"Fixture Song (Live)",
+                 "artistNames":["Another Artist"], "duration":200000, "playable":true}
+            ]}))
         }
 
         let app = Router::new().route("/search/tracks", get(search));
@@ -2104,6 +2149,17 @@ mod tests {
             .unwrap();
         server.abort();
 
+        assert_eq!(
+            page.results
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["monochrome:12345678901234567", "monochrome:12345678901234569"]
+        );
+        assert!(store
+            .get_track("monochrome:12345678901234568")
+            .unwrap()
+            .is_none());
         let result = page
             .results
             .iter()
@@ -2651,6 +2707,37 @@ mod tests {
         rank_youtube_results(&mut rows, "Mary Big Thief", false, true);
         assert_eq!(rows[0].id, "mary");
     }
+
+    #[test]
+    fn bandcamp_discovery_promotes_exact_artist_title_and_preserves_other_order() {
+        let raw = json!({"auto":{"results":[
+            {"type":"t","id":1,"name":"Gentleman (Remix)","band_name":"Sonic Funk Foundry",
+             "item_url_path":"https://sonicfunkfoundry.bandcamp.com/track/gentleman-remix"},
+            {"type":"a","id":2,"name":"Gentleman","band_name":"Fela Kuti",
+             "item_url_path":"https://felakuti.bandcamp.com/album/gentleman"},
+            {"type":"t","id":3,"name":"Gentleman","band_name":"Fela Kuti",
+             "item_url_path":"https://felakuti.bandcamp.com/track/gentleman"},
+            {"type":"t","id":4,"name":"Gentleman","band_name":"Fela Kuti",
+             "item_url_path":"https://label.bandcamp.com/track/gentleman"},
+            {"type":"t","id":5,"name":"Gentleman","band_name":"Another Artist",
+             "item_url_path":"https://anotherartist.bandcamp.com/track/gentleman"}
+        ]}});
+        for (query, expected) in [
+            ("Fela Kuti — Gentleman", [3, 4, 1, 2, 5]),
+            ("GENTLEMAN Fela Kuti", [3, 4, 1, 2, 5]),
+            ("Gentleman", [1, 2, 3, 4, 5]),
+            ("Fela Kuti Gentleman Live", [1, 2, 3, 4, 5]),
+        ] {
+            let mut rows = crate::providers::bandcamp::parse_results(&raw, &[]);
+            rank_bandcamp_results(&mut rows, query);
+            let ids = rows
+                .iter()
+                .map(|row| row.id.rsplit(':').next().unwrap().parse::<u64>().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, expected, "{query}");
+        }
+    }
+
     #[test]
     fn registry_contains_searchable_catalogs_and_library_only() {
         let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
@@ -2816,6 +2903,16 @@ mod tests {
             super::classical_musicbrainz_query("artist:Carlos Kleiber Symphony 5"),
             None
         );
+    }
+
+    #[test]
+    fn classical_musicbrainz_query_handles_an_unnumbered_instrumental_concerto() {
+        let query = super::classical_musicbrainz_query("Tchaikovsky Violin Concerto Hilary Hahn").unwrap();
+        assert!(query.starts_with("+recording:\"violin concerto\""));
+        for name in ["tchaikovsky", "hilary", "hahn"] {
+            assert!(query.contains(&format!("artistname:\"{name}\"^4")));
+        }
+        assert_eq!(super::classical_musicbrainz_query("festival concerto recording"), None);
     }
 
     #[test]

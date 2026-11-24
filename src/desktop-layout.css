@@ -1,11 +1,11 @@
 /* One persistent desktop shell, including split-screen and phone widths. */
 .app-shell { position:relative; }
 .player-panel-host { position:relative;grid-column:3;grid-row:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border-left:1px solid var(--line); }
-.app-shell .player-panel-host.fullscreen-queue { position:fixed; z-index:56; inset:0 0 var(--player-height,96px) auto; grid-column:auto; grid-row:auto; box-sizing:border-box; width:min(var(--info-panel-width,340px),calc(100vw - 64px)); box-shadow:-12px 0 32px #0004; animation:fullscreen-queue-enter 200ms ease-out; }
-@keyframes fullscreen-queue-enter { from { transform:translateX(100%); } to { transform:translateX(0); } }
-@media (prefers-reduced-motion:reduce) { .app-shell .player-panel-host.fullscreen-queue { animation:none; } }
+.app-shell .player-panel-host.fullscreen-panel { position:fixed; z-index:56; inset:0 0 var(--player-height,96px) auto; grid-column:auto; grid-row:auto; box-sizing:border-box; width:min(var(--info-panel-width,340px),calc(100vw - 64px)); box-shadow:-12px 0 32px #0004; animation:fullscreen-panel-enter 200ms ease-out; }
+@keyframes fullscreen-panel-enter { from { transform:translateX(100%); } to { transform:translateX(0); } }
+@media (prefers-reduced-motion:reduce) { .app-shell .player-panel-host.fullscreen-panel { animation:none; } }
 @media (min-width:701px) {
-  .app-shell:has(.fullscreen-queue) .now-playing-view { right:min(var(--info-panel-width,340px),calc(100vw - 64px)); }
+  .app-shell:has(.fullscreen-panel) .now-playing-view { right:min(var(--info-panel-width,340px),calc(100vw - 64px)); }
 }
 .player-panel-tabs { display:flex;gap:6px;padding:10px;border-bottom:1px solid var(--line);flex:0 0 auto; }
 .player-panel-tabs button { background:transparent;color:var(--muted);padding:7px 10px; }
@@ -15,6 +15,7 @@
 .player-panel-host .playing-info { height:100%;border:0;border-radius:0;box-shadow:none; }
 .app-shell .player-panel-host .playback-queue-panel { position:relative;inset:auto;width:100%;flex:1;border:0;border-radius:0;box-shadow:none; }
 .player-panel-host .playing-info > header .close,.player-panel-host .playback-queue-panel > header .close { display:none; }
+.player-panel-host.fullscreen-panel .playing-info > header .close { display:inline-grid; place-items:center; }
 @media(min-width:1200px) { .app-shell.has-player-panel {grid-template-columns:var(--library-sidebar-width,200px) minmax(0,1fr) var(--info-panel-width,340px);} }
 @media(max-width:1199px) { .player-panel-host {position:absolute;z-index:35;grid-column:auto;grid-row:auto;left:var(--library-sidebar-width,200px);right:0;top:0;bottom:var(--player-height,96px);width:auto;} }
 @media(max-width:900px) { .player-panel-host {left:64px;} }
@@ -232,6 +233,17 @@
   .app-shell > main > header:not(.playlist-header) .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }
 .playlist-header .playlist-action-scope { color:var(--muted); font-size:12px; }
+.library-source-filter {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+.library-source-filter select { min-width: 0; }
 .playlist-header > div:nth-child(2) { flex:1; min-width:0; }
 .chart-context.import-context { justify-content:flex-start; }
 .chart-context.import-context > span:empty { display:none; }

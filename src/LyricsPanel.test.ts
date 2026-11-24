@@ -22,6 +22,56 @@ function render(result: CurrentTrackLyrics, absolutePosition = 0, extra: Record<
 }
 
 describe("LyricsPanel", () => {
+  it("selects a synced YouTube transcript for the exact playing video and switches back to song lyrics", async () => {
+    const invoke = vi.fn(async () => ({ language: "en", automatic: true, lines: [
+      { id: "caption-1", timeSeconds: 39, text: "First caption" },
+      { id: "caption-2", timeSeconds: 44, text: "Second caption" },
+    ] }));
+    const onSeek = vi.fn();
+    const playing = { ...track, id: "youtube:_l1DbqVacBc", providerId: "_l1DbqVacBc" };
+    vi.stubGlobal("__TAURI__", { core: { invoke } });
+    try {
+      const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Song lyrics here" }, 40, { onSeek, transcriptTrack: playing });
+      await settle();
+      target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();
+      await settle();
+      expect(invoke).not.toHaveBeenCalled();
+      [...target.querySelectorAll("button")].find(button => button.textContent === "Show YouTube transcript")!.click();
+      await settle();
+      expect(invoke).toHaveBeenCalledWith("get_current_youtube_transcript", { videoId: "_l1DbqVacBc" });
+      expect(target.querySelector("h2")?.textContent).toBe("YouTube transcript");
+      expect(target.querySelector("p.active")?.textContent).toBe("First caption");
+      expect(target.textContent).toContain("Automatic captions · en");
+      target.querySelectorAll<HTMLButtonElement>(".lyrics-seek-line")[1].click();
+      expect(onSeek).toHaveBeenCalledWith(44);
+      [...target.querySelectorAll("button")].find(button => button.textContent === "Show song lyrics")!.click();
+      await settle();
+      expect(target.querySelector("h2")?.textContent).toBe("Lyrics");
+      expect(target.textContent).toContain("Song lyrics here");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the current lyrics when a YouTube upload has no timed captions", async () => {
+    const invoke = vi.fn(async () => null);
+    vi.stubGlobal("__TAURI__", { core: { invoke } });
+    try {
+      const { target } = render({ status: "unsynced", provider: "lrclib", plainLyrics: "Keep these lyrics" }, 0, {},
+        { ...track, id: "youtube:_l1DbqVacBc", providerId: "_l1DbqVacBc" });
+      await settle();
+      target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();
+      await settle();
+      [...target.querySelectorAll("button")].find(button => button.textContent === "Show YouTube transcript")!.click();
+      await settle();
+      expect(target.querySelector("h2")?.textContent).toBe("Lyrics");
+      expect(target.textContent).toContain("YouTube has no timed captions for this video.");
+      expect(target.textContent).toContain("Keep these lyrics");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("updates the next-cue countdown immediately even when a small shift keeps the same line highlighted",async()=>{
     const {target}=render({status:"synced",provider:"lrclib",sourceHash:"countdown-source",lines:[{id:"a",timeSeconds:10,text:"Current cue"},{id:"b",timeSeconds:20,text:"Next cue"}]},15);
     await settle();target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();

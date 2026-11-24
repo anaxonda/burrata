@@ -101,6 +101,8 @@ pub struct LibraryEntityPage {
 pub struct LibraryTrackPage {
     pub tracks: Vec<Track>,
     pub total: usize,
+    #[serde(rename = "snapshotId", skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
 }
 
 pub(super) fn initialize(conn: &Connection) -> Result<()> {
@@ -1216,6 +1218,30 @@ fn artist_combination(track: &Track, entries: &[LibraryEntity]) -> Option<Librar
 
 pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
     let p = &track.provenance;
+    if matches!(track.provider.as_str(), "subsonic" | "jellyfin") {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let Some((account, _)) = track.provider_id.split_once('.') else { return Vec::new() };
+        let scoped = |id: &str| format!("{account}.{}", URL_SAFE_NO_PAD.encode(id.as_bytes()));
+        let artist = string_at(p, &["/serverArtistId", "/subsonicArtistId"])
+            .filter(|_| p["manualFields"]["artist"] != true)
+            .map(scoped)
+            .unwrap_or_else(|| format!("{account}.metadata.{}", URL_SAFE_NO_PAD.encode(normalized(&track.artist).as_bytes())));
+        let mut result = Vec::new();
+        if let Some(credits) = p[LIBRARY_ARTIST_CREDITS].as_array() {
+            result.extend(credits.iter().filter_map(|credit| {
+                let name = string_at(credit, &["/name"])?;
+                let scoped_name = format!("{account}.metadata.{}", URL_SAFE_NO_PAD.encode(normalized(name).as_bytes()));
+                Some(entity("artist", name, track, Some(&track.provider), Some(&scoped_name)))
+            }));
+        } else if !track.artist.trim().is_empty() {
+            result.push(entity("artist", &track.artist, track, Some(&track.provider), Some(&artist)));
+        }
+        if let (Some(name), Some(id)) = (track.album.as_deref().filter(|name| !name.trim().is_empty()),
+            string_at(p, &["/serverAlbumId", "/subsonicAlbumId"])) {
+            result.push(entity("album", name, track, Some(&track.provider), Some(&scoped(id))));
+        }
+        return result.into_iter().filter_map(|entry| entry.validate().ok()).collect();
+    }
     let mut result = Vec::new();
     let manual_artist = p.pointer("/manualFields/artist") == Some(&json!(true));
     if let Some(credits) = p[LIBRARY_ARTIST_CREDITS].as_array() {
@@ -1361,20 +1387,27 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
         // Scan the table in storage order and sort saved rows afterward. An
         // ID-index scan would read large metadata pages in random order, even
         // for the unsaved catalog rows it ultimately discards.
+        let membership = if super::server_library::has_visible_catalog(conn)? {
+            format!("(l.in_library=1 OR {})", super::server_library::VISIBLE_TRACK)
+        } else { "l.in_library=1".into() };
         let raw_tracks = conn
-            .prepare("SELECT metadata FROM catalog_listings NOT INDEXED WHERE id=recording_id AND in_library=1 ORDER BY id")
+            .prepare(&format!("SELECT l.metadata FROM catalog_listings l NOT INDEXED WHERE l.id=l.recording_id AND {membership} ORDER BY l.id"))
             .map_err(err)?
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(err)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(err)?;
         mark("listings", started.elapsed());
-        let tracks = hydrate_page_tracks(
+        // Cross-recording reuse supplies playback availability, which artist
+        // and album membership do not need. An existing asset still follows
+        // normal selection rules because its autotags can change membership.
+        let tracks = hydrate_track_batches(
             conn,
             raw_tracks
                 .into_iter()
                 .map(decode)
                 .collect::<Result<Vec<Track>>>()?,
+            false,
         )?;
         mark("hydrate", started.elapsed());
         let local_resolutions = super::local_albums::reconcile(conn, &tracks)?;
@@ -1502,10 +1535,9 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                 known_artists
                     .entry(entry.id.clone())
                     .or_insert_with(|| entry.clone());
-                named_refs
-                    .entry(normalized(&entry.name))
-                    .or_default()
-                    .insert(entry.id.clone());
+                if !matches!(entry.provider.as_deref(), Some("subsonic" | "jellyfin")) {
+                    named_refs.entry(normalized(&entry.name)).or_default().insert(entry.id.clone());
+                }
             }
         }
         // A verified alias component has one identity even if its providers
@@ -1800,6 +1832,7 @@ impl Store {
             return Ok(LibraryTrackPage {
                 tracks: Vec::new(),
                 total: 0,
+                snapshot_id: None,
             });
         }
         let mut source_positions = std::collections::HashMap::new();
@@ -1886,6 +1919,7 @@ impl Store {
         Ok(LibraryTrackPage {
             tracks: tracks[start..end].to_vec(),
             total,
+            snapshot_id: None,
         })
     }
 
@@ -1967,16 +2001,45 @@ impl Store {
         } else {
             album_match
         };
-        let filter = format!("e.kind=?1 {grouping_filter} AND ({text_match} {search_sources}) AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id)) AND (?4 IS NULL OR {source_filter}) AND (?5 IS NULL OR substr(COALESCE(json_extract(e.payload,'$.releaseDate'),''),1,4)=?5)");
+        let saved_members = "FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=e.id AND l.in_library=1";
+        let selection = source.and_then(server_library::SourceSelection::combined);
+        let source_condition = if let Some(selection) = selection {
+            let mut conditions = vec!["0".to_owned()];
+            if selection.saved {
+                conditions.push(format!(
+                    "json_extract(e.payload,'$.explicitlySaved')=1 OR EXISTS(SELECT 1 {saved_members})"
+                ));
+            }
+            for (provider, selected) in [("jellyfin", selection.jellyfin), ("subsonic", selection.subsonic)] {
+                if !selected { continue; }
+                if kind == "artist" && matches!(artist_grouping, ArtistGrouping::Credited) {
+                    conditions.push(format!("EXISTS(SELECT 1 FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=e.id AND l.provider='{provider}')"));
+                } else {
+                    conditions.push(format!("{catalog_source}='{provider}'"));
+                }
+            }
+            conditions.join(" OR ")
+        } else {
+            format!("(?4='__saved__' AND (json_extract(e.payload,'$.explicitlySaved')=1 OR EXISTS(SELECT 1 {saved_members}))) OR {source_filter}")
+        };
+        let filter = format!("e.kind=?1 {grouping_filter} AND ({text_match} {search_sources}) AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id)) AND (?4 IS NULL OR {source_condition}) AND (?5 IS NULL OR substr(COALESCE(json_extract(e.payload,'$.releaseDate'),''),1,4)=?5)");
         let query = normalized(query);
         let source = source.filter(|value| !value.trim().is_empty());
         let year = year
             .filter(|value| value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()));
+        let track_count = if source == Some("__saved__") {
+            format!("(SELECT COUNT(*) {saved_members})")
+        } else { "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)".into() };
+        let album_count = if source == Some("__saved__") {
+            "(SELECT COUNT(*) FROM library_artist_albums m JOIN library_entities a ON a.id=m.album_id
+                WHERE m.artist_id=e.id AND (json_extract(a.payload,'$.explicitlySaved')=1 OR EXISTS(
+                SELECT 1 FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=a.id AND l.in_library=1)))"
+        } else { "(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id)" };
         let order = match sort {
             "artist" => "unicode_lower(json_extract(e.payload,'$.artist'))",
             "year" => "COALESCE(json_extract(e.payload,'$.releaseDate'),'')",
             "source" => &sort_source,
-            "tracks" => "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)",
+            "tracks" => &track_count,
             _ => "unicode_lower(json_extract(e.payload,'$.name'))",
         };
         let direction = if descending { "DESC" } else { "ASC" };
@@ -1987,7 +2050,7 @@ impl Store {
                 |r| r.get(0),
             )
             .map_err(err)?;
-        let mut stmt = conn.prepare(&format!("SELECT e.payload,COALESCE(json_extract(e.payload,'$.explicitlySaved'),0),(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id),(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id) FROM library_entities e WHERE {filter} ORDER BY {order} {direction},unicode_lower(json_extract(e.payload,'$.name')),e.id LIMIT ?6 OFFSET ?7")).map_err(err)?;
+        let mut stmt = conn.prepare(&format!("SELECT e.payload,COALESCE(json_extract(e.payload,'$.explicitlySaved'),0),{track_count},{album_count} FROM library_entities e WHERE {filter} ORDER BY {order} {direction},unicode_lower(json_extract(e.payload,'$.name')),e.id LIMIT ?6 OFFSET ?7")).map_err(err)?;
         let rows = stmt
             .query_map(
                 params![
@@ -2034,6 +2097,13 @@ impl Store {
         limit: usize,
         offset: usize,
     ) -> Result<LibraryTrackPage> {
+        self.list_library_entity_tracks_with_scope(id, query, sort, descending, availability, min_duration, max_duration, limit, offset, false)
+    }
+
+    pub(crate) fn list_library_entity_tracks_with_scope(
+        &self, id: &str, query: &str, sort: &str, descending: bool, availability: &str, min_duration: Option<f64>,
+        max_duration: Option<f64>, limit: usize, offset: usize, saved_only: bool,
+    ) -> Result<LibraryTrackPage> {
         let conn = self.lock_connection()?;
         refresh(&conn)?;
         let kind = if id.starts_with("artist:") {
@@ -2061,7 +2131,8 @@ impl Store {
         }
         let local = "EXISTS(SELECT 1 FROM library_present_recordings a WHERE a.recording_id=l.recording_id)";
         let duration = format!("json_extract({metadata},'$.durationSeconds')");
-        let filter = format!("t.entity_id=?1 AND instr(unicode_lower(json_extract({metadata},'$.title') || ' ' || json_extract({metadata},'$.artist') || ' ' || COALESCE(json_extract({metadata},'$.album'),'')),?2)>0 AND (?3='all' OR (?3='local')={local}) AND (?4 IS NULL OR {duration}>=?4) AND (?5 IS NULL OR {duration}<=?5)");
+        let saved_filter = if saved_only { " AND l.in_library=1" } else { "" };
+        let filter = format!("t.entity_id=?1 AND instr(unicode_lower(json_extract({metadata},'$.title') || ' ' || json_extract({metadata},'$.artist') || ' ' || COALESCE(json_extract({metadata},'$.album'),'')),?2)>0 AND (?3='all' OR (?3='local')={local}) AND (?4 IS NULL OR {duration}>=?4) AND (?5 IS NULL OR {duration}<=?5){saved_filter}");
         let from = "FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id JOIN recordings r ON r.id=l.recording_id";
         let q = normalized(query);
         let total = conn
@@ -2124,7 +2195,11 @@ impl Store {
         for (track, (position, listing)) in tracks.iter_mut().zip(identities) {
             super::local_albums::overlay(&conn, &id, &listing, position, track)?;
         }
-        Ok(LibraryTrackPage { tracks, total })
+        let snapshot_id = id.split(':').nth(2)
+            .filter(|provider| matches!(*provider, "subsonic" | "jellyfin"))
+            .map(|provider| conn.query_row("SELECT account || ':' || revision || ':' || visible FROM library_server_catalogs WHERE provider=?1", [provider], |row| row.get(0)).optional())
+            .transpose().map_err(err)?.flatten();
+        Ok(LibraryTrackPage { tracks, total, snapshot_id })
     }
 
     pub fn save_library_artist(&self, entry: LibraryEntity) -> Result<LibraryEntity> {
@@ -2269,6 +2344,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn rebuilding_artist_and_album_membership_skips_cross_recording_playback_lookup() {
+        let (_dir, store) = db();
+        let mut song = track("saved-projection");
+        song.duration_seconds = Some(200.0);
+        let conn = store.lock_connection().unwrap();
+        upsert_track(&conn, &song, true).unwrap();
+        refresh(&conn).unwrap();
+
+        let entity_count: usize = conn
+            .query_row("SELECT COUNT(*) FROM library_entities", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(entity_count, 2);
+        let performed_playback_lookup: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_temp_master WHERE name='request_local_match_artist_keys')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!performed_playback_lookup);
     }
 
     #[test]

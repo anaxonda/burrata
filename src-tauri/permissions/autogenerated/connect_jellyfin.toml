@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connect-jellyfin"
+description = "Enables the connect_jellyfin command without any pre-configured scope."
+commands.allow = ["connect_jellyfin"]
+
+[[permission]]
+identifier = "deny-connect-jellyfin"
+description = "Denies the connect_jellyfin command without any pre-configured scope."
+commands.deny = ["connect_jellyfin"]

@@ -5,7 +5,7 @@ use base64::Engine as _;
 use serde_json::json;
 use std::{collections::HashSet, time::Duration};
 
-const CACHE: &str = "radio.station-artwork.v1";
+const CACHE: &str = "radio.station-artwork.v2";
 const MAX_HTML: usize = 256 * 1024;
 const MAX_IMAGE: usize = 2 * 1024 * 1024;
 
@@ -40,7 +40,7 @@ pub async fn resolve_station_artwork(
             .as_deref()
             .ok_or("Station has no authoritative homepage")?;
         let (final_homepage, headers, html) =
-            fetch_bounded(validate_stream_url(homepage)?, MAX_HTML, false).await?;
+            fetch_bounded(validate_stream_url(homepage)?, ArtworkResource::Homepage).await?;
         let mime = headers
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
@@ -51,7 +51,7 @@ pub async fn resolve_station_artwork(
         let html = String::from_utf8_lossy(&html);
         let icons = discover_icons(&html, &final_homepage);
         for icon in icons.into_iter().take(3) {
-            let Ok((_, headers, bytes)) = fetch_bounded(icon, MAX_IMAGE, true).await else {
+            let Ok((_, headers, bytes)) = fetch_bounded(icon, ArtworkResource::Icon).await else {
                 continue;
             };
             let mime = headers
@@ -85,15 +85,23 @@ pub async fn resolve_station_artwork(
     Ok(data)
 }
 
+enum ArtworkResource {
+    Homepage,
+    Icon,
+}
+
 async fn fetch_bounded(
     mut url: url::Url,
-    max: usize,
-    require_https: bool,
+    resource: ArtworkResource,
 ) -> Result<(url::Url, reqwest::header::HeaderMap, Vec<u8>), String> {
+    // A homepage is only read for its icon link declarations. Images must
+    // fit in full before decoding, whereas a long homepage can be truncated.
+    let allow_prefix = matches!(resource, ArtworkResource::Homepage);
+    let max = if allow_prefix { MAX_HTML } else { MAX_IMAGE };
     let mut seen = HashSet::new();
     for hop in 0..=3 {
         url = validate_stream_url(url.as_str())?;
-        if require_https && url.scheme() != "https" {
+        if !allow_prefix && url.scheme() != "https" {
             return Err("Station artwork must use HTTPS".into());
         }
         url.set_fragment(None);
@@ -139,27 +147,41 @@ async fn fetch_bounded(
             continue;
         }
         if !response.status().is_success()
-            || response
-                .content_length()
-                .is_some_and(|size| size > max as u64)
+            || (!allow_prefix
+                && response
+                    .content_length()
+                    .is_some_and(|size| size > max as u64))
         {
             return Err("Station artwork response is unavailable or too large".into());
         }
         let headers = response.headers().clone();
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "Station artwork response interrupted")?
-        {
-            if bytes.len() + chunk.len() > max {
-                return Err("Station artwork response is too large".into());
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = read_bounded_artwork(&mut response, max, allow_prefix).await?;
         return Ok((url, headers, bytes));
     }
     Err("Station artwork redirect limit".into())
+}
+
+async fn read_bounded_artwork(
+    response: &mut reqwest::Response,
+    max: usize,
+    allow_prefix: bool,
+) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Station artwork response interrupted")?
+    {
+        let remaining = max - bytes.len();
+        if chunk.len() > remaining && !allow_prefix {
+            return Err("Station artwork response is too large".into());
+        }
+        bytes.extend_from_slice(&chunk[..remaining.min(chunk.len())]);
+        if allow_prefix && bytes.len() == max {
+            break;
+        }
+    }
+    Ok(bytes)
 }
 
 fn discover_icons(html: &str, homepage: &url::Url) -> Vec<url::Url> {
@@ -257,6 +279,40 @@ async fn decode_thumbnail(bytes: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn oversized_homepage_keeps_its_icon_declaration_but_oversized_image_is_rejected() {
+        let mut body = br#"<link rel="icon" href="/station.png">"#.to_vec();
+        body.resize(MAX_HTML + 1024, b' ');
+        let app = axum::Router::new().route(
+            "/",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move { body }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let url = format!("http://{address}/");
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut page = client.get(&url).send().await.unwrap();
+        let prefix = read_bounded_artwork(&mut page, MAX_HTML, true)
+            .await
+            .unwrap();
+        let homepage = url::Url::parse("https://station.test/").unwrap();
+        assert_eq!(prefix.len(), MAX_HTML);
+        assert_eq!(
+            discover_icons(std::str::from_utf8(&prefix).unwrap(), &homepage)[0].as_str(),
+            "https://station.test/station.png"
+        );
+        let mut image = client.get(&url).send().await.unwrap();
+        assert!(read_bounded_artwork(&mut image, MAX_HTML, false)
+            .await
+            .is_err());
+        server.abort();
+    }
+
     #[test]
     fn icon_discovery_uses_authoritative_final_homepage_and_rejects_active_urls() {
         let base = url::Url::parse("https://www.radiofrance.fr/franceinter").unwrap();

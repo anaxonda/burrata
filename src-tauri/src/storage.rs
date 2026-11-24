@@ -27,6 +27,8 @@ mod local_match_tests;
 mod local_matches;
 #[path = "storage_playlist_artwork.rs"]
 mod playlist_artwork;
+#[path = "storage_server_library.rs"]
+mod server_library;
 
 /// A dedicated retained cache for stable source locators, never stream URLs.
 pub(crate) const PLAYBACK_LOCATOR_CACHE_NAMESPACE: &str = "playback.matching-locators.v2";
@@ -1132,6 +1134,7 @@ impl Store {
             .map_err(err)?;
         }
         library::initialize(&conn)?;
+        server_library::initialize(&conn)?;
         // Cache budget checks and LRU eviction intentionally exclude library
         // rows. This partial covering index keeps those writes from scanning
         // protected payload pages as the cache grows.
@@ -2752,6 +2755,9 @@ impl Store {
         } else {
             false
         };
+        let source_search = format!("SELECT l.metadata FROM catalog_listings l WHERE NOT EXISTS(
+            SELECT 1 FROM library_server_members m WHERE m.listing_id=l.id AND m.cache_created=1)
+            OR l.in_library=1 OR {} ORDER BY l.rowid DESC", server_library::VISIBLE_TRACK);
         let sql = match view {
             "favorites" => {
                 "SELECT l.metadata FROM catalog_listings l JOIN recordings r ON l.recording_id=r.id WHERE r.favorite=1 AND l.id=l.recording_id ORDER BY l.rowid DESC"
@@ -2768,7 +2774,7 @@ impl Store {
             "library" => {
                 "SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1 ORDER BY l.rowid DESC"
             }
-            _ => "SELECT metadata FROM catalog_listings ORDER BY rowid DESC",
+            _ => source_search.as_str(),
         };
         if view == "collection" && ordered {
             let mut stmt = conn.prepare(sql).map_err(err)?;
@@ -3318,6 +3324,9 @@ impl Store {
         let conn = self.lock_connection()?;
         #[cfg(test)]
         let lock_wait_micros = lock_started.map_or(0, |started| started.elapsed().as_micros());
+        let include_server_catalog = view == "library"
+            && !matches!(provider, Some("personal" | "saved"))
+            && server_library::has_visible_catalog(&conn)?;
         let needs_effective_metadata = query.is_some_and(|value| !value.trim().is_empty())
             || min_duration_seconds.is_some()
             || max_duration_seconds.is_some()
@@ -3609,9 +3618,11 @@ impl Store {
             }
             "library" => (
                 "FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id",
-                vec!["l.id=l.recording_id AND l.in_library=1".to_string()],
+                vec![if include_server_catalog {
+                    format!("l.id=l.recording_id AND (l.in_library=1 OR {})", server_library::VISIBLE_TRACK)
+                } else { "l.id=l.recording_id AND l.in_library=1".into() }],
                 vec![],
-                "l.rowid",
+                if include_server_catalog { "l.in_library,l.rowid" } else { "l.rowid" },
                 "NULL",
                 true,
             ),
@@ -3682,15 +3693,32 @@ impl Store {
             });
         }
         if let Some(value) = provider.filter(|v| *v != "all") {
-            match value {
+            if let Some(selection) = (view == "library")
+                .then(|| server_library::SourceSelection::combined(value))
+                .flatten()
+            {
+                let mut source_conditions = vec!["0"];
+                if selection.saved {
+                    source_conditions.push("l.in_library=1");
+                }
+                if selection.jellyfin {
+                    source_conditions.push("l.provider='jellyfin'");
+                }
+                if selection.subsonic {
+                    source_conditions.push("l.provider='subsonic'");
+                }
+                conditions.push(format!("({})", source_conditions.join(" OR ")));
+            } else {
+                match value {
                 "local" => conditions.push(
                     "(EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id) OR EXISTS(SELECT 1 FROM page_local_matches a WHERE a.listing_id=l.id))"
                         .into(),
                 ),
-                "personal" => {}
+                "personal" | "saved" => {}
                 _ => {
                     conditions.push(format!("lower(json_extract({track_json},'$.provider'))=?"));
                     values.push(value.to_lowercase().into());
+                }
                 }
             }
         }
@@ -4214,6 +4242,9 @@ impl Store {
         offset: usize,
     ) -> Result<(Vec<Track>, usize)> {
         let conn = self.lock_connection()?;
+        let membership = if server_library::has_visible_catalog(&conn)? {
+            format!("(l.in_library=1 OR {})", server_library::VISIBLE_TRACK)
+        } else { "l.in_library=1".into() };
         let mut filters = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
         let haystack = "lower(COALESCE(json_extract(l.metadata,'$.artist'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.title'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.album'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.version'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.remixers'),'' ) || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.remixers')),'null') || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.artistCredits')),'null'))";
@@ -4231,7 +4262,7 @@ impl Store {
         // rows while retaining the same row order and hydration savings.
         let has_unicode = terms.iter().any(|term| !term.is_ascii());
         let (count, raw_rows) = if has_unicode {
-            let mut stmt = conn.prepare("SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1 ORDER BY l.rowid DESC").map_err(err)?;
+            let mut stmt = conn.prepare(&format!("SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND {membership} ORDER BY l.rowid DESC")).map_err(err)?;
             let rows = stmt
                 .query_map([], |row| row.get::<_, String>(0))
                 .map_err(err)?
@@ -4276,7 +4307,7 @@ impl Store {
             // metadata field, as the prior Rust haystack did.
             let where_sql = where_clause;
             let count_sql = format!(
-                "SELECT COUNT(*) FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1{where_sql}"
+                "SELECT COUNT(*) FROM catalog_listings l WHERE l.id=l.recording_id AND {membership}{where_sql}"
             );
             let count: i64 = conn
                 .query_row(
@@ -4286,7 +4317,7 @@ impl Store {
                 )
                 .map_err(err)?;
             let sql = format!(
-                "SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND l.in_library=1{where_sql} ORDER BY l.rowid DESC LIMIT ? OFFSET ?"
+                "SELECT l.metadata FROM catalog_listings l WHERE l.id=l.recording_id AND {membership}{where_sql} ORDER BY l.rowid DESC LIMIT ? OFFSET ?"
             );
             let mut page_values = values;
             page_values.push((limit as i64).into());
@@ -7406,8 +7437,7 @@ fn ensure_downloads_collection_row(conn: &Connection) -> Result<()> {
          ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL
          WHERE collections.name<>'Downloads' OR collections.deleted_at IS NOT NULL",
         [DOWNLOADS_COLLECTION_ID],
-    )
-    .map_err(err)?;
+    ).map_err(err)?;
     Ok(())
 }
 
@@ -7775,6 +7805,14 @@ fn fast_asset_sort_track(
 /// occurrence separate. Page chapter JSON and ordering never pass through an
 /// ID-keyed output map. No state is cached beyond this connection-locked call.
 fn hydrate_page_tracks(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Track>> {
+    hydrate_track_batches(conn, tracks, true)
+}
+
+fn hydrate_track_batches(
+    conn: &Connection,
+    tracks: Vec<Track>,
+    include_cross_recording_matches: bool,
+) -> Result<Vec<Track>> {
     let mut result = Vec::with_capacity(tracks.len());
     let mut tracks = tracks.into_iter();
     loop {
@@ -7784,12 +7822,16 @@ fn hydrate_page_tracks(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
         if chunk.is_empty() {
             break;
         }
-        result.extend(hydrate_track_chunk(conn, chunk)?);
+        result.extend(hydrate_track_chunk(conn, chunk, include_cross_recording_matches)?);
     }
     Ok(result)
 }
 
-fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Track>> {
+fn hydrate_track_chunk(
+    conn: &Connection,
+    tracks: Vec<Track>,
+    include_cross_recording_matches: bool,
+) -> Result<Vec<Track>> {
     use std::collections::{BTreeSet, HashMap};
     let ids = tracks
         .iter()
@@ -7934,9 +7976,10 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
                     let analysis = analyses.get(&(row.0.clone(), row.2.clone())).cloned();
                     (row.clone(), analysis, false)
                 });
-            let selected = if selected
-                .as_ref()
-                .is_none_or(|(row, _, _)| !Path::new(&row.1).is_file())
+            let selected = if (include_cross_recording_matches || selected.is_some())
+                && selected
+                    .as_ref()
+                    .is_none_or(|(row, _, _)| !Path::new(&row.1).is_file())
             {
                 local_matches::selected(conn, &track, &matching_settings)?.or(selected)
             } else {
@@ -11402,7 +11445,8 @@ mod tests {
         local.provider = "local".into();
         local.provider_id = "work-tagged".into();
         local.source_url = "local:work-tagged".into();
-        local.provenance = serde_json::json!({"embeddedClassical":{"version":1,"work":"Symphony"}});
+        local.provenance =
+            serde_json::json!({"embeddedClassical":{"version":1,"work":"Symphony"}});
         let mut cached = catalog.clone();
         cached.id = "musicbrainz:00000000-0000-4000-8000-000000000002".into();
         cached.provider_id = "00000000-0000-4000-8000-000000000002".into();
@@ -11419,9 +11463,7 @@ mod tests {
             )
             .unwrap();
         let page = store
-            .list_tracks_page_with_sort_state(
-                "works", None, 200, 0, None, None, None, None, None, None, None,
-            )
+            .list_tracks_page_with_sort_state("works", None, 200, 0, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(page.1, 2);
         assert_eq!(

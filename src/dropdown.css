@@ -1,0 +1,125 @@
+.dropdown-trigger,
+[data-burrata-selects] :is(#app, .duration-inputs) select:where(:not([multiple], [data-native-picker], [size]:not([size="1"]), :has(optgroup), :empty)) {
+  min-height: 34px;
+  color: var(--text);
+  background-color: var(--surface);
+  border: 1px solid var(--button-edge, var(--line));
+  border-radius: var(--button-radius, 8px);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.dropdown-trigger:where(:hover, [aria-expanded="true"]):not(:disabled),
+details:where([open]) > summary.dropdown-trigger,
+[data-burrata-selects] :is(#app, .duration-inputs) select:where(:hover, [aria-expanded="true"]):not(:disabled) {
+  border-color: var(--accent);
+}
+
+@media not all and (forced-colors: active) {
+  [data-burrata-selects] :is(#app, .duration-inputs) select:where(:not([multiple], [data-native-picker], [size]:not([size="1"]), :has(optgroup), :empty)) {
+    appearance: none;
+    cursor: pointer;
+    padding: 6px 27px 6px 9px;
+    text-overflow: ellipsis;
+    background-image:
+      linear-gradient(45deg, transparent 43%, var(--muted) 43% 57%, transparent 57%),
+      linear-gradient(-45deg, transparent 43%, var(--muted) 43% 57%, transparent 57%);
+    background-repeat: no-repeat;
+    background-position: calc(100% - 13px) center, calc(100% - 9px) center;
+    background-size: 4px 4px;
+  }
+
+  [data-burrata-selects] :is(#app, .duration-inputs) select[aria-expanded="true"] {
+    background-position: calc(100% - 9px) center, calc(100% - 13px) center;
+  }
+}
+
+[data-burrata-selects] :is(#app, .duration-inputs) select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.dropdown-menu {
+  padding: 5px;
+  color: var(--text);
+  background: var(--surface, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 24%);
+}
+
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.dropdown-menu :where(button.dropdown-option, a.dropdown-option) {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: start;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dropdown-option:where(:hover, :focus-within, [data-active]):not([aria-disabled="true"], :disabled) {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+}
+
+.native-dropdown-menu {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 100;
+  width: max-content;
+  max-width: min(26rem, calc(100vw - 12px));
+  max-height: min(18rem, calc(100vh - 12px));
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.native-dropdown-option {
+  overflow-wrap: anywhere;
+}
+
+.native-dropdown-option[aria-disabled="true"] {
+  opacity: .55;
+  cursor: default;
+}
+
+.dropdown-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--base);
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.dropdown-check::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border: solid currentColor;
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.native-dropdown-option:not([aria-selected="true"]) .dropdown-check {
+  visibility: hidden;
+}

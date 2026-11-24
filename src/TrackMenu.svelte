@@ -7,11 +7,11 @@
   import MenuIcon from "./MenuIcon.svelte";
   import { trackSource } from "./lib/source-link";
   import type { Track } from "./lib/types";
-  let { track, onClose, onNext, onQueue, onPlaylist, onFavorite, onDownload, onUpgrade: _onUpgrade, onDetails, onCheckChapters, onSelect, onRemove, onRadio, onMoreInfo, onOpenMpv, onGoToAlbum, onArtist, onOpenSource, albumActionLabel = "Go to album", onGoToAlbumUnavailable = false, radioBusy = false, anchor = null, playerHeight = 90 }: {
+  let { track, onClose, onNext, onQueue, onPlaylist, onFavorite, onDownload, onUpgrade: _onUpgrade, onDetails, onCheckChapters, onShowRecordingCredits, onSelect, onRemove, onRadio, onMoreInfo, onOpenMpv, onGoToAlbum, onArtist, onOpenSource, albumActionLabel = "Go to album", onGoToAlbumUnavailable = false, radioBusy = false, anchor = null, playerHeight = 90 }: {
     track: Track; onClose: () => void; onNext?: () => void; onQueue?: () => void;
     albumActionLabel?: "Go to album" | "Find album";
     onPlaylist?: () => void; onFavorite?: () => void; onDownload?: () => void; onUpgrade?: () => void;
-    onDetails?: () => void; onCheckChapters?: () => void; onSelect?: () => void; onArtist?: () => void; onOpenSource?: () => void; onRemove?: () => void; onRadio?: () => void; onMoreInfo?: () => void; onOpenMpv?: () => void; onGoToAlbum?: () => void; onGoToAlbumUnavailable?: boolean; radioBusy?: boolean; anchor?: { x: number; y: number } | null; playerHeight?: number;
+    onDetails?: () => void; onCheckChapters?: () => void; onShowRecordingCredits?: () => void; onSelect?: () => void; onArtist?: () => void; onOpenSource?: () => void; onRemove?: () => void; onRadio?: () => void; onMoreInfo?: () => void; onOpenMpv?: () => void; onGoToAlbum?: () => void; onGoToAlbumUnavailable?: boolean; radioBusy?: boolean; anchor?: { x: number; y: number } | null; playerHeight?: number;
   } = $props();
   let hasSource = $derived(Boolean(trackSource(track)) || Boolean(onOpenSource));
   const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
@@ -31,6 +31,7 @@
   {#if onOpenSource}<button class="source-action" class:menu-section={!onArtist && !onGoToAlbum && !onGoToAlbumUnavailable} onclick={() => action(onOpenSource!)}><MenuIcon name="external"/><span>Open source</span></button>{:else if hasSource}<div class="source-row" class:menu-section={!onArtist && !onGoToAlbum && !onGoToAlbumUnavailable}><SourceLink {track} trailingArrow={false} onOpened={onClose}>{#snippet leadingIcon()}<MenuIcon name="external"/>{/snippet}</SourceLink></div>{/if}
   {#if onDownload}<button onclick={() => action(onDownload!)}><MenuIcon name="download"/><span>Download options…</span></button>{/if}
   {#if onDetails}<button onclick={() => action(onDetails!)}><MenuIcon name="info"/><span>Track information</span></button>{/if}
+  {#if onShowRecordingCredits}<button onclick={() => action(onShowRecordingCredits!)}><MenuIcon name="info"/><span>Recording credits</span></button>{/if}
   {#if onCheckChapters}<button onclick={() => action(onCheckChapters!)}><MenuIcon name="search"/><span>Check for chapters</span></button>{/if}
   {#if onOpenMpv}<button onclick={()=>action(onOpenMpv!)}><MenuIcon name="window"/><span>Open in mpv</span></button>{/if}
   {#if onMoreInfo}<button onclick={() => action(onMoreInfo)}><MenuIcon name="search"/><span>Search for more info</span></button>{/if}

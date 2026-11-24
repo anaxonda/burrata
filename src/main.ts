@@ -1,9 +1,11 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
 import { call, desktop } from "./lib/api";
+import { installNativeDropdowns } from "./lib/native-dropdown";
 import "./style.css";
 import "./desktop-layout.css";
 import "./player.css";
+import "./dropdown.css";
 const target = document.getElementById("app")!;
 
 function resetBurrataStorage(storage: Storage) {
@@ -31,6 +33,7 @@ async function start() {
       return;
     }
   }
+  installNativeDropdowns(document.body);
   mount(App, { target, props: { startupWarning } });
 }
 

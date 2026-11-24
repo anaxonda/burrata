@@ -37,6 +37,34 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("labels scheduled YouTube uploads and disables their row play controls", async () => {
+    const onPlay = vi.fn();
+    const target = render({
+      presentation: "playlist", showUpcomingAvailability: true, onPlay,
+      tracks: [
+        { ...tracks[0], provider: "youtube", title: "Scheduled set", provenance: { youtubeUpcoming: true } },
+        { ...tracks[1], provider: "youtube" },
+      ],
+    });
+    await tick();
+    const pending = target.querySelector<HTMLButtonElement>('[aria-label="Upcoming YouTube video: Scheduled set"]')!;
+    expect(pending.disabled).toBe(true);
+    expect(target.textContent).toContain("Upcoming on YouTube");
+    expect(target.querySelector('[aria-label="Play Scheduled set"]')).toBeNull();
+    pending.click();
+    expect(onPlay).not.toHaveBeenCalled();
+    target.querySelector<HTMLButtonElement>('[aria-label="Play Other Song"]')!.click();
+    expect(onPlay).toHaveBeenCalledTimes(1);
+    resetRendered();
+    const saved = render({
+      onPlay,
+      tracks: [{ ...tracks[0], provider: "youtube", title: "Saved set", provenance: { youtubeUpcoming: true } }],
+    });
+    await tick();
+    saved.querySelector<HTMLButtonElement>('[aria-label="Play Saved set"]')!.click();
+    expect(onPlay).toHaveBeenCalledTimes(2);
+  });
+
   it("preserves a classical title tooltip and links each verified credited artist", async () => {
     const composer = { id: "00000000-0000-4000-8000-000000000001", name: "Ludwig van Beethoven" };
     const conductor = { id: "00000000-0000-4000-8000-000000000002", name: "Carlos Kleiber" };

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-jellyfin"
+description = "Enables the browse_jellyfin command without any pre-configured scope."
+commands.allow = ["browse_jellyfin"]
+
+[[permission]]
+identifier = "deny-browse-jellyfin"
+description = "Denies the browse_jellyfin command without any pre-configured scope."
+commands.deny = ["browse_jellyfin"]

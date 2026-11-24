@@ -1,6 +1,6 @@
 //! Account-scoped Subsonic metadata cache and read-only Strawberry import.
 use crate::subsonic_client::Song;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::path::Path;
 
 pub(crate) const MAX_SONGS: usize = 100_000;
@@ -10,7 +10,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection, String> {
     conn.execute_batch(
         "PRAGMA trusted_schema=OFF;
          CREATE TABLE IF NOT EXISTS snapshots (
-            account TEXT PRIMARY KEY, source TEXT NOT NULL
+            account TEXT PRIMARY KEY, source TEXT NOT NULL, revision TEXT NOT NULL DEFAULT ''
          );
          CREATE TABLE IF NOT EXISTS songs (
             account TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
@@ -20,7 +20,32 @@ pub(crate) fn open(path: &Path) -> Result<Connection, String> {
          CREATE INDEX IF NOT EXISTS songs_browse ON songs(account,artist,album,title,id);",
     )
     .map_err(|_| "Could not initialize the Subsonic catalog cache")?;
+    let has_revision: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('snapshots') WHERE name='revision')",
+        [], |row| row.get(0),
+    ).map_err(|_| "Could not check the Subsonic catalog schema")?;
+    if !has_revision {
+        conn.execute("ALTER TABLE snapshots ADD COLUMN revision TEXT NOT NULL DEFAULT ''", [])
+            .map_err(|_| "Could not update the Subsonic catalog schema")?;
+    }
     Ok(conn)
+}
+
+pub(crate) fn revision(conn: &Connection, account: &str) -> Result<Option<String>, String> {
+    conn.query_row("SELECT revision FROM snapshots WHERE account=?1", [account], |row| row.get(0))
+        .optional().map_err(|_| "Could not read the Subsonic catalog revision".into())
+}
+
+pub(crate) fn catalog_entries(conn: &Connection, account: &str) -> Result<Vec<Song>, String> {
+    let failed = |_| "Could not read the Subsonic catalog cache";
+    let mut stmt = conn.prepare("SELECT payload FROM songs WHERE account=?1 ORDER BY artist,album,title,id LIMIT ?2").map_err(failed)?;
+    let rows = stmt.query_map(params![account, MAX_SONGS + 1], |row| row.get::<_, String>(0)).map_err(failed)?;
+    let mut songs = Vec::new();
+    for row in rows {
+        if songs.len() == MAX_SONGS { return Err("The Subsonic catalog exceeds the supported size".into()); }
+        songs.push(serde_json::from_str(&row.map_err(failed)?).map_err(|_| "Invalid song in the Subsonic catalog cache")?);
+    }
+    Ok(songs)
 }
 
 pub(crate) fn count(conn: &Connection, account: &str) -> Result<usize, String> {
@@ -77,20 +102,27 @@ pub(crate) fn replace(
         }
     }
     tx.execute(
-        "INSERT INTO snapshots(account,source) VALUES(?1,?2)
-         ON CONFLICT(account) DO UPDATE SET source=excluded.source",
+        "INSERT INTO snapshots(account,source,revision) VALUES(?1,?2,?3)
+         ON CONFLICT(account) DO UPDATE SET source=excluded.source, revision=excluded.revision",
         params![
             account,
             if from_strawberry {
                 "strawberry"
             } else {
                 "server"
-            }
+            },
+            uuid::Uuid::new_v4().to_string(),
         ],
     )
     .map_err(failed)?;
     tx.commit()
         .map_err(|_| "Could not commit the Subsonic catalog cache".into())
+}
+
+pub(crate) enum Scope<'a> {
+    Album(&'a str),
+    ArtistId(&'a str),
+    ArtistName(&'a str),
 }
 
 pub(crate) fn page(
@@ -99,6 +131,7 @@ pub(crate) fn page(
     query: &str,
     offset: usize,
     limit: usize,
+    scope: Option<Scope<'_>>,
 ) -> Result<(Vec<Song>, usize), String> {
     let search = query
         .chars()
@@ -106,24 +139,46 @@ pub(crate) fn page(
         .collect::<String>()
         .trim()
         .to_lowercase();
+    let (album_id, artist_id, artist_name) = match scope {
+        Some(Scope::Album(id)) => (Some(id), None, None),
+        Some(Scope::ArtistId(id)) => (None, Some(id), None),
+        Some(Scope::ArtistName(name)) => (None, None, Some(name.to_lowercase())),
+        None => (None, None, None),
+    };
     let filter =
-        "account=?1 AND (?2='' OR instr(title,?2)>0 OR instr(artist,?2)>0 OR instr(album,?2)>0)";
+        "account=?1 AND (?2='' OR instr(title,?2)>0 OR instr(artist,?2)>0 OR instr(album,?2)>0)
+        AND (?3 IS NULL OR json_extract(payload,'$.albumId')=?3)
+        AND (?4 IS NULL OR json_extract(payload,'$.artistId')=?4)
+        AND (?5 IS NULL OR (artist=?5 AND json_extract(payload,'$.artistId') IS NULL))";
+    let order = if album_id.is_some() {
+        "COALESCE(json_extract(payload,'$.disc'),1), json_extract(payload,'$.track') IS NULL, json_extract(payload,'$.track'), title, id"
+    } else {
+        "artist, album, title, id"
+    };
     let failed = |_| "Could not read the Subsonic catalog cache";
     let total = conn
         .query_row(
             &format!("SELECT COUNT(*) FROM songs WHERE {filter}"),
-            params![account, search],
+            params![account, search, album_id, artist_id, artist_name],
             |row| row.get(0),
         )
         .map_err(failed)?;
     let mut stmt = conn
         .prepare(&format!(
-        "SELECT payload FROM songs WHERE {filter} ORDER BY artist,album,title,id LIMIT ?3 OFFSET ?4"
-    ))
+            "SELECT payload FROM songs WHERE {filter} ORDER BY {order} LIMIT ?6 OFFSET ?7"
+        ))
         .map_err(failed)?;
     let rows = stmt
         .query_map(
-            params![account, search, limit.clamp(1, 200), offset.min(MAX_SONGS)],
+            params![
+                account,
+                search,
+                album_id,
+                artist_id,
+                artist_name,
+                limit.clamp(1, 200),
+                offset.min(MAX_SONGS)
+            ],
             |row| row.get::<_, String>(0),
         )
         .map_err(failed)?;
@@ -137,12 +192,28 @@ pub(crate) fn page(
 }
 
 pub(crate) fn song(conn: &Connection, account: &str, id: &str) -> Result<Option<Song>, String> {
-    use rusqlite::OptionalExtension;
+    read_song(conn, account, id, true)
+}
+
+pub(crate) fn catalog_song(
+    conn: &Connection,
+    account: &str,
+    id: &str,
+) -> Result<Option<Song>, String> {
+    read_song(conn, account, id, false)
+}
+
+fn read_song(
+    conn: &Connection,
+    account: &str,
+    id: &str,
+    verified_only: bool,
+) -> Result<Option<Song>, String> {
     let raw = conn
         .query_row(
             "SELECT songs.payload FROM songs JOIN snapshots USING(account)
-             WHERE songs.account=?1 AND songs.id=?2 AND snapshots.source='server'",
-            params![account, id],
+             WHERE songs.account=?1 AND songs.id=?2 AND (NOT ?3 OR snapshots.source='server')",
+            params![account, id, verified_only],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -247,6 +318,76 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scoped_browse_keeps_album_editions_and_accounts_separate() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = open(&dir.path().join("cache.sqlite")).unwrap();
+        let song = |id: &str, album: &str, artist: &str, number| Song {
+            id: id.into(),
+            title: id.into(),
+            album: Some("Shared title".into()),
+            album_id: Some(album.into()),
+            artist: Some(artist.into()),
+            track: Some(number),
+            ..Song::default()
+        };
+        replace(
+            &mut db,
+            "active",
+            &[
+                song("A", "first", "Artist", 2),
+                song("B", "first", "Guest", 1),
+                song("C", "other-edition", "Artist", 1),
+            ],
+            true,
+        )
+        .unwrap();
+        replace(&mut db, "other", &[song("D", "first", "Artist", 1)], false).unwrap();
+
+        let (album, count) = page(&db, "active", "", 0, 200, Some(Scope::Album("first"))).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(
+            album
+                .iter()
+                .map(|song| song.id.as_str())
+                .collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+        let (artist, count) =
+            page(&db, "active", "", 0, 200, Some(Scope::ArtistName("Artist"))).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(
+            artist
+                .iter()
+                .map(|song| song.id.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "C"]
+        );
+        assert!(catalog_song(&db, "active", "A").unwrap().is_some());
+        assert!(super::song(&db, "active", "A").unwrap().is_none());
+    }
+
+    #[test]
+    fn artist_id_scope_separates_same_name_credits_and_legacy_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = open(&dir.path().join("cache.sqlite")).unwrap();
+        let track = |id: &str, artist_id: Option<&str>| Song {
+            id: id.into(), title: id.into(), artist: Some("Shared Name".into()),
+            artist_id: artist_id.map(str::to_owned), ..Song::default()
+        };
+        replace(&mut db, "active", &[
+            track("one", Some("artist-1")),
+            track("two", Some("artist-2")),
+            track("legacy", None),
+        ], false).unwrap();
+        let (tracks, count) = page(&db, "active", "", 0, 200, Some(Scope::ArtistId("artist-1"))).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(tracks[0].id, "one");
+        let (tracks, count) = page(&db, "active", "", 0, 200, Some(Scope::ArtistName("Shared Name"))).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(tracks[0].id, "legacy");
+    }
+
+    #[test]
     fn cache_snapshots_replace_only_one_account_and_roll_back_partial_updates() {
         let dir = tempfile::tempdir().unwrap();
         let mut db = open(&dir.path().join("cache.sqlite")).unwrap();
@@ -256,6 +397,8 @@ mod tests {
             ..Song::default()
         };
         replace(&mut db, "first", &[song.clone()], true).unwrap();
+        let first_revision = revision(&db, "first").unwrap().unwrap();
+        assert!(uuid::Uuid::parse_str(&first_revision).is_ok());
         assert!(!can_seed(&db, "first").unwrap());
         assert!(super::song(&db, "first", "shared").unwrap().is_none());
         assert!(can_seed(&db, "second").unwrap());
@@ -274,10 +417,15 @@ mod tests {
             "Two"
         );
         assert!(replace(&mut db, "first", &[song.clone(), song], false).is_err());
-        assert_eq!(page(&db, "first", "ONE", 0, 25).unwrap().1, 1);
+        assert_eq!(revision(&db, "first").unwrap().as_deref(), Some(first_revision.as_str()));
+        assert_eq!(page(&db, "first", "ONE", 0, 25, None).unwrap().1, 1);
         replace(&mut db, "first", &[], false).unwrap();
+        assert_ne!(revision(&db, "first").unwrap().as_deref(), Some(first_revision.as_str()));
         assert_eq!(count(&db, "first").unwrap(), 0);
-        assert_eq!(page(&db, "second", "", 0, 25).unwrap().0[0].title, "Two");
+        assert_eq!(
+            page(&db, "second", "", 0, 25, None).unwrap().0[0].title,
+            "Two"
+        );
     }
 
     #[test]

@@ -28,6 +28,7 @@ and the [vendored source inventory](src-tauri/vendor/SOURCES.md).
 ## What it does
 
 - Build a local library from audio files, imports, charts, and playlists.
+- Browse and play connected [Subsonic and Jellyfin music libraries](docs/connections.md#subsonic-and-jellyfin-music-servers).
 - Search music catalogs and online audio sources, then compare candidates and
   preview available audio.
 - Paste a Spotify track, album, artist, or playlist link into Search and press

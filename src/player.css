@@ -728,7 +728,7 @@ footer.player .player-artwork-options > button[aria-pressed="true"] { color: var
 .app-shell .player-panel-host .playback-queue-panel {
   background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
 }
-.app-shell .player-panel-host.fullscreen-queue {
+.app-shell .player-panel-host.fullscreen-panel {
   box-shadow:
     inset 2px 0 0 color-mix(in srgb, var(--line) 38%, var(--accent) 62%),
     -12px 0 32px #0004;

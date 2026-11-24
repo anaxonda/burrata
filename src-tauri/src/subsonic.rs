@@ -14,7 +14,10 @@ use axum::{
     routing::get,
     Router,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -38,27 +41,71 @@ const MAX_ALBUMS: usize = 40_000;
 const AUDIO_LEASE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
 const MAX_LEASES: usize = 64;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Protocol { Subsonic, Jellyfin }
+
+impl Protocol {
+    fn provider(self) -> &'static str { match self { Self::Subsonic => "subsonic", Self::Jellyfin => "jellyfin" } }
+    fn label(self) -> &'static str { match self { Self::Subsonic => "Subsonic", Self::Jellyfin => "Jellyfin" } }
+    fn preference(self) -> &'static str { match self { Self::Subsonic => PREF, Self::Jellyfin => "jellyfin.connection.v1" } }
+    fn keyring_service(self) -> &'static str { match self { Self::Subsonic => KEYRING_SERVICE, Self::Jellyfin => "org.burrata.discovery.jellyfin" } }
+    fn bridge_route(self) -> &'static str { match self { Self::Subsonic => "subsonic-audio", Self::Jellyfin => "jellyfin-audio" } }
+}
+
+#[derive(Clone)]
+enum ServerClient {
+    Subsonic(Client),
+    Jellyfin(crate::jellyfin_client::Client),
+}
+
+impl ServerClient {
+    async fn connect(protocol: Protocol, endpoint: &str, username: &str, password: String, profile: &str) -> Result<Self, String> {
+        match protocol {
+            Protocol::Subsonic => Client::connect(endpoint, username, password).await.map(Self::Subsonic),
+            Protocol::Jellyfin => crate::jellyfin_client::Client::connect_with_device_id(endpoint, username, password, profile).await.map(Self::Jellyfin),
+        }
+    }
+    async fn song_catalog_page(&self, offset: usize, limit: usize) -> Result<(Vec<Song>, usize), String> {
+        match self { Self::Subsonic(c) => c.song_catalog_page(offset, limit).await, Self::Jellyfin(c) => c.song_catalog_page(offset, limit).await }
+    }
+    async fn song(&self, id: &str) -> Result<Song, String> {
+        match self { Self::Subsonic(c) => c.song(id).await, Self::Jellyfin(c) => c.song(id).await }
+    }
+    async fn album_cover_id(&self, id: &str) -> Result<Option<String>, String> {
+        match self { Self::Subsonic(c) => c.album_cover_id(id).await, Self::Jellyfin(c) => c.album_cover_id(id).await }
+    }
+    async fn cover_art(&self, id: &str) -> Result<(&'static str, Vec<u8>), String> {
+        match self { Self::Subsonic(c) => c.cover_art(id).await, Self::Jellyfin(c) => c.cover_art(id).await }
+    }
+    async fn stream(&self, id: &str, range: Option<HeaderValue>) -> Result<reqwest::Response, String> {
+        match self { Self::Subsonic(c) => c.stream(id, range).await, Self::Jellyfin(c) => c.stream(id, range).await }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Configuration {
     endpoint: String,
     username: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    authenticated_account: Option<String>,
     visible: bool,
     allow_fallback: bool,
 }
 
 impl Configuration {
     fn account(&self) -> String {
-        scope_hash(self.endpoint.as_bytes(), self.username.as_bytes())
+        scope_hash(self.endpoint.as_bytes(), self.authenticated_account.as_deref().unwrap_or(&self.username).as_bytes())
     }
 }
 
-fn read_configuration(store: &Store) -> Result<Option<Configuration>, String> {
+fn read_configuration(store: &Store, protocol: Protocol) -> Result<Option<Configuration>, String> {
     store
-        .get_json_preference(PREF)?
+        .get_json_preference(protocol.preference())?
         .filter(|value| !value.is_null())
         .map(|value| {
-            serde_json::from_value(value).map_err(|_| "Invalid Subsonic preferences".into())
+            serde_json::from_value(value)
+                .map_err(|_| format!("Invalid {} preferences", protocol.label()))
         })
         .transpose()
 }
@@ -70,9 +117,10 @@ pub(crate) fn suppress_automatic_login(store: &Store) -> Result<(), String> {
 /// Library restores retain the existing device connection. The backup itself
 /// contains only saved track references and never carries a connection.
 pub(crate) fn preserve_current_connection(current: &Store, staged: &Store) -> Result<(), String> {
-    if current.get_json_preference(PREF)?.is_some() {
-        let config = read_configuration(current)?;
-        staged.set_json_preference(PREF, &json!(config))?;
+    for protocol in [Protocol::Subsonic, Protocol::Jellyfin] {
+        if current.get_json_preference(protocol.preference())?.is_some() {
+            staged.set_json_preference(protocol.preference(), &json!(read_configuration(current, protocol)?))?;
+        }
     }
     Ok(())
 }
@@ -96,6 +144,14 @@ pub(crate) struct Status {
 pub(crate) struct Page {
     tracks: Vec<Track>,
     total: usize,
+    snapshot_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", content = "trackId", rename_all = "camelCase")]
+pub(crate) enum BrowseScope {
+    Artist(String),
+    Album(String),
 }
 
 #[derive(Clone)]
@@ -107,10 +163,11 @@ struct Lease {
 
 pub(crate) struct Service {
     store: Arc<Store>,
+    protocol: Protocol,
     cache_path: PathBuf,
     profile: String,
     cache: OnceLock<Mutex<Connection>>,
-    configured_client: tokio::sync::Mutex<Option<(String, Client)>>,
+    configured_client: tokio::sync::Mutex<Option<(String, ServerClient)>>,
     automatic_login_attempted: AtomicBool,
     updates: tokio::sync::Mutex<()>,
     bridge_base: OnceLock<String>,
@@ -119,9 +176,14 @@ pub(crate) struct Service {
 
 impl Service {
     pub(crate) fn new(store: Arc<Store>, profile_dir: &Path) -> Arc<Self> {
+        Self::new_for(store, profile_dir, Protocol::Subsonic)
+    }
+
+    pub(crate) fn new_for(store: Arc<Store>, profile_dir: &Path, protocol: Protocol) -> Arc<Self> {
         Arc::new(Self {
             store,
-            cache_path: profile_dir.join("subsonic").join("catalog.sqlite"),
+            protocol,
+            cache_path: profile_dir.join(protocol.provider()).join("catalog.sqlite"),
             profile: profile_scope(profile_dir),
             cache: OnceLock::new(),
             configured_client: tokio::sync::Mutex::new(None),
@@ -134,7 +196,7 @@ impl Service {
 
     pub(crate) fn router(self: &Arc<Self>) -> Router {
         Router::new()
-            .route("/subsonic-audio/{token}", get(audio).head(audio))
+            .route(&format!("/{}/{{token}}", self.protocol.bridge_route()), get(audio).head(audio))
             .with_state(self.clone())
     }
 
@@ -149,9 +211,9 @@ impl Service {
         let dir = self
             .cache_path
             .parent()
-            .ok_or("Invalid Subsonic cache path")?;
+            .ok_or("Invalid music server cache path")?;
         std::fs::create_dir_all(dir)
-            .map_err(|_| "Could not prepare the Subsonic cache directory")?;
+            .map_err(|_| "Could not prepare the music server cache directory")?;
         let connection = subsonic_cache::open(&self.cache_path)?;
         Ok(self.cache.get_or_init(|| Mutex::new(connection)))
     }
@@ -163,24 +225,24 @@ impl Service {
         let mut conn = self
             .cache()?
             .lock()
-            .map_err(|_| "Subsonic catalog unavailable")?;
+            .map_err(|_| format!("{} catalog unavailable", self.protocol.label()))?;
         read(&mut conn)
     }
 
     fn configuration(&self) -> Result<Option<Configuration>, String> {
-        read_configuration(&self.store)
+        read_configuration(&self.store, self.protocol)
     }
 
     fn account_config(&self) -> Result<Configuration, String> {
         self.configuration()?
-            .ok_or("Connect a Subsonic server in Settings first".into())
+            .ok_or_else(|| format!("Connect a {} server in Settings first", self.protocol.label()))
     }
 
     fn keyring_id(&self, account: &str) -> String {
         format!("{}-{account}", self.profile)
     }
 
-    async fn client(&self, expected: &Configuration) -> Result<Client, String> {
+    async fn client(&self, expected: &Configuration) -> Result<ServerClient, String> {
         let mut slot = self.configured_client.lock().await;
         let account = expected.account();
         self.check_current_account(&account)?;
@@ -190,14 +252,20 @@ impl Service {
             }
         }
         let key = self.keyring_id(&account);
+        let protocol = self.protocol;
         let password = tokio::task::spawn_blocking(move || {
-            keyring::Entry::new(KEYRING_SERVICE, &key)
+            keyring::Entry::new(protocol.keyring_service(), &key)
                 .and_then(|entry| entry.get_password())
-                .map_err(|_| "Subsonic password unavailable in the system keyring")
+                .map_err(|_| format!("{} password unavailable in the system keyring", protocol.label()))
         })
         .await
-        .map_err(|_| "Could not read the Subsonic password")??;
-        let client = Client::connect(&expected.endpoint, &expected.username, password).await?;
+        .map_err(|_| format!("Could not read the {} password", protocol.label()))??;
+        let client = ServerClient::connect(protocol, &expected.endpoint, &expected.username, password, &self.profile).await?;
+        if let ServerClient::Jellyfin(jellyfin) = &client {
+            if expected.authenticated_account.as_deref() != Some(jellyfin.account_identity()) {
+                return Err("The Jellyfin account changed. Reconnect it in Settings.".into());
+            }
+        }
         self.check_current_account(&account)?;
         *slot = Some((account, client.clone()));
         Ok(client)
@@ -210,22 +278,25 @@ impl Service {
         {
             Ok(())
         } else {
-            Err("The Subsonic connection changed".into())
+            Err(format!("The {} connection changed", self.protocol.label()))
         }
     }
 
-    pub(crate) async fn status_with_existing_login(&self) -> Result<Status, String> {
+    pub(crate) async fn status_with_existing_login(self: &Arc<Self>) -> Result<Status, String> {
         // A saved connection or explicit disconnect (JSON null) always wins.
-        if self.store.get_json_preference(PREF)?.is_some()
+        if self.protocol == Protocol::Jellyfin || self.store.get_json_preference(self.protocol.preference())?.is_some()
             || self.automatic_login_attempted.swap(true, Ordering::AcqRel)
         {
+            if let Ok(_update) = self.updates.try_lock() {
+                self.sync_library_catalog(self.configuration()?).await?;
+            }
             return self.status();
         }
         let Some(login) = crate::subsonic_login::discover_strawberry().await else {
             return self.status();
         };
         let _update = self.updates.lock().await;
-        if self.store.get_json_preference(PREF)?.is_some() {
+        if self.store.get_json_preference(self.protocol.preference())?.is_some() {
             return self.status();
         }
         match self
@@ -247,7 +318,7 @@ impl Service {
     }
 
     pub(crate) async fn connect(
-        &self,
+        self: &Arc<Self>,
         endpoint: &str,
         username: &str,
         password: String,
@@ -257,20 +328,26 @@ impl Service {
     }
 
     async fn connect_locked(
-        &self,
+        self: &Arc<Self>,
         endpoint: &str,
         username: &str,
         password: String,
     ) -> Result<Status, String> {
-        if password.is_empty() || password.len() > 4096 {
-            return Err("Enter a valid Subsonic password".into());
+        if (self.protocol == Protocol::Subsonic && password.is_empty()) || password.len() > 4096 {
+            return Err(format!("Enter a valid {} password", self.protocol.label()));
         }
         let mut config = Configuration {
             endpoint: canonical_endpoint(endpoint)?,
             username: canonical_username(username)?,
+            authenticated_account: None,
             visible: true,
             allow_fallback: false,
         };
+        let protocol = self.protocol;
+        let client = ServerClient::connect(protocol, &config.endpoint, &config.username, password.clone(), &self.profile).await?;
+        if let ServerClient::Jellyfin(jellyfin) = &client {
+            config.authenticated_account = Some(jellyfin.account_identity().to_owned());
+        }
         let account = config.account();
         let previous = self.configuration()?;
         if let Some(previous) = &previous {
@@ -279,31 +356,32 @@ impl Service {
                 config.allow_fallback = previous.allow_fallback;
             }
         }
-        let client = Client::connect(&config.endpoint, &config.username, password.clone()).await?;
         // A usable cache is required before persisting a connection or password.
         self.cache()?;
         let key = self.keyring_id(&account);
         tokio::task::spawn_blocking(move || {
-            keyring::Entry::new(KEYRING_SERVICE, &key)
+            keyring::Entry::new(protocol.keyring_service(), &key)
                 .and_then(|entry| entry.set_password(&password))
-                .map_err(|_| "Could not save the Subsonic password in the system keyring")
+                .map_err(|_| format!("Could not save the {} password in the system keyring", protocol.label()))
         })
         .await
-        .map_err(|_| "Could not open the Subsonic keyring")??;
-        if let Err(error) = self.store.set_json_preference(PREF, &json!(&config)) {
+        .map_err(|_| format!("Could not open the {} keyring", protocol.label()))??;
+        if let Err(error) = self.store.save_server_library_connection(protocol.provider(), protocol.preference(), Some(&account), config.visible, &json!(&config)) {
             if previous
                 .as_ref()
                 .is_none_or(|previous| previous.account() != account)
             {
-                remove_password(self.keyring_id(&account)).await;
+                remove_password(protocol, self.keyring_id(&account)).await;
             }
             return Err(error);
         }
         *self.configured_client.lock().await = Some((account.clone(), client));
         self.clear_leases();
+        self.sync_library_catalog(Some(config)).await?;
         let mut status = self.status()?;
+        status.refresh_after_login = status.track_count == 0;
         if let Some(previous) = previous.filter(|previous| previous.account() != account) {
-            status.warning = remove_password(self.keyring_id(&previous.account())).await;
+            status.warning = remove_password(protocol, self.keyring_id(&previous.account())).await;
         }
         Ok(status)
     }
@@ -311,12 +389,12 @@ impl Service {
     pub(crate) async fn disconnect(&self) -> Result<Status, String> {
         let _update = self.updates.lock().await;
         if let Some(config) = self.configuration()? {
-            suppress_automatic_login(&self.store)?;
+            self.store.save_server_library_connection(self.protocol.provider(), self.protocol.preference(), None, false, &serde_json::Value::Null)?;
             *self.configured_client.lock().await = None;
             self.clear_leases();
             let key = self.keyring_id(&config.account());
             return Ok(Status {
-                warning: remove_password(key).await,
+                warning: remove_password(self.protocol, key).await,
                 ..Status::default()
             });
         }
@@ -330,7 +408,7 @@ impl Service {
     }
 
     pub(crate) async fn preferences(
-        &self,
+        self: &Arc<Self>,
         visible: bool,
         allow_fallback: bool,
     ) -> Result<Status, String> {
@@ -338,8 +416,36 @@ impl Service {
         let mut config = self.account_config()?;
         config.visible = visible;
         config.allow_fallback = allow_fallback;
-        self.store.set_json_preference(PREF, &json!(config))?;
+        self.store.save_server_library_connection(self.protocol.provider(), self.protocol.preference(), Some(&config.account()), config.visible, &json!(config))?;
+        self.sync_library_catalog(Some(config)).await?;
         self.status()
+    }
+
+    async fn sync_library_catalog(self: &Arc<Self>, configuration: Option<Configuration>) -> Result<(), String> {
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let provider = service.protocol.provider();
+            let Some(config) = configuration.filter(|config| config.visible) else {
+                return service.store.show_server_library_catalog(provider, None);
+            };
+            let account = config.account();
+            let stored_revision = service.store.server_library_catalog_revision(provider, &account)?;
+            let snapshot = service.with_cache(|conn| {
+                let Some(revision) = subsonic_cache::revision(conn, &account)? else { return Ok(None) };
+                if stored_revision.as_deref() == Some(revision.as_str()) {
+                    return Ok(Some((revision, None)));
+                }
+                Ok(Some((revision, Some(subsonic_cache::catalog_entries(conn, &account)?))))
+            })?;
+            match snapshot {
+                Some((revision, Some(songs))) => {
+                    let tracks = songs.iter().map(|song| server_track(provider, &account, song)).collect::<Vec<_>>();
+                    service.store.replace_server_library_catalog(provider, &account, &revision, &tracks)
+                }
+                Some((_, None)) => service.store.show_server_library_catalog(provider, Some(&account)),
+                None => service.store.show_server_library_catalog(provider, None),
+            }
+        }).await.map_err(|_| format!("Could not synchronize the {} Library catalog", self.protocol.label()))?
     }
 
     pub(crate) fn status(&self) -> Result<Status, String> {
@@ -360,34 +466,126 @@ impl Service {
             allow_fallback: config.allow_fallback,
             track_count,
             can_seed,
-            strawberry_found: strawberry_default_path().is_some(),
+            strawberry_found: self.protocol == Protocol::Subsonic && strawberry_default_path().is_some(),
             refresh_after_login: false,
             warning: None,
         })
     }
 
-    pub(crate) fn page(&self, query: &str, offset: usize, limit: usize) -> Result<Page, String> {
+    pub(crate) fn page(
+        &self,
+        query: &str,
+        offset: usize,
+        limit: usize,
+        scope: Option<BrowseScope>,
+    ) -> Result<Page, String> {
         let Some(config) = self.configuration()?.filter(|config| config.visible) else {
             return Ok(Page {
                 tracks: Vec::new(),
                 total: 0,
+                snapshot_id: None,
             });
         };
         let account = config.account();
-        let (songs, total) =
-            self.with_cache(|conn| subsonic_cache::page(conn, &account, query, offset, limit))?;
+        let (songs, total, snapshot_id) = self.with_cache(|conn| {
+            let representative = match scope.as_ref() {
+                Some(BrowseScope::Artist(track_id) | BrowseScope::Album(track_id)) => {
+                    let id = track_id
+                        .strip_prefix(&format!("{}:", self.protocol.provider()))
+                        .and_then(reference_id)
+                        .filter(|(owner, _)| *owner == account)
+                        .ok_or_else(|| format!("This track belongs to a different {} account", self.protocol.label()))?
+                        .1;
+                    Some(
+                        subsonic_cache::catalog_song(conn, &account, &id)?
+                            .ok_or_else(|| format!("This track is no longer in the {} catalog", self.protocol.label()))?,
+                    )
+                }
+                None => None,
+            };
+            let filter = match (scope.as_ref(), representative.as_ref()) {
+                (Some(BrowseScope::Album(_)), Some(song)) => Some(subsonic_cache::Scope::Album(
+                    song.album_id
+                        .as_deref()
+                        .ok_or("This server did not provide an album ID")?,
+                )),
+                (Some(BrowseScope::Artist(_)), Some(song)) => Some(match song.artist_id.as_deref() {
+                    Some(id) => subsonic_cache::Scope::ArtistId(id),
+                    None => subsonic_cache::Scope::ArtistName(
+                        song.artist.as_deref().ok_or("This server did not provide an artist")?,
+                    ),
+                }),
+                _ => None,
+            };
+            let (songs, total) = subsonic_cache::page(conn, &account, query, offset, limit, filter)?;
+            Ok((songs, total, subsonic_cache::revision(conn, &account)?))
+        })?;
         self.check_current_account(&account)?;
         Ok(Page {
-            tracks: songs.iter().map(|song| to_track(&account, song)).collect(),
+            tracks: songs.iter().map(|song| server_track(self.protocol.provider(), &account, song)).collect(),
             total,
+            snapshot_id,
         })
+    }
+
+    pub(crate) async fn track_artwork(&self, track_id: &str) -> Result<Option<String>, String> {
+        let Some((account, id)) = track_id.strip_prefix(&format!("{}:", self.protocol.provider())).and_then(reference_id) else {
+            return Ok(None);
+        };
+        let Some(config) = self
+            .configuration()?
+            .filter(|config| config.account() == account)
+        else {
+            return Ok(None);
+        };
+        let Some(cached) =
+            self.with_cache(|conn| subsonic_cache::catalog_song(conn, account, &id))?
+        else {
+            return Ok(None);
+        };
+        let client = self.client(&config).await?;
+        let mut attempted = HashSet::new();
+        let mut album_id = cached.album_id;
+        let mut cover = cached.cover_art;
+        for refresh_song in [false, true] {
+            self.check_current_account(account)?;
+            if refresh_song {
+                if let Ok(song) = client.song(&id).await {
+                    cover = song.cover_art;
+                    album_id = song.album_id;
+                }
+            }
+            if let Some(cover) = cover.take().filter(|cover| attempted.insert(cover.clone())) {
+                if let Ok((mime, bytes)) = client.cover_art(&cover).await {
+                    self.check_current_account(account)?;
+                    return Ok(Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes))));
+                }
+            }
+        }
+        let Some(album_id) = album_id else {
+            return Ok(None);
+        };
+        self.check_current_account(account)?;
+        let Some(cover) = client.album_cover_id(&album_id).await? else {
+            return Ok(None);
+        };
+        if attempted.contains(&cover) {
+            return Ok(None);
+        }
+        self.check_current_account(account)?;
+        let (mime, bytes) = client.cover_art(&cover).await?;
+        self.check_current_account(account)?;
+        Ok(Some(format!(
+            "data:{mime};base64,{}",
+            STANDARD.encode(bytes)
+        )))
     }
 
     pub(crate) async fn refresh(self: &Arc<Self>) -> Result<Status, String> {
         let _update = self
             .updates
             .try_lock()
-            .map_err(|_| "A Subsonic update is already running")?;
+            .map_err(|_| format!("A {} update is already running", self.protocol.label()))?;
         let config = self.account_config()?;
         self.refresh_configured(config).await
     }
@@ -395,10 +593,9 @@ impl Service {
     async fn refresh_configured(self: &Arc<Self>, config: Configuration) -> Result<Status, String> {
         let account = config.account();
         let client = self.client(&config).await?;
-        let songs = if client.supports_song_catalog() {
-            Self::catalog_from_songs(&client).await?
-        } else {
-            Self::catalog_from_albums(&client).await?
+        let songs = match &client {
+            ServerClient::Subsonic(client) if !client.supports_song_catalog() => Self::catalog_from_albums(client).await?,
+            _ => Self::catalog_from_songs(&client).await?,
         };
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -406,11 +603,12 @@ impl Service {
             service.with_cache(|conn| subsonic_cache::replace(conn, &account, &songs, false))
         })
         .await
-        .map_err(|_| "Could not save the Subsonic catalog")??;
+        .map_err(|_| format!("Could not save the {} catalog", self.protocol.label()))??;
+        self.sync_library_catalog(Some(config)).await?;
         self.status()
     }
 
-    async fn catalog_from_songs(client: &Client) -> Result<Vec<Song>, String> {
+    async fn catalog_from_songs(client: &ServerClient) -> Result<Vec<Song>, String> {
         let mut songs = Vec::new();
         let mut seen = HashSet::new();
         let mut offset = 0;
@@ -421,11 +619,11 @@ impl Service {
             }
             offset += consumed;
             if offset > subsonic_cache::MAX_SONGS {
-                return Err("The Subsonic song count exceeds the supported catalog size".into());
+                return Err("The server song count exceeds the supported catalog size".into());
             }
             if page.iter().any(|song| !seen.insert(song.id.clone())) {
                 return Err(
-                    "The Subsonic song list repeated an earlier page; previous catalog retained"
+                    "The server song list repeated an earlier page; previous catalog retained"
                         .into(),
                 );
             }
@@ -547,6 +745,7 @@ impl Service {
         })
         .await
         .map_err(|_| "Could not save the Strawberry seed")??;
+        self.sync_library_catalog(Some(config.clone())).await?;
         match self.refresh_configured(config).await {
             Ok(status) => Ok(status),
             Err(error) => {
@@ -560,13 +759,13 @@ impl Service {
     }
 
     pub(crate) fn fallback_track(&self, track: &Track) -> Option<Track> {
-        let (account, id) = track_reference(track)?;
+        let (account, id) = server_track_reference(self.protocol.provider(), track)?;
         let config = self.configuration().ok()??;
         if !config.allow_fallback
             || config.account() != account
             || !self
                 .store
-                .recording_is_in_library(&track.id)
+                .has_saved_server_track(&track.id)
                 .unwrap_or(false)
         {
             return None;
@@ -576,7 +775,7 @@ impl Service {
         let song = self
             .with_cache(|conn| subsonic_cache::song(conn, account, &id))
             .ok()??;
-        let cached = to_track(account, &song);
+        let cached = server_track(self.protocol.provider(), account, &song);
         (cached.title == track.title
             && cached.artist == track.artist
             && cached.version == track.version
@@ -589,19 +788,20 @@ impl Service {
         track: &Track,
         settings: &Settings,
     ) -> Result<ResolvedSource, String> {
-        let (account, id) = track_reference(track).ok_or("Invalid Subsonic track reference")?;
+        let (account, id) = server_track_reference(self.protocol.provider(), track)
+            .ok_or_else(|| format!("Invalid {} track reference", self.protocol.label()))?;
         let config = self.account_config()?;
         let client = self.client(&config).await?;
         self.check_current_account(account)?;
         let song = client.song(&id).await?;
         if song.id != id {
-            return Err("The server did not return the requested Subsonic song".into());
+            return Err(format!("The server did not return the requested {} song", self.protocol.label()));
         }
         let mut probe = client
             .stream(&id, Some(HeaderValue::from_static("bytes=0-1")))
             .await?;
         if !matches!(probe.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
-            return Err("Subsonic did not return playable audio for the requested song".into());
+            return Err(format!("{} did not return playable audio for the requested song", self.protocol.label()));
         }
         self.check_current_account(account)?;
         let mime = probe
@@ -629,17 +829,18 @@ impl Service {
             .flatten()
             .is_some_and(|chunk| !chunk.is_empty())
         {
-            return Err("The Subsonic server returned no audio for the requested song".into());
+            return Err(format!("The {} server returned no audio for the requested song", self.protocol.label()));
         }
+        self.check_current_account(account)?;
         let base = self
             .bridge_base
             .get()
-            .ok_or("The Subsonic audio bridge is not ready")?;
+            .ok_or_else(|| format!("The {} audio bridge is not ready", self.protocol.label()))?;
         let token = uuid::Uuid::new_v4().simple().to_string();
         let mut leases = self
             .leases
             .lock()
-            .map_err(|_| "The Subsonic audio bridge is unavailable")?;
+            .map_err(|_| format!("The {} audio bridge is unavailable", self.protocol.label()))?;
         leases.retain(|_, lease| lease.issued.elapsed() < AUDIO_LEASE_TTL);
         if leases.len() >= MAX_LEASES {
             if let Some(oldest) = leases
@@ -661,7 +862,7 @@ impl Service {
         Ok(ResolvedSource {
             origin: ResolvedSourceOrigin::Existing,
             source: AudioSource {
-                input: format!("{base}/subsonic-audio/{token}"),
+                input: format!("{base}/{}/{token}", self.protocol.bridge_route()),
                 ffmpeg: crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"),
                 headers: Vec::new(),
                 decoder_hint: Some(AudioSourceDecoderHint {
@@ -675,7 +876,7 @@ impl Service {
                 }),
                 cenc: None,
             },
-            quality: json!({"sourceKind":"stream","provider":"subsonic"}),
+            quality: json!({"sourceKind":"stream","provider":self.protocol.provider()}),
             candidate: None,
             station: None,
             duration: song.duration,
@@ -705,22 +906,26 @@ fn profile_scope(profile_dir: &Path) -> String {
     scope_hash(b"profile", profile_dir.as_os_str().as_encoded_bytes())
 }
 
-fn delete_password(key: &str) -> Option<String> {
-    match keyring::Entry::new(KEYRING_SERVICE, key).and_then(|entry| entry.delete_credential()) {
+fn delete_password(protocol: Protocol, key: &str) -> Option<String> {
+    match keyring::Entry::new(protocol.keyring_service(), key).and_then(|entry| entry.delete_credential()) {
         Ok(()) | Err(keyring::Error::NoEntry) => None,
         Err(_) => {
-            Some("The system keyring could not remove the previous Subsonic password.".into())
+            Some(format!("The system keyring could not remove the previous {} password.", protocol.label()))
         }
     }
 }
 
-async fn remove_password(key: String) -> Option<String> {
-    tokio::task::spawn_blocking(move || delete_password(&key))
+async fn remove_password(protocol: Protocol, key: String) -> Option<String> {
+    tokio::task::spawn_blocking(move || delete_password(protocol, &key))
         .await
-        .unwrap_or_else(|_| Some("Could not open the Subsonic keyring.".into()))
+        .unwrap_or_else(|_| Some(format!("Could not open the {} keyring.", protocol.label())))
 }
 
-pub(crate) fn reset_profile_credentials(profile_dir: &Path, quarantine: &Path) -> Option<String> {
+pub(crate) fn reset_profile_credentials(profile_dir: &Path, quarantine: &Path) -> Vec<String> {
+    [Protocol::Subsonic, Protocol::Jellyfin].into_iter().filter_map(|protocol| reset_connection_credentials(profile_dir, quarantine, protocol)).collect()
+}
+
+fn reset_connection_credentials(profile_dir: &Path, quarantine: &Path, protocol: Protocol) -> Option<String> {
     let database = quarantine.join("burrata.sqlite");
     if !database.is_file() {
         return None;
@@ -729,34 +934,38 @@ pub(crate) fn reset_profile_credentials(profile_dir: &Path, quarantine: &Path) -
         let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
         conn.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF;")
             .ok()?;
-        conn.query_row("SELECT value FROM settings WHERE key=?1", [PREF], |row| {
+        conn.query_row("SELECT value FROM settings WHERE key=?1", [protocol.preference()], |row| {
             row.get::<_, String>(0)
         })
         .optional()
         .ok()
     })();
     let config = match saved {
-        None => return Some("Could not check for a saved Subsonic password during reset.".into()),
+        None => return Some(format!("Could not check for a saved {} password during reset.", protocol.label())),
         Some(None) => return None,
         Some(Some(raw)) => match serde_json::from_str::<Option<Configuration>>(&raw) {
             Ok(config) => config?,
             Err(_) => {
-                return Some("Could not read Subsonic connection metadata during reset.".into())
+                return Some(format!("Could not read {} connection metadata during reset.", protocol.label()))
             }
         },
     };
-    delete_password(&format!(
+    delete_password(protocol, &format!(
         "{}-{}",
         profile_scope(profile_dir),
         config.account()
     ))
 }
 
-fn track_reference(track: &Track) -> Option<(&str, String)> {
-    if track.provider != "subsonic" || track.id != format!("subsonic:{}", track.provider_id) {
+fn server_track_reference<'a>(provider: &str, track: &'a Track) -> Option<(&'a str, String)> {
+    if track.provider != provider || track.id != format!("{provider}:{}", track.provider_id) {
         return None;
     }
-    let (account, encoded) = track.provider_id.split_once('.')?;
+    reference_id(&track.provider_id)
+}
+
+fn reference_id(provider_id: &str) -> Option<(&str, String)> {
+    let (account, encoded) = provider_id.split_once('.')?;
     if account.len() != 64
         || !account
             .bytes()
@@ -768,6 +977,7 @@ fn track_reference(track: &Track) -> Option<(&str, String)> {
     }
     let id = String::from_utf8(URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()?;
     if id.is_empty()
+        || id.len() > 512
         || id.chars().any(char::is_control)
         || URL_SAFE_NO_PAD.encode(id.as_bytes()) != encoded
     {
@@ -776,7 +986,7 @@ fn track_reference(track: &Track) -> Option<(&str, String)> {
     Some((account, id))
 }
 
-fn to_track(account: &str, song: &Song) -> Track {
+fn server_track(provider: &str, account: &str, song: &Song) -> Track {
     let provider_id = format!("{account}.{}", URL_SAFE_NO_PAD.encode(song.id.as_bytes()));
     let mut title = song.title.clone();
     if let Some(movement) = &song.movement {
@@ -786,8 +996,8 @@ fn to_track(account: &str, song: &Song) -> Track {
         }
     }
     Track {
-        id: format!("subsonic:{provider_id}"),
-        provider: "subsonic".into(),
+        id: format!("{provider}:{provider_id}"),
+        provider: provider.into(),
         provider_id,
         title,
         artist: song.artist.clone().unwrap_or_default(),
@@ -801,7 +1011,12 @@ fn to_track(account: &str, song: &Song) -> Track {
         release_date: song.year.map(|year| year.to_string()),
         isrc: song.isrc.clone(),
         provenance: json!({
+            "serverAlbumId": song.album_id,
+            "serverArtistId": song.artist_id,
+            "serverCoverArtId": song.cover_art,
             "subsonicAlbumId": song.album_id,
+            "subsonicArtistId": song.artist_id,
+            "subsonicCoverArtId": song.cover_art,
             "recordingId": song.recording_mbid,
             "artistCredits": song.performers.iter().map(|name| json!({"name":name,"role":"artist"})).collect::<Vec<_>>(),
             "workIds": song.work_mbid.iter().collect::<Vec<_>>(),
@@ -939,7 +1154,7 @@ async fn audio(
         Body::from_stream(
             upstream
                 .bytes_stream()
-                .map_err(|_| std::io::Error::other("Subsonic stream interrupted")),
+                .map_err(|_| std::io::Error::other("Music server stream interrupted")),
         )
     };
     let mut response = Response::new(body);
@@ -950,6 +1165,10 @@ async fn audio(
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
+
+#[cfg(test)]
+#[path = "subsonic_jellyfin_tests.rs"]
+mod jellyfin_tests;
 
 #[cfg(test)]
 mod tests {
@@ -990,7 +1209,7 @@ mod tests {
             .await
             .unwrap();
         assert!(client.supports_song_catalog());
-        let songs = Service::catalog_from_songs(&client).await.unwrap();
+        let songs = Service::catalog_from_songs(&ServerClient::Subsonic(client)).await.unwrap();
         assert_eq!(
             songs
                 .iter()
@@ -1000,6 +1219,116 @@ mod tests {
         );
         assert_eq!(songs[0].album_id.as_deref(), Some("album"));
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn artwork_reads_the_album_cover_from_the_connected_server_for_an_old_catalog() {
+        use axum::{extract::Query, Json};
+
+        let app = Router::new()
+            .route(
+                "/rest/ping.view",
+                get(|| async {
+                    Json(json!({"subsonic-response":{"status":"ok","openSubsonic":true}}))
+                }),
+            )
+            .route(
+                "/rest/getSong.view",
+                get(|Query(args): Query<HashMap<String, String>>| async move {
+                    assert_eq!(args.get("id").unwrap(), "track");
+                    Json(json!({"subsonic-response":{"status":"ok","song":{
+                        "id":"track","title":"Title","albumId":"album"
+                    }}}))
+                }),
+            )
+            .route(
+                "/rest/getAlbum.view",
+                get(|Query(args): Query<HashMap<String, String>>| async move {
+                    assert_eq!(args.get("id").unwrap(), "album");
+                    Json(json!({"subsonic-response":{"status":"ok","album":{
+                        "id":"album","name":"Album","coverArt":"cover","song":[]
+                    }}}))
+                }),
+            )
+            .route(
+                "/rest/getCoverArt.view",
+                get(|Query(args): Query<HashMap<String, String>>| async move {
+                    assert_eq!(args.get("id").unwrap(), "cover");
+                    assert_eq!(args.get("size").unwrap(), "256");
+                    assert!(args.contains_key("t"));
+                    (
+                        [(header::CONTENT_TYPE, "image/png")],
+                        b"\x89PNG\r\n\x1a\n".as_slice(),
+                    )
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("library.sqlite")).unwrap());
+        let config = Configuration {
+            endpoint: endpoint.clone(),
+            username: "listener".into(),
+            authenticated_account: None,
+            visible: true,
+            allow_fallback: false,
+        };
+        store.set_json_preference(PREF, &json!(config)).unwrap();
+        let service = Service::new(store, dir.path());
+        let account = config.account();
+        let client = Client::connect(&endpoint, "listener", "test".into())
+            .await
+            .unwrap();
+        *service.configured_client.lock().await = Some((account.clone(), ServerClient::Subsonic(client)));
+        let song = Song {
+            id: "track".into(),
+            title: "Title".into(),
+            album_id: Some("album".into()),
+            ..Song::default()
+        };
+        service
+            .with_cache(|conn| subsonic_cache::replace(conn, &account, &[song.clone()], true))
+            .unwrap();
+        let track = server_track("subsonic", &account, &song);
+        assert_eq!(
+            service.track_artwork(&track.id).await.unwrap().as_deref(),
+            Some("data:image/png;base64,iVBORw0KGgo=")
+        );
+        let off_account = server_track("subsonic", &"a".repeat(64), &song);
+        assert!(service
+            .track_artwork(&off_account.id)
+            .await
+            .unwrap()
+            .is_none());
+        server.abort();
+    }
+
+    #[test]
+    fn tracks_from_the_server_can_be_saved_to_a_burrata_playlist() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let collection = store.create_collection("Saved server tracks").unwrap();
+        let track = server_track(
+            "subsonic",
+            &"a".repeat(64),
+            &Song {
+                id: "server-track".into(),
+                title: "Title".into(),
+                artist: Some("Artist".into()),
+                album: Some("Album".into()),
+                ..Song::default()
+            },
+        );
+        store
+            .append_playlist_entries(&collection.id, &[track.clone()])
+            .unwrap();
+        let saved = store
+            .list_tracks("collection", Some(&collection.id))
+            .unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].id, track.id);
+        assert_eq!(saved[0].provider_id, track.provider_id);
     }
 
     #[test]
@@ -1094,13 +1423,13 @@ mod tests {
             movement: Some("II. Andante".into()),
             ..Song::default()
         };
-        let mut track = to_track(&account, &song);
+        let mut track = server_track("subsonic", &account, &song);
         assert_eq!(track.title, "Concerto: II. Andante");
         track.title = "Manual title".into();
-        assert_eq!(track_reference(&track), Some((account.as_str(), song.id)));
+        assert_eq!(server_track_reference("subsonic", &track), Some((account.as_str(), song.id)));
         assert!(track.source_url.is_empty() && track.preview_url.is_none());
         track.id.push('x');
-        assert!(track_reference(&track).is_none());
+        assert!(server_track_reference("subsonic", &track).is_none());
     }
 
     #[test]

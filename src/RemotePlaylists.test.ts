@@ -65,6 +65,36 @@ describe("RemotePlaylists", () => {
     expect(call.mock.calls.some(([command]) => /import_remote|create_.*playlist|apply_remote_playlist/.test(command))).toBe(false);
   });
 
+  it("restores loaded public channel videos and continuation before account lookup finishes", async () => {
+    const account = deferred<unknown>();
+    const uploads = [upload(), upload("_QcW2UT2QKs", "Second upload"), upload("2Szdo6fRc5c", "Third upload")];
+    let revisiting = false;
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return revisiting ? account.promise : { enabled: false };
+      if (command === "browse_youtube_channel_videos") {
+        const page = args?.cursor === "offset-50" ? 2 : args?.cursor === "offset-25" ? 1 : 0;
+        return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`,
+          tracks: [uploads[page]], nextCursor: ["offset-25", "offset-50", null][page], complete: page === 2, warnings: [] };
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const props = { initialProvider: "youtube" as const, initialOwner: channelId, profileOnly: true };
+    const first = render(call, props); await settle();
+    first.querySelector<HTMLButtonElement>(".remote-more")!.click(); await settle();
+    expect(first.querySelectorAll("li[data-track-index]")).toHaveLength(2);
+    destroy?.(); destroy = undefined;
+
+    revisiting = true;
+    const returned = render(call, props); await settle();
+    expect(returned.querySelector('[aria-label="MAJ videos"]')).not.toBeNull();
+    expect(returned.querySelectorAll("li[data-track-index]")).toHaveLength(2);
+    expect(call.mock.calls.filter(([command]) => command === "browse_youtube_channel_videos")).toHaveLength(2);
+    returned.querySelector<HTMLButtonElement>(".remote-more")!.click(); await settle();
+    expect(call).toHaveBeenLastCalledWith("browse_youtube_channel_videos", expect.objectContaining({ cursor: "offset-50" }));
+    expect(returned.querySelectorAll("li[data-track-index]")).toHaveLength(3);
+    account.resolve({ enabled: false }); await settle();
+  });
+
   it("keeps the Playlists tab available from a channel videos view", async () => {
     const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [], nextCursor: null, complete: true, warnings: [] };

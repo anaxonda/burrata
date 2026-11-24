@@ -10,6 +10,7 @@ use std::{collections::HashSet, net::IpAddr, sync::Arc, time::Duration};
 use url::Host;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const MAX_COVER_BYTES: usize = 384 * 1024;
 const MAX_METADATA_BYTES: usize = 4 * 1024 * 1024;
 const BAD_RESPONSE: &str = "The Subsonic server returned invalid data.";
 const UNREACHABLE: &str = "Could not reach the Subsonic server.";
@@ -28,6 +29,7 @@ pub(crate) struct Client {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Album {
     pub id: String,
+    pub cover_art: Option<String>,
     pub title: String,
     pub artist: Option<String>,
     pub year: Option<u32>,
@@ -38,9 +40,11 @@ pub(crate) struct Album {
 pub(crate) struct Song {
     pub id: String,
     pub album_id: Option<String>,
+    pub cover_art: Option<String>,
     pub album: Option<String>,
     pub title: String,
     pub artist: Option<String>,
+    pub artist_id: Option<String>,
     pub album_artist: Option<String>,
     pub duration: Option<f64>,
     pub track: Option<u32>,
@@ -111,7 +115,7 @@ fn private_network(ip: IpAddr) -> bool {
     }
 }
 
-async fn server_http(endpoint: &str) -> Result<reqwest::Client, String> {
+pub(crate) async fn server_http(endpoint: &str) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .no_proxy()
         .redirect(Policy::none())
@@ -312,6 +316,9 @@ impl Client {
             }
             song.album_id = Some(album.id.clone());
             song.album.get_or_insert_with(|| album.title.clone());
+            if song.cover_art.is_none() {
+                song.cover_art.clone_from(&album.cover_art);
+            }
             if song.album_artist.is_none() {
                 song.album_artist.clone_from(&album.artist);
             }
@@ -330,6 +337,50 @@ impl Client {
             return Err(NOT_AVAILABLE.into());
         }
         result.song.into_song()
+    }
+
+    pub(crate) async fn album_cover_id(&self, id: &str) -> Result<Option<String>, String> {
+        validate_id(id)?;
+        let result: AlbumResult = self.metadata("getAlbum", &[("id", id)]).await?;
+        let album = result.album.info.into_album()?;
+        if album.id != id {
+            return Err(BAD_RESPONSE.into());
+        }
+        Ok(album.cover_art)
+    }
+
+    pub(crate) async fn cover_art(&self, id: &str) -> Result<(&'static str, Vec<u8>), String> {
+        validate_id(id)?;
+        let mut response = self
+            .request("getCoverArt", &[("id", id), ("size", "256")])
+            .timeout(REQUEST_TIMEOUT)
+            .send()
+            .await
+            .map_err(|_| UNREACHABLE)?;
+        if response.status() != StatusCode::OK
+            || response
+                .content_length()
+                .is_some_and(|size| size > MAX_COVER_BYTES as u64)
+        {
+            return Err(NOT_AVAILABLE.into());
+        }
+        let mut image = Vec::new();
+        while let Some(bytes) = response.chunk().await.map_err(|_| UNREACHABLE)? {
+            if image.len() + bytes.len() > MAX_COVER_BYTES {
+                return Err(BAD_RESPONSE.into());
+            }
+            image.extend_from_slice(&bytes);
+        }
+        let mime = if image.starts_with(&[0xff, 0xd8, 0xff]) {
+            "image/jpeg"
+        } else if image.starts_with(b"\x89PNG\r\n\x1a\n") {
+            "image/png"
+        } else if image.starts_with(b"RIFF") && image.get(8..12) == Some(b"WEBP") {
+            "image/webp"
+        } else {
+            return Err(NOT_AVAILABLE.into());
+        };
+        Ok((mime, image))
     }
 
     // For the native loopback handler only. Never serialize or debug-log this
@@ -480,6 +531,7 @@ struct AlbumWithSongs {
 #[serde(rename_all = "camelCase")]
 struct RawAlbum {
     id: String,
+    cover_art: Option<String>,
     name: Option<String>,
     title: Option<String>,
     album: Option<String>,
@@ -497,6 +549,7 @@ impl RawAlbum {
             .ok_or(BAD_RESPONSE)?;
         Ok(Album {
             id: self.id,
+            cover_art: self.cover_art.filter(|id| validate_id(id).is_ok()),
             title,
             artist: optional_text(self.display_artist).or_else(|| optional_text(self.artist)),
             year: self.year.filter(|year| (1..=9999).contains(year)),
@@ -513,10 +566,12 @@ struct SongResult {
 #[serde(rename_all = "camelCase")]
 struct RawSong {
     id: String,
+    cover_art: Option<String>,
     title: String,
     album: Option<String>,
     album_id: Option<String>,
     artist: Option<String>,
+    artist_id: Option<String>,
     display_artist: Option<String>,
     album_artist: Option<String>,
     display_album_artist: Option<String>,
@@ -605,6 +660,9 @@ impl RawSong {
             ),
             _ => (None, None),
         };
+        // The legacy artistId identifies one artist. A display credit with
+        // several structured performers needs its own navigation identities.
+        let artist_id = self.artist_id.filter(|id| self.artists.len() <= 1 && validate_id(id).is_ok());
         let performers = if self.artists.len() <= 32 {
             self.artists
                 .into_iter()
@@ -617,9 +675,11 @@ impl RawSong {
         Ok(Song {
             id: self.id,
             album_id,
+            cover_art: self.cover_art.filter(|id| validate_id(id).is_ok()),
             album: optional_text(self.album),
             title,
             artist: optional_text(self.display_artist).or_else(|| optional_text(self.artist)),
+            artist_id,
             album_artist: optional_text(self.display_album_artist)
                 .or_else(|| optional_text(self.album_artist)),
             duration: self
@@ -689,7 +749,7 @@ fn single_isrc(value: Option<RawIsrc>) -> Option<String> {
     }
 }
 
-fn is_single_byte_range(value: &str) -> bool {
+pub(crate) fn is_single_byte_range(value: &str) -> bool {
     let Some((start, end)) = value
         .strip_prefix("bytes=")
         .and_then(|range| range.split_once('-'))
@@ -830,7 +890,7 @@ mod tests {
         let song: SongResult = decode_metadata(
             br#"{"subsonic-response":{"status":"ok","song":{
                 "id":"m1","albumId":"a1","title":"Adagio (Live)","album":"Live",
-                "artist":"Historical display","displayArtist":"Artist A & Artist B",
+                "artist":"Historical display","displayArtist":"Artist A & Artist B","artistId":"artist-a",
                 "displayAlbumArtist":"Artist A","duration":153,"track":3,"discNumber":2,
                 "isrc":["USSM18300073","US-SM1-83-00073"],
                 "mediaType":"song","musicBrainzId":"189002e7-3285-4e2e-92a3-7f6c30d407a2",
@@ -843,6 +903,7 @@ mod tests {
         .unwrap();
         let song = song.song.into_song().unwrap();
         assert_eq!(song.artist.as_deref(), Some("Artist A & Artist B"));
+        assert_eq!(song.artist_id, None);
         assert_eq!(song.disc, Some(2));
         assert_eq!(song.isrc.as_deref(), Some("USSM18300073"));
         assert_eq!(song.performers, vec!["Artist A", "Artist B"]);
@@ -852,6 +913,14 @@ mod tests {
         let encoded = serde_json::to_string(&song).unwrap();
         assert!(!encoded.contains("/private/"));
         assert!(!encoded.contains("secret"));
+    }
+
+    #[test]
+    fn song_retains_a_single_server_artist_id() {
+        let raw: RawSong = serde_json::from_value(serde_json::json!({
+            "id":"song", "title":"Track", "artist":"Artist", "artistId":"artist-id"
+        })).unwrap();
+        assert_eq!(raw.into_song().unwrap().artist_id.as_deref(), Some("artist-id"));
     }
 
     #[test]

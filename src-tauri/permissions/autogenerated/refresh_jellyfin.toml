@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-jellyfin"
+description = "Enables the refresh_jellyfin command without any pre-configured scope."
+commands.allow = ["refresh_jellyfin"]
+
+[[permission]]
+identifier = "deny-refresh-jellyfin"
+description = "Denies the refresh_jellyfin command without any pre-configured scope."
+commands.deny = ["refresh_jellyfin"]

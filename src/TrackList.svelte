@@ -15,7 +15,7 @@
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
-  import { classicalTrackDisplay, OPEN_CREDIT_ARTIST, trackDisplayVersion } from "./lib/track-display";
+  import { classicalTrackDisplay, isUpcomingYouTubeUpload, OPEN_CREDIT_ARTIST, trackDisplayVersion, youtubeFeaturedArtist } from "./lib/track-display";
   import type { ClassicalTrackListRow, WorkProgramme } from "./lib/classical-works";
   import { trackProviderCount } from "./lib/provider-counts";
   import { rowWindow } from "./lib/table";
@@ -23,7 +23,18 @@
   import { playlistPosition } from "./lib/source-position";
   import { playlistDropIndex } from "./lib/playlist-reorder";
 
-  function topTrackArtworkLookup(track: Track) {
+  import { subsonicArtworkDataUrl, subsonicTrackArtworkKey } from "./lib/subsonic";
+  import type { ArtworkLookup } from "./lib/visible-artwork";
+
+  function trackArtworkLookup(track: Track): ArtworkLookup | undefined {
+    if (track.provider === "subsonic" || track.provider === "jellyfin") {
+      return {
+        key: subsonicTrackArtworkKey(track),
+        load: () => call<string | null>(`get_${track.provider}_track_artwork`, { trackId: track.id }),
+        validate: subsonicArtworkDataUrl,
+      };
+    }
+
     const provenance = track.provenance as { source?: string } | undefined;
     if (track.provider !== "lastfm" || provenance?.source !== "Last.fm top tracks") return undefined;
     return {
@@ -33,12 +44,13 @@
   }
 
   let {
-    tracks, orderedRows, onPlay, onPlayWork, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
+    tracks, orderedRows, onPlay, onPlayWork, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false, showUpcomingAvailability = false,
     onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, fixedRowHeight, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     showLibraryStatus?: boolean;
     showProviderCounts?: boolean;
+    showUpcomingAvailability?: boolean;
     orderedRows?: Array<ClassicalTrackListRow | { kind: "status"; key: string; title: string; detail: string }>;
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
     onPlayWork?: (programme: WorkProgramme) => void | Promise<void>;
@@ -363,6 +375,9 @@
     {@const duration = playableDuration(track)}
     {@const displayVersion = trackDisplayVersion(track)}
     {@const classical = classicalTrackDisplay(track)}
+    {@const upcomingYoutube = showUpcomingAvailability && isUpcomingYouTubeUpload(track)}
+    {@const featuredArtist = youtubeFeaturedArtist(track)}
+    {@const artistName = track.artist || featuredArtist}
     {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
@@ -377,25 +392,26 @@
     <li data-track-index={index} data-row-key={displayRow.key} class:focused-history-occurrence={focusedRowKey === displayRow.key} class:current class:buffering class:failed class:paused={current && paused} class:selected={selectedOccurrence} class:playlist-drop-target={draggedPlaylistPosition !== null && draggedPlaylistPosition !== occurrencePosition} title={timestamp?.(track, index)?.full} aria-current={focusedRowKey === displayRow.key ? "location" : current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)} ondragover={(event) => { if (canReorderPlaylist && draggedPlaylistPosition !== null && occurrencePosition !== null && draggedPlaylistPosition !== occurrencePosition) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; } }} ondrop={(event) => { event.preventDefault(); if (!canReorderPlaylist || draggedPlaylistPosition === null || occurrencePosition === null) return; const fromPosition = draggedPlaylistPosition; const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect(); const after = event.clientY >= bounds.top + bounds.height / 2; const destination = playlistDropIndex(fromPosition, occurrencePosition, after); draggedPlaylistPosition = null; if (destination !== null) void movePlaylistOccurrence(track, fromPosition, destination); }}>
       {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedOccurrence} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
       {#if canReorderPlaylist && showSelection}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}; use Up and Down arrow keys`} aria-keyshortcuts="ArrowUp ArrowDown" title="Drag to reorder, or use the Up and Down arrow keys" onkeydown={(event) => occurrencePosition && reorderPlaylistFromHandle(event, track, occurrencePosition)} ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button>{/if}
-      {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}{#if presentation === "playlist"}{@render playbackStatus()}{/if}</div>{/if}
-      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} artworkLookup={topTrackArtworkLookup(track)} /></span>
+      {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay && !upcomingYoutube}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}{#if presentation === "playlist"}{@render playbackStatus()}{/if}</div>{/if}
+      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} artworkLookup={trackArtworkLookup(track)} /></span>
       {#if presentation !== "playlist"}{@render playbackStatus()}{/if}
       <div class="track-copy">
-        <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
+        <button class="track-title" disabled={upcomingYoutube} aria-label={upcomingYoutube ? `Upcoming YouTube video: ${track.title}` : `Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
           <strong>{classical?.movement || track.title}{#if displayVersion}<small>{" "}({displayVersion})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
-          {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if track.artist || track.album || rowMeta}{" · "}{/if}{/if}
+          {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if artistName || track.album || rowMeta}{" · "}{/if}{/if}
           {#if classical?.movement && classical.workTitle}<span>{classical.workTitle} · </span>{/if}
           {#if classical?.credits.length}
             {#each classical.credits as credit, creditIndex (`${credit.artist.id}:${credit.role}`)}
               {#if creditIndex > 0}<span aria-hidden="true"> · </span>{/if}
               {#if openCreditArtist}<button class="artist-link" aria-label={`${credit.name}, ${credit.role.toLowerCase()}`} title={credit.role} onclick={() => openCreditArtist(credit.artist)}>{credit.name}</button>{:else}<span title={credit.role}>{credit.name}</span>{/if}
             {/each}
-          {:else if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
-          {#if track.album}<span class="album">{track.artist || classical?.credits.length ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} aria-busy={albumLookupPending?.(track.id) ?? false} onclick={(event) => { if (albumLookupPending?.(track.id)) return; event.currentTarget.focus({ preventScroll: true }); onAlbum?.(track); }}>{#if albumLookupPending?.(track.id)}Finding album…{:else}{track.album}{/if}</button>{:else}{track.album}{/if}</span>{/if}
+          {:else if artistName}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${artistName}`} title={featuredArtist ? "Featured artist from the video title" : undefined} onclick={() => onArtist?.(track)}>{artistName}</button>{:else}<span title={featuredArtist ? "Featured artist from the video title" : undefined}>{artistName}</span>{/if}{/if}
+          {#if track.album}<span class="album">{artistName || classical?.credits.length ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} aria-busy={albumLookupPending?.(track.id) ?? false} onclick={(event) => { if (albumLookupPending?.(track.id)) return; event.currentTarget.focus({ preventScroll: true }); onAlbum?.(track); }}>{#if albumLookupPending?.(track.id)}Finding album…{:else}{track.album}{/if}</button>{:else}{track.album}{/if}</span>{/if}
           {#if track.localAvailability === "available" || track.localAvailability === "missing"}<span class="local-asset-status" class:local-asset-missing={track.localAvailability === "missing"}>{track.localAvailability === "available" ? "Downloaded" : "Missing file"}</span>{/if}
-          {#if rowMeta}<span>{track.artist || track.album ? " · " : ""}{rowMeta}</span>{/if}
+          {#if rowMeta}<span>{artistName || track.album ? " · " : ""}{rowMeta}</span>{/if}
+          {#if upcomingYoutube}<span>{artistName || track.album || rowMeta ? " · " : ""}Upcoming on YouTube</span>{/if}
         </div>
         {#if presentation !== "playlist" && timestamp?.(track, index)}<time class="track-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       </div>
@@ -403,7 +419,7 @@
       {#if presentation === "playlist" && timestamp?.(track, index)}<time class="track-time playlist-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       {#if duration !== null}<span class="duration">{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}</span>{/if}
       <div class="row-actions">
-        {#if onPlay}<button class="icon-action play" class:buffering={buffering && presentation !== "playlist"} aria-busy={buffering && presentation !== "playlist"} aria-label={buffering && presentation !== "playlist" ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering && presentation !== "playlist" ? "Buffering audio" : "Play"} onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}
+        {#if onPlay && !upcomingYoutube}<button class="icon-action play" class:buffering={buffering && presentation !== "playlist"} aria-busy={buffering && presentation !== "playlist"} aria-label={buffering && presentation !== "playlist" ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering && presentation !== "playlist" ? "Buffering audio" : "Play"} onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}
         {#if onFavorite}<button class="icon-action favorite" class:active={favorite} aria-label={`${favorite ? "Remove" : "Add"} ${track.title} ${favorite ? "from" : "to"} favorites`} aria-pressed={favorite} title={favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}><HeartIcon filled={favorite} /></button>{/if}
         {#if onDownload}<button class="icon-action" aria-label={`Download ${track.title}`} title="Download" onclick={() => onDownload?.(track)}>↓</button>{/if}
         {#if onContext || onNext || onQueue || onPlaylist || onArtist || onInfo || onFavorite || onDownload || onSelect || onAddSelectedToPlaylist || trackSource(track)}

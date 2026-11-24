@@ -1823,7 +1823,23 @@ fn captured_mulemba_xangola_requires_verified_presenter_and_full_lineup() {
         ..Track::default()
     };
     let id = "o54MNSUAbq0";
-    let search = youtube_mix(id, caption, 227.0, MatchStage::Search);
+    let mut search = youtube_mix(id, caption, 227.0, MatchStage::Search);
+    search.uploader = Some("Africanism".into());
+    assert!(crate::recording_match::youtube_presenter_inspection_hint(
+        &request, &search
+    ));
+    for (title, uploader) in [
+        (caption.to_owned(), "Fan Upload"),
+        (caption.replace("ft. Lura", "ft. Other Artist"), "Africanism"),
+        (caption.replace(" & Bonga", ""), "Africanism"),
+        (caption.replace("(Visualizer)", "(Live)"), "Africanism"),
+    ] {
+        let mut conflicting = youtube_mix("QjO0K8wWfWg", &title, 227.0, MatchStage::Search);
+        conflicting.uploader = Some(uploader.into());
+        assert!(!crate::recording_match::youtube_presenter_inspection_hint(
+            &request, &conflicting
+        ));
+    }
     let resolved = |caption: &str, duration: f64| {
         let mut candidate = youtube_mix(id, caption, duration, MatchStage::Resolved);
         candidate.uploader = Some("Africanism".into());

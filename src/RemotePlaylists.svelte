@@ -21,6 +21,14 @@
   type ImportResult = { bindingId?: string; id?: string; playlistId?: string; title?: string; provider?: string; collectionId?: string; trackCount?: number; complete?: boolean; error?: string };
   type ImportFailure = { playlistId: string; message: string };
   type PlaylistsSnapshot = { provider: Provider; sourceMode: "mine" | "profile" | "search" | "url"; profileUrl: string; directUrl: string; playlistUrls: string[]; query: string; searchKind: "playlist" | "channel"; items: RemotePlaylist[]; cursor: string | null; selected: string[]; seenCursors: string[]; currentBrowseComplete: boolean | null; pageNote: string; snapshotConsistency: "progressive" | null; scroll: number; loadedCount: number; needsRefetch: boolean; channelTab?: "videos" | "playlists" };
+  type ChannelSnapshot = {
+    page: RemoteYoutubeChannelVideosPage;
+    tab: "videos" | "playlists";
+    cursor: string | null;
+    seenCursors: string[];
+    scroll: number;
+    needsRefetch: boolean;
+  };
   type ImportJob = { jobId?: string; id?: string; state?: string; completed?: number; total?: number; results?: ImportResult[]; errors?: ImportFailure[]; error?: string | null };
 
   let { call, onImported = () => {}, onClose = () => {}, onOpenPlaylist = () => {}, onBrowseOwner, initialProvider = "spotify", initialOwner = "", initialPlaylistUrl = "", profileOnly = false,
@@ -112,6 +120,7 @@
   const SELECT_ALL_BUDGET_MS = 120_000;
   const RESTORE_BUDGET_MS = 120_000;
   const MAX_IMPORT_SELECTION = 500;
+  const publicChannelScope = "youtube:public-videos";
 
   $effect(() => { provider; channelTab; if (!(pinnedProfile && provider === "youtube" && channelTab === "videos")) void loadBindings(); });
   $effect(() => { provider = initialProvider; });
@@ -120,6 +129,19 @@
     destroyed = true; profileSearchRequest += 1; providerReads.cancelAll(); finishPollWait?.();
     const snapshot: PlaylistsSnapshot = { provider, sourceMode, profileUrl, directUrl, playlistUrls, query, searchKind, items, cursor, selected, seenCursors: [...seenBrowseCursors], currentBrowseComplete, pageNote, snapshotConsistency, scroll: scrollElement?.scrollTop ?? scrollTop, loadedCount: items.length, needsRefetch: false, channelTab };
     if (accountScope) providerNavigationSnapshots.put({ kind: "playlists", key: playlistSnapshotKey(snapshot), accountScope, snapshot, rows: items.length, stripRows: value => ({ ...value, items: [], cursor: null, selected: [], needsRefetch: true }) });
+    const owner = initialProvider === "youtube" ? youtubeChannelOwner(initialOwner) : null;
+    if (owner && youtubeChannelOwner(profileUrl) === owner && channelPage) {
+      const snapshot: ChannelSnapshot = {
+        page: channelPage, tab: channelTab, cursor: channelCursor, seenCursors: [...channelSeenCursors],
+        scroll: scrollElement?.scrollTop ?? scrollTop,
+        needsRefetch: !channelPage.complete && !channelCursor,
+      };
+      providerNavigationSnapshots.put({
+        kind: "youtube-channel", key: owner, accountScope: publicChannelScope, snapshot,
+        rows: channelPage.tracks.length,
+        stripRows: value => ({ ...value, page: { ...value.page, tracks: [], complete: false, nextCursor: null }, cursor: null, seenCursors: [], needsRefetch: true }),
+      });
+    }
   });
 
   function playlistSnapshotKey(snapshot: Pick<PlaylistsSnapshot, "provider" | "sourceMode" | "profileUrl" | "query" | "searchKind" | "directUrl" | "playlistUrls">) {
@@ -131,9 +153,25 @@
     const generation = ++restoreGeneration;
     const routeKey = playlistSnapshotKey({ provider, sourceMode: initialOwner.trim() ? "profile" : initialPlaylistUrl.trim() ? "url" : "mine", profileUrl: initialOwner.trim(), query: "", searchKind: "playlist", directUrl: "", playlistUrls: [] });
     const isCurrent = () => !destroyed && generation === restoreGeneration && routeKey === playlistSnapshotKey({ provider, sourceMode, profileUrl, query, searchKind, directUrl, playlistUrls });
+    const owner = initialProvider === "youtube" ? youtubeChannelOwner(initialOwner) : null;
+    const publicVideos = owner ? providerNavigationSnapshots.get<ChannelSnapshot>("youtube-channel", owner, publicChannelScope) : null;
+    if (publicVideos?.tab === "videos") {
+      sourceMode = "profile"; profileUrl = initialOwner.trim(); channelTab = "videos";
+      channelPage = publicVideos.page;
+      channelTracks = publicVideos.page.tracks;
+      channelCursor = publicVideos.cursor;
+      channelSeenCursors = new Set(publicVideos.seenCursors);
+      channelNotice = publicVideos.page.warnings.join(" ");
+      scrollTop = publicVideos.scroll;
+      if (publicVideos.needsRefetch) void browseYoutubeChannelVideos(true);
+      void tick().then(() => requestAnimationFrame(() => {
+        if (isCurrent() && channelTab === "videos" && scrollElement) scrollElement.scrollTop = scrollTop;
+      }));
+    }
     const scope = await providerAccountScope(call, provider);
     if (!isCurrent()) return;
     accountScope = scope;
+    if (publicVideos?.tab === "videos") return;
     const saved = providerNavigationSnapshots.get<PlaylistsSnapshot>("playlists", routeKey, accountScope);
     if (saved && isCurrent() && (!pinnedProfile || (saved.sourceMode === "profile" && saved.profileUrl.trim() === initialOwner.trim()))) {
       if (initialOwner.trim() && initialProvider === "youtube" && saved.channelTab === "videos") {
@@ -625,7 +663,7 @@
         {#if channelLoading}<p class="remote-loading" role="status">Loading channel videos…</p>{/if}
         {#if channelError}<p class="remote-error" role="alert">{channelError}</p>{/if}
         {#if channelNotice}<p class="remote-notice" role="status">{channelNotice}</p>{/if}
-        {#if channelTracks.length}<TrackList presentation="playlist" tracks={channelTracks} selectionContext={`youtube-channel:${channelPage?.channelId || profileUrl}`} listLabel={`${channelPage?.title || "YouTube channel"} videos`} meta={(track) => {
+        {#if channelTracks.length}<TrackList presentation="playlist" tracks={channelTracks} showUpcomingAvailability selectionContext={`youtube-channel:${channelPage?.channelId || profileUrl}`} listLabel={`${channelPage?.title || "YouTube channel"} videos`} meta={(track) => {
           const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
           const uploader = typeof provenance.uploaderChannelTitle === "string" ? provenance.uploaderChannelTitle : "YouTube channel";
           return `Uploaded by ${uploader} · recording artist unverified`;

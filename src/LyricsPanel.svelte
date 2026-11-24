@@ -5,6 +5,7 @@
   import LanguagePicker from "./LanguagePicker.svelte";
   import { lyricsTiming } from "./lib/lyrics-timing.svelte";
   import type { Track } from "./lib/types";
+  import { call } from "./lib/api";
   import { lyricsPlaybackPosition } from "./lib/lyrics-request";
   import { validateLyricsTranslation, validateLyricsTranslationProgress, type LyricsTranslationResult } from "./lib/lyrics-translation";
 
@@ -13,18 +14,19 @@
   export type CurrentTrackLyrics = {
     scopeId?: string; candidates?: LyricCandidate[]; selectionNotice?: string;
     status: "synced" | "unsynced" | "instrumental" | "notFound" | "unmatched" | "unavailable" | "noCurrentTrack" | "invalidRequest" | "providerUnavailable";
-    provider: "lrclib" | "shazam" | "localLrc" | "embeddedLyrics";
+    provider: "lrclib" | "shazam" | "localLrc" | "embeddedLyrics" | "youtubeTranscript";
     sourceHash?: string;
     sourceOffsetSeconds?: number;
     match?: { trackName: string; artistName: string; albumName?: string | null; durationSeconds?: number | null; durationDeltaSeconds?: number | null };
     lines?: { id?: string; timeSeconds: number | null; text: string }[];
     plainLyrics?: string;
   };
+  type YoutubeTranscript = { language: string; automatic: boolean; lines: NonNullable<CurrentTrackLyrics["lines"]> };
   export type LyricsSyncResult = { offsetSeconds: number };
   type Loader = () => Promise<CurrentTrackLyrics>;
   type TranslationLine = { id: string; timeSeconds: number | null; text: string };
   type Translator = (sourceHash: string, lines: TranslationLine[], progress?: (result: LyricsTranslationResult)=>void, signal?:AbortSignal, options?:{useFallback?:boolean}) => Promise<LyricsTranslationResult>;
-  let { fullscreenRequested = false, onFullscreenClose, track, absolutePosition, loadLyrics, findLyrics, chooseLyrics, syncLyrics, syncScope = "", saveLyrics, exportLyrics, translationLanguage = "en", changeTranslationLanguage, translationEnabled = false, translationCredentialPresent = false, translateLyrics, bottomInset = 0, onSeek, playbackControlsId = "burrata-playback-controls" }: { fullscreenRequested?: boolean; onFullscreenClose?: () => void; track: Track; absolutePosition: number; loadLyrics: Loader; findLyrics?: () => Promise<LyricCandidates>; chooseLyrics?: (scopeId: string, candidateId: string) => Promise<CurrentTrackLyrics>; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string; saveLyrics?: (sourceHash: string) => Promise<unknown>; exportLyrics?: (sourceHash: string, text: string) => Promise<{cancelled?: boolean}>; translationLanguage?: string; changeTranslationLanguage?: (language: string) => Promise<unknown>; translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: Translator; bottomInset?: number; onSeek?: (seconds:number) => void; playbackControlsId?:string } = $props();
+  let { fullscreenRequested = false, onFullscreenClose, track, transcriptTrack, absolutePosition, loadLyrics, findLyrics, chooseLyrics, syncLyrics, syncScope = "", saveLyrics, exportLyrics, translationLanguage = "en", changeTranslationLanguage, translationEnabled = false, translationCredentialPresent = false, translateLyrics, bottomInset = 0, onSeek, playbackControlsId = "burrata-playback-controls" }: { fullscreenRequested?: boolean; onFullscreenClose?: () => void; track: Track; transcriptTrack?: Track; absolutePosition: number; loadLyrics: Loader; findLyrics?: () => Promise<LyricCandidates>; chooseLyrics?: (scopeId: string, candidateId: string) => Promise<CurrentTrackLyrics>; syncLyrics?: () => Promise<LyricsSyncResult | null>; syncScope?: string; saveLyrics?: (sourceHash: string) => Promise<unknown>; exportLyrics?: (sourceHash: string, text: string) => Promise<{cancelled?: boolean}>; translationLanguage?: string; changeTranslationLanguage?: (language: string) => Promise<unknown>; translationEnabled?: boolean; translationCredentialPresent?: boolean; translateLyrics?: Translator; bottomInset?: number; onSeek?: (seconds:number) => void; playbackControlsId?:string } = $props();
 
   let open = $state(false);
   let fullscreen = $state(false);
@@ -87,7 +89,18 @@
   let candidateMessage = $state("");
   let candidateSort = $state<LyricResultSort>("match");
   let failure = $state("");
-  let lyrics = $state<CurrentTrackLyrics | null>(null);
+  let songLyrics = $state<CurrentTrackLyrics | null>(null);
+  let transcript = $state<YoutubeTranscript | null>(null);
+  let transcriptOpen = $state(false);
+  let transcriptBusy = $state(false);
+  let transcriptMessage = $state("");
+  const transcriptVideoId = $derived.by(() => {
+    const source = transcriptTrack ?? track;
+    return source.provider === "youtube" && /^[A-Za-z0-9_-]{11}$/.test(source.providerId) ? source.providerId : null;
+  });
+  const lyrics = $derived<CurrentTrackLyrics | null>(transcriptOpen && transcript
+    ? { status: "synced", provider: "youtubeTranscript", lines: transcript.lines }
+    : songLyrics);
   const displayedCandidates = $derived(sortLyricCandidates(candidatePage?.candidates ?? lyrics?.candidates ?? [], track.durationSeconds, candidateSort));
 
   let temporaryTimingOffset = $state(0);
@@ -185,15 +198,16 @@
     if (cached && cached.targetLanguage.trim().toLowerCase()!==target) {translationAbort?.abort(); translationEpoch++;translation=null;translating=false;translationMessage="Translation language changed. Retry translation.";}
   });
   const recordingScope = $derived([track.id, track.provider, track.providerId, track.sourceUrl, track.artist, track.assetId ?? "", track.localPath ?? "", track.title, track.version ?? "", track.album ?? ""].join("\0"));
-  const scope = $derived(`${recordingScope}\0${track.durationSeconds ?? ""}`);
+  const scope = $derived(`${recordingScope}\0${track.durationSeconds ?? ""}\0${transcriptVideoId ?? ""}`);
   const timingMismatch = $derived(lyrics?.status === "synced" && lyrics?.match?.durationDeltaSeconds != null && Number.isFinite(lyrics.match.durationDeltaSeconds) && Math.abs(lyrics.match.durationDeltaSeconds) > 2);
   const canSeekLyricLines = $derived.by(() => {
     const provenance=track.provenance && typeof track.provenance==="object" ? track.provenance as Record<string,unknown> : {};
     return Boolean(onSeek && lyrics?.status==="synced" && !timingMismatch && !lyrics.selectionNotice
-      && !provenance.activeLyricsDetection && !provenance.approximateExcerpt);
+      && (transcriptOpen || (!provenance.activeLyricsDetection && !provenance.approximateExcerpt)));
   });
   function seekToLyricLine(time:unknown) {
     if(!canSeekLyricLines || timingFromLine || typeof time!=="number" || !Number.isFinite(time) || time<0)return;
+    if (transcriptOpen) { onSeek?.(time); return; }
     const sourceStart=track.playbackRange?.startTime ?? 0;
     onSeek?.(Math.max(0,time-timingOffset-(anchorOffset??0)-sourceTimingOffset()+sourceStart));
   }
@@ -228,7 +242,7 @@
     return lines;
   }
   const lyricPosition=$derived(lyricsPlaybackPosition(track,absolutePosition));
-  const lyricsClock=$derived(lyricPosition+timingOffset+(anchorOffset??0)+sourceTimingOffset());
+  const lyricsClock=$derived(transcriptOpen ? absolutePosition : lyricPosition+timingOffset+(anchorOffset??0)+sourceTimingOffset());
   const nextTimedLine=$derived(lyrics?.status==="synced" ? lyrics.lines?.find(line=>typeof line.timeSeconds==="number"&&line.timeSeconds>lyricsClock) : undefined);
   const activeLine = $derived.by(() => {
     if (lyrics?.status !== "synced" || timingMismatch || !Number.isFinite(lyricPosition)) return -1;
@@ -258,7 +272,8 @@
     temporaryTimingOffset = 0;
     timingFromLine = false; timingNotice = "";
     loading = false;
-    lyrics = null;
+    songLyrics = null;
+    transcript = null; transcriptOpen = false; transcriptBusy = false; transcriptMessage = "";
     pairAlternatingLines = false; sourceTranslationEnabled = true; showTranslation = false; saveMessage = "";
     candidatePage = null; candidatesOpen = false; candidatesBusy = false; candidateMessage = "";
     failure = "";
@@ -292,23 +307,53 @@
 
   async function showLyrics() {
     open = true;
-    if (lyrics || loading) return;
+    if (songLyrics || loading) return;
     const epoch = ++requestEpoch, expectedScope = scope;
     loading = true; failure = "";
     try {
       const result = await loadLyrics();
       if (epoch !== requestEpoch || expectedScope !== scope) return;
       if (!result || !["synced", "unsynced", "instrumental", "notFound", "unmatched", "unavailable", "noCurrentTrack", "invalidRequest", "providerUnavailable"].includes(result.status)) {
-        lyrics = { status: "unavailable", provider: "lrclib" };
+        songLyrics = { status: "unavailable", provider: "lrclib" };
       } else if (result.status === "synced") {
         const lines = (Array.isArray(result.lines) ? result.lines : []).filter((line): line is { id?: string; timeSeconds: number; text: string } => line != null && typeof line.timeSeconds === "number" && Number.isFinite(line.timeSeconds) && line.timeSeconds >= 0 && typeof line.text === "string" && Boolean(line.text.trim())).slice().sort((a, b) => a.timeSeconds - b.timeSeconds);
-        lyrics = lines.length ? { ...result, lines } : { status: "unavailable", provider: "lrclib" };
-      } else lyrics = result;
+        songLyrics = lines.length ? { ...result, lines } : { status: "unavailable", provider: "lrclib" };
+      } else songLyrics = result;
       pairAlternatingLines = lyrics?.status === "unsynced" && sourceHasAlternatingLanguages(lyrics); sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled;
     } catch (error) {
       if (epoch === requestEpoch) failure = error instanceof Error ? error.message : String(error);
     } finally {
       if (epoch === requestEpoch) loading = false;
+    }
+  }
+
+  async function toggleYoutubeTranscript() {
+    if (transcriptOpen) {
+      transcriptOpen = false;
+      return;
+    }
+    if (!transcriptVideoId || transcriptBusy) return;
+    const expected = scope;
+    transcriptBusy = true;
+    transcriptMessage = "";
+    try {
+      const result = transcript ?? await call<YoutubeTranscript | null>("get_current_youtube_transcript", { videoId: transcriptVideoId });
+      if (destroyed || scope !== expected) return;
+      if (!result?.lines.length) {
+        transcriptMessage = "YouTube has no timed captions for this video.";
+        return;
+      }
+      transcript = result;
+      transcriptOpen = true;
+      candidatesOpen = false;
+      timingFromLine = false;
+      timingNotice = "";
+      showTranslation = false;
+      lyricsSearchQuery = "";
+    } catch {
+      if (scope === expected) transcriptMessage = "Could not load the YouTube transcript. Try again.";
+    } finally {
+      if (scope === expected) transcriptBusy = false;
     }
   }
   async function showCandidates() {
@@ -334,7 +379,7 @@
     try {
       const result = await chooseLyrics(page.scopeId, id);
       if (expected !== scope || epoch !== requestEpoch) return;
-      lyrics = result; candidatesOpen = false; pairAlternatingLines = result.status === "unsynced" && sourceHasAlternatingLanguages(result); sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled; temporaryTimingOffset = 0; anchorOffset = null; syncMessage = "";
+      songLyrics = result; candidatesOpen = false; pairAlternatingLines = result.status === "unsynced" && sourceHasAlternatingLanguages(result); sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled; temporaryTimingOffset = 0; anchorOffset = null; syncMessage = "";
     } catch (error) { if (expected === scope) candidateMessage = String(error); }
     finally { if (expected === scope) candidatesBusy = false; }
   }
@@ -344,7 +389,7 @@
     if (requested && currentScope) untrack(() => { void showLyrics(); fullscreen = true; });
   });
   function hideLyrics() { closeFullscreen(); open = false; }
-  function retry() { candidatePage = null; candidatesOpen = false; candidateMessage = ""; lyrics = null; translationAbort?.abort(); translationEpoch++; translation = null; translating = false; translationMessage = ""; failure = ""; void showLyrics(); }
+  function retry() { candidatePage = null; candidatesOpen = false; candidateMessage = ""; songLyrics = null; translationAbort?.abort(); translationEpoch++; translation = null; translating = false; translationMessage = ""; failure = ""; void showLyrics(); }
   async function syncToAudio() {
     if (lyrics?.selectionNotice) return;
     if (!syncLyrics || syncing) return;
@@ -432,28 +477,30 @@
 <svelte:window onkeydowncapture={fullscreenEscape} onkeydown={trapFullscreenTab} />
 <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 <article class="lyrics-panel" class:fullscreen bind:this={panel} style:bottom={fullscreen ? `${Math.max(0,Number.isFinite(bottomInset)?bottomInset:0)}px` : undefined} tabindex={fullscreen ? -1 : undefined} role={fullscreen ? "dialog" : undefined} aria-modal={fullscreen ? "true" : undefined} aria-owns={fullscreen ? playbackControlsId : undefined} aria-label={fullscreen ? "Fullscreen lyrics" : "Lyrics"} onkeydown={lyricsKeys}>
-  <div class="lyrics-heading"><h2 title={lyrics?.provider === "shazam" ? "Lyrics from Shazam identification" : undefined}>Lyrics</h2><div class="lyrics-actions">
+  <div class="lyrics-heading"><h2 title={lyrics?.provider === "shazam" ? "Lyrics from Shazam identification" : undefined}>{transcriptOpen ? "YouTube transcript" : "Lyrics"}</h2><div class="lyrics-actions">
     {#if open}
       {#if lyricsSearchItems.length}<button type="button" aria-label="Search lyrics" aria-expanded={lyricsSearchOpen} title="Search lyrics" onclick={()=>void toggleLyricsSearch()}>⌕</button>{/if}
-      {#if lyrics?.status === "synced" || lyrics?.status === "unsynced"}
+      {#if !transcriptOpen && (lyrics?.status === "synced" || lyrics?.status === "unsynced")}
         <span class="lyrics-translation-controls"><button type="button" class:enabled={showTranslation} aria-busy={translating} aria-label="Show translation" aria-pressed={showTranslation} title={showTranslation ? "Hide translation" : "Show translation"} onclick={() => {
           showTranslation = !showTranslation;
           if (showTranslation && !translation && !(lyrics?.status === "unsynced" && pairAlternatingLines && sourceTranslationEnabled)) void translateLoadedLyrics();
         }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 5h12M9 2v3M5 5c1 5 4 8 8 10M13 5c-1 5-4 8-9 11M13 21l4-10 4 10M14.5 18h5"/></svg></button></span>
       {/if}
-      <details use:dismissDetails class="lyrics-menu" bind:this={optionsMenu}><summary aria-label="Lyrics options" title="Lyrics options">⋯</summary><div class="lyrics-menu-content">
-    {#if findLyrics}<button class="lyrics-other-results" type="button" aria-expanded={candidatesOpen} onclick={() => {if(optionsMenu)optionsMenu.open=false; void showCandidates();}}>Other lyric results</button>{/if}
+      <details use:dismissDetails class="lyrics-menu" bind:this={optionsMenu}><summary class="dropdown-trigger" aria-label="Lyrics options" title="Lyrics options">⋯</summary><div class="lyrics-menu-content dropdown-menu">
+    {#if transcriptVideoId}<button type="button" class="dropdown-option" disabled={transcriptBusy} onclick={() => { if (optionsMenu) optionsMenu.open = false; void toggleYoutubeTranscript(); }}>{transcriptOpen ? "Show song lyrics" : "Show YouTube transcript"}</button>{/if}
+    {#if !transcriptOpen}
+    {#if findLyrics}<button class="lyrics-other-results dropdown-option" type="button" aria-expanded={candidatesOpen} onclick={() => {if(optionsMenu)optionsMenu.open=false; void showCandidates();}}>Other lyric results</button>{/if}
     {#if lyrics?.match?.artistName}<small class="lyrics-source">Lyrics credit: {lyrics.match.artistName}{#if lyrics.match.albumName} · {lyrics.match.albumName}{/if} · {lyrics.provider === "lrclib" ? "LRCLIB" : lyrics.provider}</small>{/if}
     {#if lyrics?.selectionNotice}<p class="lyrics-status" role="status">{lyrics.selectionNotice}</p>{/if}
     {#if candidatesOpen}<small class="lyrics-external-source">Other transcriptions: <a href={`https://www.google.com/search?q=${encodeURIComponent(`site:lyricstranslate.com ${track.title} lyrics`)}`} target="_blank" rel="noreferrer">Search LyricsTranslate ↗</a>. Performances and repetitions may differ.</small>{/if}
-        {#if lyrics?.status === "unsynced" && !translation}<button class="lyrics-pair-lines" type="button" aria-pressed={pairAlternatingLines} onclick={() => {pairAlternatingLines = !pairAlternatingLines; sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled;}}>Source has alternating bilingual lines</button>{/if}
+        {#if lyrics?.status === "unsynced" && !translation}<button class="lyrics-pair-lines dropdown-option" type="button" aria-pressed={pairAlternatingLines} onclick={() => {pairAlternatingLines = !pairAlternatingLines; sourceTranslationEnabled = ["en","english"].includes(translationLanguage.toLowerCase()); showTranslation = pairAlternatingLines && sourceTranslationEnabled;}}>Source has alternating bilingual lines</button>{/if}
         {#if translationMessage && (translation || !showTranslation)}<p class="lyrics-status" role="status">{translationMessage}</p>{/if}
-        {#if translateLyrics && translationEnabled}<button type="button" disabled={translating} title="Use the configured fallback provider and API key for this translation" onclick={()=>{showTranslation=true;void translateLoadedLyrics(true);}}>Retry with fallback</button>{/if}
-        {#if !translation && showTranslation && !(lyrics?.status === "unsynced" && pairAlternatingLines && sourceTranslationEnabled)}<button type="button" onclick={() => void translateLoadedLyrics()} disabled={translating}>Retry translation</button>{/if}
-        {#if saveLyrics && lyrics?.sourceHash}<button type="button" disabled={savingLyrics || !track.localPath} title={!track.localPath ? "Download this song first" : "Embed original source lyrics in this downloaded audio file"} onclick={async () => {savingLyrics = true; saveMessage = ""; try {await saveLyrics!(lyrics!.sourceHash!); saveMessage = "Lyrics saved to audio file.";} catch(error) {saveMessage = String(error);} finally {savingLyrics = false;}}}>{savingLyrics ? "Saving…" : "Embed lyrics in audio file"}</button>{/if}
+        {#if translateLyrics && translationEnabled}<button type="button" class="dropdown-option" disabled={translating} title="Use the configured fallback provider and API key for this translation" onclick={()=>{showTranslation=true;void translateLoadedLyrics(true);}}>Retry with fallback</button>{/if}
+        {#if !translation && showTranslation && !(lyrics?.status === "unsynced" && pairAlternatingLines && sourceTranslationEnabled)}<button type="button" class="dropdown-option" onclick={() => void translateLoadedLyrics()} disabled={translating}>Retry translation</button>{/if}
+        {#if saveLyrics && lyrics?.sourceHash}<button type="button" class="dropdown-option" disabled={savingLyrics || !track.localPath} title={!track.localPath ? "Download this song first" : "Embed original source lyrics in this downloaded audio file"} onclick={async () => {savingLyrics = true; saveMessage = ""; try {await saveLyrics!(lyrics!.sourceHash!); saveMessage = "Lyrics saved to audio file.";} catch(error) {saveMessage = String(error);} finally {savingLyrics = false;}}}>{savingLyrics ? "Saving…" : "Embed lyrics in audio file"}</button>{/if}
         {#if lyrics?.sourceHash}
-          <button type="button" onclick={async () => {try {await navigator.clipboard.writeText(displayedLyricsText());saveMessage="Lyrics copied.";} catch {saveMessage="Could not copy lyrics to the clipboard.";}}}>Copy lyrics</button>
-          {#if exportLyrics}<button type="button" onclick={async () => {try {const result=await exportLyrics!(lyrics!.sourceHash!,displayedLyricsText());saveMessage=result.cancelled ? "" : "Lyrics saved as text.";} catch(error){saveMessage=String(error);}}}>Save lyrics as text file</button>{/if}
+          <button type="button" class="dropdown-option" onclick={async () => {try {await navigator.clipboard.writeText(displayedLyricsText());saveMessage="Lyrics copied.";} catch {saveMessage="Could not copy lyrics to the clipboard.";}}}>Copy lyrics</button>
+          {#if exportLyrics}<button type="button" class="dropdown-option" onclick={async () => {try {const result=await exportLyrics!(lyrics!.sourceHash!,displayedLyricsText());saveMessage=result.cancelled ? "" : "Lyrics saved as text.";} catch(error){saveMessage=String(error);}}}>Save lyrics as text file</button>{/if}
         {/if}
         {#if changeTranslationLanguage}<LanguagePicker value={translationLanguage} onChange={async language => {const expectedScope=scope, expectedHash=lyrics?.sourceHash;await changeTranslationLanguage!(language);if(scope!==expectedScope || lyrics?.sourceHash!==expectedHash)return;translationAbort?.abort(); translationEpoch++;translation=null;translationMessage="";translating=false;sourceTranslationEnabled=false;if(showTranslation)void translateLoadedLyrics();}} />{/if}
         {#if saveMessage}<p role="status">{saveMessage}</p>{/if}
@@ -474,12 +521,16 @@
         {#if timingKey && timingOffset!==0}<small>Remembered for this song and lyric source.</small>{/if}
       </div>
         {/if}
+    {/if}
       </div></details>
       <button bind:this={expandButton} type="button" aria-label={fullscreen ? "Exit fullscreen lyrics" : "Maximize lyrics"} title={fullscreen ? "Exit fullscreen (Escape)" : "Maximize lyrics"} onclick={() => { if (fullscreen) closeFullscreen(); else fullscreen = true; }}>{fullscreen ? "⤢" : "⛶"}</button>
       <button type="button" aria-label="Hide lyrics" title="Hide lyrics" onclick={hideLyrics}>×</button>
     {:else}<button type="button" class="lyrics-open" aria-expanded={open} onclick={() => void showLyrics()}>Show lyrics</button>{/if}
   </div></div>
   {#if open}
+    {#if transcriptBusy}<p class="lyrics-status" role="status">Loading YouTube transcript…</p>{/if}
+    {#if transcriptMessage}<p class="lyrics-status" role="status">{transcriptMessage}</p>{/if}
+    {#if transcriptOpen && transcript}<p class="lyrics-status">{transcript.automatic ? "Automatic captions" : "Creator captions"} · {transcript.language}</p>{/if}
     {#if lyricsSearchOpen && lyricsSearchItems.length}
       <div class="lyrics-search" role="search" aria-label="Search lyrics">
         <input bind:this={lyricsSearchInput} type="search" aria-label="Search lyrics text" placeholder="Search lyrics" value={lyricsSearchQuery} oninput={(event)=>updateLyricsSearch(event.currentTarget.value)} onkeydown={(event)=>{if(event.key==="Enter"){event.preventDefault();void navigateLyricsSearch(event.shiftKey?-1:1);}}} />
@@ -503,8 +554,8 @@
         {/each}
       </div>
     {/if}
-    {#if loading}<p class="lyrics-status" role="status">Looking up lyrics for this track…</p>
-    {:else if failure}<p class="lyrics-error" role="alert">Could not load lyrics: {failure} <button type="button" onclick={retry}>Retry</button></p>
+    {#if loading && !transcriptOpen}<p class="lyrics-status" role="status">Looking up lyrics for this track…</p>
+    {:else if failure && !transcriptOpen}<p class="lyrics-error" role="alert">Could not load lyrics: {failure} <button type="button" onclick={retry}>Retry</button></p>
     {:else if (candidatePage?.candidates.length ?? lyrics?.candidates?.length ?? 0) > 0 && !lyrics?.lines?.length}<p class="lyrics-status" role="status">Choose a lyric result above. The exact recording has not been confirmed.</p>
     {:else if timingMismatch || lyrics?.status === "unmatched"}<p class="lyrics-status" role="status">A lyrics result did not match this recording's title, performers, or duration. It is not displayed.</p>
     {:else if lyrics?.status === "instrumental"}<p class="lyrics-status" role="status">This recording is marked instrumental.</p>
@@ -552,10 +603,11 @@
 <style>
   .candidate-sort{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;font-size:12px;color:var(--muted)}.candidate-sort label{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px;margin:0;min-width:0}.candidate-sort select{max-width:180px}
   .translation-notice{display:flex;align-items:center;gap:.75rem;color:var(--muted);font-size:.85rem}.translation-notice:empty{display:none}.translation-notice button{flex:none}
-  .lyrics-menu{position:relative}.lyrics-menu summary{cursor:pointer;list-style:none;border:1px solid var(--line,#454a50);border-radius:7px;padding:.35rem .65rem;font-size:1.2rem;line-height:1}
-  .lyrics-menu summary::-webkit-details-marker{display:none}.lyrics-menu-content{position:absolute;right:0;top:calc(100% + 8px);z-index:3;width:min(350px,calc(100vw - 48px));max-height:65vh;overflow:auto;box-sizing:border-box;padding:14px;background:var(--surface,#18221d);border:1px solid var(--line,#454a50);border-radius:10px;box-shadow:0 8px 30px #0006;display:grid;gap:10px}
+  .lyrics-menu{position:relative}
+  .lyrics-menu summary{display:grid;place-items:center;width:34px;height:34px;cursor:pointer;list-style:none;font-size:18px}
+  .lyrics-menu summary::-webkit-details-marker{display:none}
+  .lyrics-menu-content{position:absolute;right:0;top:calc(100% + 4px);z-index:3;width:min(350px,calc(100vw - 48px));max-height:65vh;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;display:grid;gap:4px}
   .lyrics-translation-controls button{display:flex;align-items:center;justify-content:center;width:36px;height:34px;flex-shrink:0}.lyrics-translation-controls button.enabled{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
-  .lyrics-other-results { margin:.5rem 0; }
   .lyric-candidates { max-height:20rem; overflow:auto; margin:.5rem 0; }
   .fullscreen .lyric-candidates.results-only { flex:1; min-height:0; max-height:none; }
   .lyric-candidates a, .lyrics-external-source a { color:var(--text); text-decoration-color:var(--muted); }

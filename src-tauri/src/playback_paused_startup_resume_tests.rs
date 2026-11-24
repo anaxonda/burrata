@@ -60,8 +60,11 @@ mod paused_startup_resume {
             state.generation_counter += 1;
             state.generation = state.generation_counter;
             state.status = "resolving".into();
-            assert!(!deadline_owned_by_active_operation(&state, 4, None));
-            assert!(deadline_owned_by_active_operation(&state, 6, None));
+            assert_eq!(deadline_failure_for_active_operation(&state, 4, None), None);
+            assert_eq!(
+                deadline_failure_for_active_operation(&state, 6, None),
+                Some("Playback startup timed out")
+            );
             assert_eq!(restart_deadline(&state), resumed_at + budget);
         }
     }

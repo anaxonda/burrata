@@ -1957,7 +1957,7 @@ fn hash_file_cancellable(path: &Path, canceled: &AtomicBool) -> Result<String, S
 }
 
 #[cfg(unix)]
-fn free_bytes_available(path: &Path) -> Option<u64> {
+pub(crate) fn free_bytes_available(path: &Path) -> Option<u64> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let path = CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();

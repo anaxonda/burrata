@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-musicbrainz-recording-credits"
+description = "Enables the get_musicbrainz_recording_credits command without any pre-configured scope."
+commands.allow = ["get_musicbrainz_recording_credits"]
+
+[[permission]]
+identifier = "deny-get-musicbrainz-recording-credits"
+description = "Denies the get_musicbrainz_recording_credits command without any pre-configured scope."
+commands.deny = ["get_musicbrainz_recording_credits"]

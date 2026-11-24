@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { observeArtwork } from "./lib/visible-artwork";
+  import { observeArtwork, type ArtworkLookup } from "./lib/visible-artwork";
   import type { ArtworkUpgradeCandidate } from "./lib/fullscreen-artwork";
-  let { urls = [], upgradeCandidates = [], ambient = false, artworkLookup }: { artworkLookup?: { key: string; load: () => Promise<string | null> }; urls?: (string | null | undefined)[]; upgradeCandidates?: ArtworkUpgradeCandidate[]; ambient?: boolean } = $props();
+  let { urls = [], upgradeCandidates = [], ambient = false, artworkLookup }: { artworkLookup?: ArtworkLookup; urls?: (string | null | undefined)[]; upgradeCandidates?: ArtworkUpgradeCandidate[]; ambient?: boolean } = $props();
   let loadedArtwork = $state<{ key: string; url: string } | null>(null);
   const sources = $derived([...new Set([...urls, loadedArtwork?.key === artworkLookup?.key ? loadedArtwork?.url : null].filter((url): url is string => Boolean(url)))]);
   const signature = $derived(`${sources.join("\n")}\n--upgrade--\n${upgradeCandidates.map(candidate => candidate.url).join("\n")}`);

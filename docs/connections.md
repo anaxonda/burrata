@@ -19,7 +19,8 @@ completed-download folder. With Docker, use the host-side mounted path, not the
 container path. Save connections, then test them. The API key needs search and
 transfer access. Soulseek credentials remain in slskd.
 
-Choose Soulseek in Search, or use any track's Download button. Review the peer,
+Once enabled with an address and API key, choose Soulseek in Search or use a
+track's Download button. Review the peer,
 filename, mix and available audio properties. Burrata queues and monitors the
 transfer through slskd, then copies the completed file into its own acquisition
 pipeline for validation, tags and library publication. The daemon's original is
@@ -50,6 +51,26 @@ selected playlist only. This does not establish general account, platform,
 completeness or write qualification. In MCP, remote import and refresh actions
 require Control permission, previews require Read, and applying a preview
 requires Manage permission.
+
+## Subsonic and Jellyfin music servers
+
+Open **Settings → Connections**, choose **Subsonic** or **Jellyfin**, and enter
+your server URL and account credentials. For Jellyfin, use the server's direct
+username and password sign-in. Burrata stores the password in the operating
+system keyring and uses the Jellyfin session for library and playback requests.
+
+Connected catalogs appear with your other music in **Library**. Use the
+**Source** filter in Tracks, Artists, or Albums to browse a connected server
+or your local library. You can open albums and artists, like tracks, and add
+them to Burrata playlists.
+Use **Refresh catalog** to look for changes. Turning off **Show
+Subsonic in Library** or **Show Jellyfin in Library** hides the server catalog
+from the combined browsing views while keeping tracks you saved or liked.
+
+If a server is unavailable, you can opt in to **Try another source for the same
+recording when the server is unavailable**. Burrata tries a verified match for
+saved tracks and keeps the original playlist entry. When a matching source
+cannot be verified, the track remains unavailable.
 
 ## Optional artist providers
 

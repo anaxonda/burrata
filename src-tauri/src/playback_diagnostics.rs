@@ -947,14 +947,7 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
 fn enum_values(key: &str) -> Option<&'static [&'static str]> {
     match key {
         "classicalProofGate" => Some(&[
-            "catalog_context",
-            "source_context",
-            "topic_channel",
-            "release_day",
-            "duration",
-            "movement",
-            "credits",
-            "performers",
+            "catalog_context", "source_context", "topic_channel", "release_day", "duration", "movement", "credits", "performers",
         ]),
         "urlClient" => Some(&["MWEB", "VISIONOS", "ANDROID", "WEB", "TVHTML5", "other"]),
         "youtubeClient" => Some(&["mweb", "visionos", "extractor_default", "not_youtube"]),
@@ -1024,6 +1017,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "network",
             "rate_limited",
             "access_denied",
+            "sign_in_verification",
             "private",
             "removed",
             "format_unavailable",
@@ -1109,6 +1103,8 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "source_binding_mismatch",
             "unsupported_or_unmatched",
             "negative_cache",
+            "cached_extractor_metadata",
+            "recent_direct_format_miss",
         ]),
         "decision" => Some(&["inspect"]),
         "sharedAction" => Some(&["inspect", "accept", "enrich", "reject"]),
@@ -1380,6 +1376,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "early_candidate_verification_start"
             | "early_candidate_verification_end"
             | "direct_youtube_start"
+            | "direct_youtube_skipped"
             | "direct_youtube_failure"
             | "direct_youtube_end"
             | "mapped_direct_youtube_start"
@@ -1911,6 +1908,7 @@ mod tests {
             "helper_unpack_failed",
             "storage_unavailable",
             "access_denied",
+            "sign_in_verification",
             "other",
         ] {
             let safe = sanitize_details(
@@ -1925,6 +1923,26 @@ mod tests {
         )
         .get("extractorReason")
         .is_none());
+    }
+
+    #[test]
+    fn direct_youtube_skip_reasons_preserve_only_fixed_labels() {
+        for reason in ["cached_extractor_metadata", "recent_direct_format_miss"] {
+            let mut payload = event(1);
+            payload["phase"] = json!("direct_youtube_skipped");
+            payload["provider"] = json!("youtube");
+            payload["details"] = json!({ "reason":reason, "stderr":"secret" });
+            let safe = sanitize_event(payload).expect("direct skip event is retained");
+            assert_eq!(safe.details["reason"], reason);
+            assert!(safe.details.get("stderr").is_none());
+        }
+
+        let mut payload = event(2);
+        payload["phase"] = json!("direct_youtube_skipped");
+        payload["provider"] = json!("youtube");
+        payload["details"] = json!({ "reason":"https://private.invalid/?token=secret" });
+        let safe = sanitize_event(payload).expect("direct skip event is retained");
+        assert!(safe.details.get("reason").is_none());
     }
 
     #[test]

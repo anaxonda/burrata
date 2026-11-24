@@ -141,7 +141,7 @@
     <small>{config.lyricsTranslation!.provider === "googleFree" ? "No API key required. The free service may be rate limited." : "Uses the AI connection above. Translation starts when you choose Show translation."}</small>
     <LanguagePicker value={config.lyricsTranslation!.targetLanguage} onChange={language=>{config.lyricsTranslation!.targetLanguage=language;}} />
   </details>
-  <details ontoggle={(event) => { slskdOpen = event.currentTarget.open; if (slskdOpen && status) { void loadShares(); void loadDownloadSettings(); } }}>
+  <details id="soulseek-connection" ontoggle={(event) => { slskdOpen = event.currentTarget.open; if (slskdOpen && status) { void loadShares(); void loadDownloadSettings(); } }}>
     <summary>Soulseek / slskd · {credentialLabel(status?.slskdCredential)}</summary>
     <p>Run slskd on this computer as a separate background service. Burrata uses its API and copies completed files from its download folder; you do not need a public server.</p>
     <label class="check"><input type="checkbox" bind:checked={config.slskd.enabled} /> Enable Soulseek search and downloads</label>
@@ -194,7 +194,7 @@
     </section>
     <button onclick={() => void guide("https://github.com/slskd/slskd#quick-start")}>slskd setup guide ↗</button>
   </details>
-  <details>
+  <details id="discogs-connection">
     <summary>Discogs · {credentialLabel(status?.discogsCredential)}</summary>
     <p>Burrata can look up known public releases with this setting on. A personal token enables Discogs catalog search.</p>
     <button disabled={busy} onclick={() => void importOneTagger()}>Import token from OneTagger</button>
@@ -203,7 +203,7 @@
     <label class="check"><input type="checkbox" bind:checked={clear.discogs} /> Remove saved Discogs token</label>
     <button onclick={() => void guide("https://www.discogs.com/settings/developers")}>Get a Discogs token ↗</button>
   </details>
-  <details>
+  <details id="lastfm-connection">
     <summary>Last.fm · {credentialLabel(status?.lastfmCredential)}</summary>
     <p>Popularity-ranked tracks on artist pages. MusicBrainz identities and credits work without a key.</p>
     <label class="check"><input type="checkbox" bind:checked={config.lastfmEnabled} /> Use Last.fm top tracks</label>

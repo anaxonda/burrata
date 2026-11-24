@@ -3002,6 +3002,74 @@ impl ArtistService {
             .await
     }
 
+    pub(crate) async fn musicbrainz_recording_credits(
+        &self,
+        recording_id: &str,
+    ) -> Result<Value, String> {
+        if !valid_mbid(recording_id) {
+            return Err("Invalid MusicBrainz recording ID".into());
+        }
+        let path = format!("recording/{recording_id}");
+        let includes = [("inc", "artist-rels+work-rels+work-level-rels".into())];
+        let recording = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.musicbrainz_json(
+                &path,
+                &includes,
+                "recording.credits.musicbrainz.v1",
+                recording_id,
+                LIST_TTL,
+            ),
+        )
+        .await
+        .map_err(|_| "MusicBrainz recording credits lookup timed out")??;
+        if recording["id"].as_str() != Some(recording_id) {
+            return Err("MusicBrainz returned a different recording than requested".into());
+        }
+        let title = recording["title"].as_str().unwrap_or_default();
+        Ok(json!({
+            "classicalWork": musicbrainz_work_context(&recording, title),
+            "recordingRelations": musicbrainz_recording_relations(&recording),
+        }))
+    }
+
+    pub(crate) async fn musicbrainz_recording_video_details(
+        &self,
+        recording_id: &str,
+    ) -> Result<Value, String> {
+        if !valid_mbid(recording_id) {
+            return Err("Invalid MusicBrainz recording ID".into());
+        }
+        self.musicbrainz_json(
+            &format!("recording/{recording_id}"),
+            &[("inc", "artist-credits+url-rels+work-rels+artist-rels".into())],
+            "recording.video-link.musicbrainz.v1",
+            recording_id,
+            SEARCH_TTL,
+        )
+        .await
+    }
+
+    pub(crate) async fn discovery_recording_search(
+        &self,
+        query: &str,
+        limit: usize,
+        offset: u32,
+    ) -> Result<Value, String> {
+        self.musicbrainz_json(
+            "recording",
+            &[
+                ("query", query.into()),
+                ("limit", limit.to_string()),
+                ("offset", offset.to_string()),
+            ],
+            "discovery.recording-search.musicbrainz",
+            &format!("{limit}:{offset}:{query}"),
+            SEARCH_TTL,
+        )
+        .await
+    }
+
     pub(crate) async fn recording_search(&self, track: &Track) -> Result<Value, String> {
         let query = format!(
             "recording:\"{}\" AND artist:\"{}\"",
@@ -4803,9 +4871,7 @@ fn musicbrainz_recording_relations(recording: &Value) -> Vec<Value> {
 fn musicbrainz_work_context(recording: &Value, recording_title: &str) -> Value {
     let mut works = musicbrainz_relation_rows(recording).filter(|relation| {
         relation["type"] == "performance"
-            && relation["target-type"]
-                .as_str()
-                .is_none_or(|kind| kind == "work")
+            && relation["target-type"].as_str().is_none_or(|kind| kind == "work")
     });
     let Some(performance) = works.next().filter(|_| works.next().is_none()) else {
         return Value::Null;
@@ -4889,10 +4955,7 @@ fn musicbrainz_work_context(recording: &Value, recording_title: &str) -> Value {
         .and_then(|relation| relation["ordering-key"].as_u64())
         .filter(|position| (1..=512).contains(position));
     let location_id = |target: &str| {
-        if recording["relations"]
-            .as_array()
-            .is_some_and(|rows| rows.len() > 64)
-        {
+        if recording["relations"].as_array().is_some_and(|rows| rows.len() > 64) {
             return None;
         }
         let mut matches = musicbrainz_relation_rows(recording).filter(|relation| {
@@ -6100,6 +6163,48 @@ mod tests {
         server.abort();
     }
 
+    #[tokio::test]
+    async fn exact_recording_credits_verify_the_musicbrainz_id_and_reuse_the_cache() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const RECORDING: &str = "00000000-0000-4000-8000-000000000021";
+        const CONDUCTOR: &str = "00000000-0000-4000-8000-000000000022";
+        const OTHER: &str = "00000000-0000-4000-8000-000000000023";
+        let requests = Arc::new(AtomicUsize::new(0));
+        let observed = requests.clone();
+        let app = Router::new().route(
+            "/recording/{id}",
+            get(move |Query(query): Query<std::collections::HashMap<String, String>>| async move {
+                observed.fetch_add(1, Ordering::Relaxed);
+                assert_eq!(query["inc"], "artist-rels+work-rels+work-level-rels");
+                Json(json!({
+                    "id": RECORDING, "title": "Concerto movement", "relations": [{
+                        "type": "conductor", "target-type": "artist",
+                        "artist": {"id": CONDUCTOR, "name": "The Conductor"},
+                    }],
+                }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("exact-recording.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}");
+
+        let credits = service.musicbrainz_recording_credits(RECORDING).await.unwrap();
+        assert_eq!(credits["recordingRelations"][0]["artist"]["id"], CONDUCTOR);
+        assert!(credits["classicalWork"].is_null());
+        assert_eq!(service.musicbrainz_recording_credits(RECORDING).await.unwrap(), credits);
+        assert_eq!(requests.load(Ordering::Relaxed), 1);
+        assert!(service.musicbrainz_recording_credits(OTHER).await.is_err());
+        assert!(service.musicbrainz_recording_credits("../release").await.is_err());
+        assert_eq!(requests.load(Ordering::Relaxed), 2);
+        server.abort();
+    }
+
     fn assert_tracks_round_trip(tracks: &[Track]) {
         let temp = tempfile::tempdir().unwrap();
         let store = Store::open(&temp.path().join("catalog-track-roundtrip.sqlite")).unwrap();
@@ -6158,6 +6263,60 @@ mod tests {
         let injected = musicbrainz_release_group_search_query("Nipsey\" OR artist:*");
         assert!(injected.contains("Nipsey\\\" OR artist\\:\\*"));
         assert!(!injected.contains("OR artist:*\""));
+    }
+
+    #[tokio::test]
+    async fn discovery_recording_search_retries_musicbrainz_unavailable_and_caches_the_page() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for (status, body) in [
+                ("503 Service Unavailable", ""),
+                (
+                    "200 OK",
+                    r#"{"count":21,"recordings":[{"title":"Fixture Concerto"}]}"#,
+                ),
+            ] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    stream.read_exact(&mut byte).await.unwrap();
+                    request.push(byte[0]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let path = request.split_whitespace().nth(1).unwrap();
+                let url = Url::parse(&format!("http://{address}{path}")).unwrap();
+                let params = url.query_pairs().collect::<std::collections::HashMap<_, _>>();
+                assert_eq!(url.path(), "/ws/2/recording");
+                assert_eq!(params["query"], "recording:\"Fixture Concerto\"");
+                assert_eq!(params["limit"], "10");
+                assert_eq!(params["offset"], "10");
+                assert!(!params.contains_key("inc"));
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let query = "recording:\"Fixture Concerto\"";
+        let page = service
+            .discovery_recording_search(query, 10, 10)
+            .await
+            .unwrap();
+        assert_eq!(page["recordings"][0]["title"], "Fixture Concerto");
+        server.await.unwrap();
+        assert_eq!(
+            service.discovery_recording_search(query, 10, 10).await.unwrap(),
+            page
+        );
     }
 
     #[tokio::test]
@@ -7374,10 +7533,7 @@ mod tests {
         assert_eq!(work["parentId"], "00000000-0000-4000-8000-000000000006");
         assert_eq!(work["partNumber"], 1);
         assert_eq!(work["performanceDate"], "1974-03-30");
-        assert_eq!(
-            work["performancePlaceId"],
-            "00000000-0000-4000-8000-000000000008"
-        );
+        assert_eq!(work["performancePlaceId"], "00000000-0000-4000-8000-000000000008");
         assert_eq!(
             rows[0].provenance["recordingRelations"][2]["type"],
             "conductor"

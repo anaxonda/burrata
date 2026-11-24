@@ -359,7 +359,7 @@ async function selectSearchSources(sourceNames: string[]) {
       checkbox.click();
     }
     await settle();
-    searchSourceAction(picker, "Apply").click();
+    document.querySelector<HTMLButtonElement>("button.sources-toggle")!.click();
   }
   await settle();
 }
@@ -757,7 +757,7 @@ beforeEach(() => {
         eventHandlers.get("native-playback-state")?.({event:"native-playback-state",id:0,payload:snapshot});
         return snapshot;
       }
-      case "get_connections": return { settings: { slskd: { enabled: slskdConnectionEnabled }, discogsEnabled: discogsConnectionEnabled }, slskdCredential: { present: slskdConnectionEnabled, sessionOnly: false }, discogsCredential: { present: discogsConnectionEnabled, sessionOnly: false }, lastfmCredential: { present: false, sessionOnly: false } };
+      case "get_connections": return { settings: { slskd: { enabled: slskdConnectionEnabled, baseUrl: "http://localhost:5030" }, discogsEnabled: discogsConnectionEnabled }, slskdCredential: { present: slskdConnectionEnabled, sessionOnly: false }, discogsCredential: { present: discogsConnectionEnabled, sessionOnly: false }, lastfmCredential: { present: false, sessionOnly: false } };
       case "get_automation_status": return { permissions: { control: true, manage: false }, playback: { status: "idle", queue: [] } };
       case "automation_playback_state": return automationPlaybackAck;
       case "automation_layout_complete": return undefined;
@@ -3954,7 +3954,7 @@ describe("saved recording navigation", () => {
     expect(choices.every(input => input.checked)).toBe(true);
     expect(selectedSearchSource()).toBe("all");
     expect(document.querySelector("button.sources-toggle")?.textContent).toContain("All sources");
-    searchSourceAction(picker, "Cancel").click(); await settle();
+    document.querySelector<HTMLButtonElement>("button.sources-toggle")!.click(); await settle();
     expect(document.querySelector('[aria-label="Online"]')?.getAttribute("aria-pressed")).toBe("true");
 
     const onlineQuery = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
@@ -5466,6 +5466,58 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("automation_ui_navigation_complete",{requestId:"navigate-playback-settings",destination:"settings",status:"complete"});
   });
 
+  it("finds Jellyfin and focuses a collapsed Playback setting from Settings search", async () => {
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    try {
+      const instance = mount(App, { target: document.body });
+      unmountApp = () => { void unmount(instance); };
+      await settle();
+      eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: {
+        requestId: "open-settings-search", target: { kind: "view", view: "settings" },
+      } });
+      await settle(); await settle();
+      const search = document.querySelector<HTMLInputElement>('form.settings-search input')!;
+      async function searchFor(value: string) {
+        search.value = value;
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle();
+      }
+
+      await searchFor("jellyfin");
+      const jellyfinResult = document.querySelector<HTMLButtonElement>(".settings-search-results button")!;
+      expect(jellyfinResult.textContent).toMatch(/Jellyfin\s*Connections/);
+      jellyfinResult.click();
+      await settle();
+      expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe("Connections");
+      expect(document.activeElement).toBe(document.getElementById("jellyfin-settings"));
+      expect(document.activeElement?.querySelector("h3")?.textContent).toBe("Jellyfin");
+      expect(search.value).toBe("");
+
+      await searchFor("startup time");
+      const timeoutResult = document.querySelector<HTMLButtonElement>(".settings-search-results button")!;
+      expect(timeoutResult.textContent).toMatch(/Playback startup timeout\s*Playback/);
+      search.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await settle();
+      const timeout = document.getElementById("playback-startup-timeout");
+      expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe("Playback");
+      expect(timeout?.closest("details")?.open).toBe(true);
+      expect(document.activeElement).toBe(timeout);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+
+      await searchFor("nothing in settings matches this term");
+      expect(document.querySelector(".settings-search-empty")?.textContent).toBe("No matching settings.");
+      search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await settle();
+      expect(search.value).toBe("");
+      expect(document.querySelector(".settings-search-empty")).toBeNull();
+    } finally {
+      if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
+  });
+
   it("defaults legacy settings to Balanced and exposes exactly three recording match levels", async () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -6936,6 +6988,37 @@ describe("saved recording navigation", () => {
       settings: expect.objectContaining({ showProviderCounts: false }),
     }));
     expect(counts.checked).toBe(false);
+  });
+
+  it("finds search suggestions from Settings search and saves the default-on preference", async () => {
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    try {
+      const instance = mount(App, { target: document.body });
+      unmountApp = () => { void unmount(instance); };
+      await settle();
+      document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
+      await settle();
+      const search = document.querySelector<HTMLInputElement>('form.settings-search input')!;
+      search.value = "autocomplete";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      const result = document.querySelector<HTMLButtonElement>(".settings-search-results button")!;
+      expect(result.textContent).toMatch(/Search suggestions\s*General/);
+      result.click();
+      await settle();
+      const toggle = document.querySelector<HTMLInputElement>('[aria-label="Search suggestions"]')!;
+      expect(document.activeElement).toBe(toggle);
+      expect(toggle.checked).toBe(true);
+      toggle.click();
+      await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("save_settings", {
+        settings: expect.objectContaining({ searchSuggestionsEnabled: false }),
+      }));
+      expect(toggle.checked).toBe(false);
+    } finally {
+      if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
   });
 
   it("defaults M3U mirroring on for older settings, saves the global toggle, and links Library options back to it", async () => {
@@ -8630,6 +8713,26 @@ describe("native playback frontend", () => {
     expect(document.body.textContent).toContain("Synthetic current lyric");
     expect(document.body.textContent).not.toContain("No current full-track metadata");
     expect(track.durationSeconds).toBeNull();
+    expectNoPlaybackStart();
+  });
+
+  it("opens and closes track information without replacing fullscreen Now Playing", async () => {
+    const track = savedTrack;
+    mountNative(makeNativeSnapshot({ status: "paused", paused: true, track, trackId: track.id, queue: [track], currentIndex: 0 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();
+    await settle();
+    const nowPlaying = document.querySelector<HTMLElement>(".now-playing-view")!;
+    expect(nowPlaying).not.toBeNull();
+    const openInfo = document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!;
+    openInfo.click();
+    await settle();
+    expect(document.querySelector(".player-panel-host.fullscreen-panel .playing-info")).not.toBeNull();
+    expect(document.querySelector(".now-playing-view")).toBe(nowPlaying);
+    openInfo.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await settle();
+    expect(document.querySelector(".playing-info")).toBeNull();
+    expect(document.querySelector(".now-playing-view")).toBe(nowPlaying);
     expectNoPlaybackStart();
   });
 
@@ -10993,7 +11096,153 @@ it.each([true, false])("refreshes the Subsonic catalog only after a reused login
     .toHaveLength(Number(refreshAfterLogin));
 });
 
+it("opens Subsonic artist and album views, fetches their artwork, and saves the track to a Burrata playlist", async () => {
+  const original = mocks.call.getMockImplementation()!;
+  const providerId = `${"a".repeat(64)}.b25l`;
+  const track: Track = {
+    ...savedTrack, id: `subsonic:${providerId}`, provider: "subsonic", providerId,
+    title: "Server track", artist: "Server artist", album: "Server album",
+    artworkUrl: null, provenance: { subsonicAlbumId: "album", subsonicCoverArtId: "cover" },
+  };
+  const artwork = "data:image/png;base64,iVBORw0KGgo=";
+  mocks.call.mockImplementation(async (command, args) => {
+    if (command === "get_subsonic_status") return {
+      visible: true, endpoint: "https://fixture.invalid", username: "fixture",
+      allowFallback: false, trackCount: 1, canSeed: false, strawberryFound: false,
+    };
+    if (command === "browse_subsonic") return { tracks: [track], total: 1 };
+    if (command === "list_tracks_page" && args?.view === "library" && args.provider === "subsonic") return { tracks: [track], total: 1 };
+    if (command === "get_subsonic_track_artwork") return artwork;
+    if (command === "append_playlist_entries") return undefined;
+    return original(command, args);
+  });
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  await settle();
+  document.querySelector<HTMLButtonElement>('.library-sidebar button[aria-label="Library"]')!.click();
+  await settle();
+  document.querySelector<HTMLButtonElement>('.library-source-filter .source-trigger')!.click();
+  await settle();
+  [...document.querySelectorAll<HTMLLabelElement>('.source-menu label')]
+    .find(label => label.textContent?.trim() === "Local library")!.querySelector('input')!.click();
+  await vi.waitFor(() => {
+    expect(mocks.call).toHaveBeenCalledWith("list_tracks_page", expect.objectContaining({ provider: "subsonic" }));
+    expect(document.querySelector('.track-list-viewport img[src^="data:image/"]')?.getAttribute("src")).toBe(artwork);
+  });
+
+  document.querySelector<HTMLButtonElement>('[aria-label="Open album Server album"]')!.click();
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("browse_subsonic", {
+    query: "", offset: 0, limit: 100, scope: { kind: "album", trackId: track.id },
+  }));
+  await vi.waitFor(() => expect(document.querySelector('.subsonic-library .album-detail h1')?.textContent).toBe("Server album"));
+  await vi.waitFor(() => expect(document.querySelector('[aria-label="Find recordings by Server artist"]')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Server artist"]')!.click();
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("browse_subsonic", {
+    query: "", offset: 0, limit: 100, scope: { kind: "artist", trackId: track.id },
+  }));
+
+  await vi.waitFor(() => expect(document.querySelector('[aria-label="Actions for Server track"]')).not.toBeNull());
+  await chooseTrackAction("Add to playlist…", track.title);
+  const target = document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')!;
+  target.value = "collection-empty";
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle();
+  document.querySelector<HTMLButtonElement>(".playlist-picker-dialog button.primary")!.click();
+  await settle();
+  expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", {
+    collectionId: "collection-empty", tracks: [expect.objectContaining({ id: track.id, providerId })],
+  });
+});
+
+it("hides the optional catalog filter until enabled in Library settings", async () => {
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  const artists = () => [...document.querySelectorAll<HTMLButtonElement>('nav[aria-label="Library views"] button')]
+    .find(button => button.textContent === "Artists");
+  const catalogFilter = () => document.querySelector('select[aria-label="Filter artists by source"]');
+  await vi.waitFor(() => expect(artists()).toBeDefined());
+  artists()!.click();
+  await vi.waitFor(() => expect(document.querySelector('select[aria-label="Sort saved albums and artists"]')).not.toBeNull());
+  expect(catalogFilter()).toBeNull();
+
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
+  await settle();
+  [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
+    .find(button => button.textContent?.trim() === "Library")!.click();
+  const setting = () => document.querySelector<HTMLInputElement>('#library-catalog-filter-setting');
+  await vi.waitFor(() => expect(setting()?.checked).toBe(false));
+  setting()!.click();
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("save_settings", {
+    settings: expect.objectContaining({ showLibraryCatalogFilter: true }),
+  }));
+
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Library"]')!.click();
+  await vi.waitFor(() => expect(artists()).toBeDefined());
+  artists()!.click();
+  await vi.waitFor(() => expect(catalogFilter()).not.toBeNull());
+});
+
+it("filters combined Library sources immediately and carries the selection between views", async () => {
+  const original = mocks.call.getMockImplementation()!;
+  const providerId = `${"b".repeat(64)}.YWJj`;
+  const jellyfinTrack: Track = { ...savedTrack, id: `jellyfin:${providerId}`, provider: "jellyfin", providerId,
+    title: "Jellyfin catalog fixture", artist: "Server performer", artworkUrl: null };
+  const connection = { endpoint: "https://fixture.invalid", username: "listener",
+    visible: true, allowFallback: false, trackCount: 1, canSeed: false, strawberryFound: false };
+  mocks.call.mockImplementation(async (command, args) => {
+    if (command === "get_jellyfin_status" || command === "get_subsonic_status") return connection;
+    if (command === "list_tracks_page" && args?.view === "library") {
+      const selection = String(args.provider).split(",");
+      const tracks = [
+        ...(selection.includes("saved") || selection.includes("all") ? [savedTrack] : []),
+        ...(selection.includes("jellyfin") || selection.includes("all") ? [jellyfinTrack] : []),
+      ];
+      return { tracks, total: tracks.length, offset: 0 };
+    }
+    return original(command, args);
+  });
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  const trigger = () => document.querySelector<HTMLButtonElement>('.library-source-filter .source-trigger');
+  await vi.waitFor(() => expect(trigger()).not.toBeNull());
+  trigger()!.click();
+  await settle();
+  const choice = (name: string) => [...document.querySelectorAll<HTMLLabelElement>('.source-menu label')]
+    .find(label => label.textContent?.trim() === name)?.querySelector("input");
+  expect(choice("Local library")?.checked).toBe(true);
+  expect(choice("Jellyfin")?.checked).toBe(true);
+  expect(choice("Subsonic")?.checked).toBe(true);
+  choice("Subsonic")!.click();
+  await vi.waitFor(() => {
+    expect(trigger()?.textContent).toContain("Local library + Jellyfin");
+    expect(mocks.call).toHaveBeenCalledWith("list_tracks_page", expect.objectContaining({ view: "library", provider: "saved,jellyfin" }));
+    expect(document.querySelector('.track-list-viewport')?.textContent).toContain(jellyfinTrack.title);
+  });
+  expect(trigger()?.getAttribute("aria-expanded")).toBe("true");
+  expect(document.querySelector('.source-menu button')).toBeNull();
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('nav[aria-label="Library views"] button')];
+  expect(tabs.map(button => button.textContent)).toEqual(["Tracks", "Artists", "Albums", "Works"]);
+  tabs.find(button => button.textContent === "Artists")!.click();
+  await vi.waitFor(() => expect(trigger()?.textContent).toContain("Local library + Jellyfin"));
+  expect(mocks.call.mock.calls.some(([command]) => command === "set_jellyfin_preferences")).toBe(false);
+});
+
 describe("authoritative startup folder status",()=>{
+ it("defers optional tagging and external-player queries until a view needs them", async () => {
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("get_settings"));
+  expect(mocks.call.mock.calls.some(([command]) =>
+    ["get_autotag_settings", "get_autotag_jobs", "get_mpv_status"].includes(command))).toBe(false);
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
+  await settle();
+  const downloads = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Settings categories"] button')]
+    .find(button => button.textContent?.trim() === "Downloads")!;
+  downloads.click();
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("get_autotag_settings"));
+  expect(mocks.call.mock.calls.some(([command]) => command === "get_autotag_jobs")).toBe(false);
+ });
+
  it("uses loaded settings only for legacy status without a folder field",async()=>{
   configuredMusicDirectory='/legacy/configured';const original=mocks.call.getMockImplementation()!;
   let finish!:(value:{setupComplete:boolean})=>void;const delayed=new Promise<{setupComplete:boolean}>(resolve=>finish=resolve);
@@ -11062,6 +11311,52 @@ describe("remote occurrence save wiring", () => {
     expect(mocks.call).toHaveBeenCalledWith("list_remote_playlists", expect.objectContaining({
       provider: "youtube", ownerId: "https://www.youtube.com/@MyAnalogJournal",
     }));
+  });
+
+  it("plays the exact unsaved YouTube playlist occurrence from a continuation page", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    const playlistId = "PLfixture123";
+    const playlistUrl = "https://www.youtube.com/playlist?list=PLfixture123";
+    const playbackTrack = {
+      ...savedTrack, id: "youtube:jjuorGiEUS4", provider: "youtube", providerId: "jjuorGiEUS4",
+      title: "Air: Tiny Desk Concert", sourceUrl: "https://www.youtube.com/watch?v=jjuorGiEUS4",
+    };
+    const first = { ...playbackTrack, provenance: { remoteEntryId: "entry-first", position: 1 } };
+    const second = { ...playbackTrack, provenance: { remoteEntryId: "entry-second", position: 2 } };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "youtube", name: "YouTube", kinds: ["track", "playlist"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.[0] === "youtube") return {
+        sourceId: "youtube", complete: true,
+        results: [{ id: playlistId, kind: "playlist", sourceId: "youtube", title: "Tiny Desk playlist fixture", url: playlistUrl }],
+      };
+      if (command === "browse_remote_playlist") return {
+        provider: "youtube", playlistId, title: "Tiny Desk playlist fixture",
+        tracks: args?.cursor ? [second] : [first], total: 2,
+        complete: Boolean(args?.cursor), nextCursor: args?.cursor ? null : "page-two",
+      };
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    sourceGroup("youtube").open = true; await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search YouTube playlists"]')!.click(); await settle();
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = "Tiny Desk playlist fixture"; query.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(); submitSearch(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open playlist: Tiny Desk playlist fixture"]')!.click(); await settle();
+    const detail = document.querySelector(".remote-playlist-detail")!;
+    [...detail.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Load more tracks")!.click();
+    await settle();
+    detail.querySelectorAll<HTMLButtonElement>('.track-title[aria-label="Play Air: Tiny Desk Concert"]')[1]!.click();
+    await settle();
+    const play = mocks.call.mock.calls.find(([command, args]) =>
+      command === "playback_command" && (args?.command as { action?: string })?.action === "play");
+    expect(play?.[1]?.command).toMatchObject({ action: "play", tracks: [first, second], index: 1 });
+    expect(mocks.call.mock.calls.some(([command]) => ["append_playlist_entries", "import_remote_playlist", "save_track"].includes(String(command)))).toBe(false);
   });
 
   it("wires selected repeated YouTube playlist occurrences into a local append in source order", async () => {
@@ -11197,6 +11492,30 @@ it("does not expose an audio engine selector in playback settings", async () => 
   expect(document.body.textContent).not.toContain("Apply and restart");
 });
 
+it("hides Soulseek actions when it is enabled but the API key is missing", async () => {
+  slskdConnectionEnabled = true;
+  const original = mocks.call.getMockImplementation()!;
+  mocks.call.mockImplementation(async (command, args) => {
+    const result = await original(command, args);
+    if (command === "get_connections") return { ...result, slskdCredential: { present: false } };
+    return result;
+  });
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledWith("get_connections"));
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Search"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector('button.sources-toggle')).not.toBeNull());
+  expect((await openSearchSources()).querySelector('[data-source-id="soulseek"]')).toBeNull();
+
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
+  await settle();
+  [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
+    .find(button => button.textContent?.trim() === "Downloads")!.click();
+  await vi.waitFor(() => expect(document.querySelector('#preferred-download-source')).not.toBeNull());
+  expect(document.querySelector('#preferred-download-source option[value="slskd"]')).toBeNull();
+  expect(document.querySelector('#soulseek-policy-settings')).toBeNull();
+});
+
 it("opens saved Soulseek searches from Downloads and reviews a saved query in Soulseek Search",async()=>{
   slskdConnectionEnabled=true;
   const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
@@ -11225,7 +11544,7 @@ it.each(["next in queue", "playback bar"])("keeps fullscreen open when opening t
   } else document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click();
   await settle();
   expect(document.querySelector(".now-playing-view")).toBe(fullscreen);
-  expect(document.querySelector(".player-panel-host.fullscreen-queue .playback-queue-panel")).not.toBeNull();
+  expect(document.querySelector(".player-panel-host.fullscreen-panel .playback-queue-panel")).not.toBeNull();
   expect(document.querySelector('[aria-label="Full-screen Now Playing"]')?.getAttribute("aria-pressed")).toBe("true");
   document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click(); await settle();
   expect(document.querySelector(".player-panel-host")).toBeNull();

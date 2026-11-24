@@ -2446,8 +2446,15 @@ impl RemotePlaylistService {
             total,
             tracks.len(),
         );
+        let write_capabilities = parse_write_capabilities(&metadata_value)?;
+        let available = tracks
+            .iter()
+            .filter(|track| track.provenance["available"] != false)
+            .cloned()
+            .collect::<Vec<_>>();
+        self.store.cache_missing_tracks(&available)?;
         Ok(RemotePlaylistBrowsePage {
-            write_capabilities: parse_write_capabilities(&metadata_value)?,
+            write_capabilities,
             provider: provider.into(),
             playlist_id,
             url,
@@ -5963,14 +5970,17 @@ fn verify_youtube_channel_playlist_scope(value: &Value, owner: &str, rows: &[Val
         .filter(|id| id.len() == 24 && id.starts_with("UC") && valid_remote_id(id))
         .ok_or(invalid)?;
     let owner_url = url::Url::parse(owner).ok();
-    let requested_id = owner.strip_prefix("UC").map(|_| owner).or_else(|| {
-        let mut segments = owner_url.as_ref()?.path_segments()?;
-        if segments.next()? == "channel" {
-            segments.next()
-        } else {
-            None
-        }
-    });
+    let requested_id = owner
+        .strip_prefix("UC")
+        .map(|_| owner)
+        .or_else(|| {
+            let mut segments = owner_url.as_ref()?.path_segments()?;
+            if segments.next()? == "channel" {
+                segments.next()
+            } else {
+                None
+            }
+        });
     if scope["ownerId"].as_str() != Some(owner)
         || requested_id.is_some_and(|expected| expected != channel_id)
         || rows.iter().any(|row| {
@@ -7541,20 +7551,17 @@ mod tests {
             &scope,
             &owner,
             &[json!({"ownerId":channel,"canEdit":true})]
-        )
-        .is_err());
+        ).is_err());
         assert!(verify_youtube_channel_playlist_scope(
             &scope,
             &owner,
             &[json!({"ownerId":channel,"canEdit":false,"visibility":"private"})]
-        )
-        .is_err());
+        ).is_err());
         assert!(verify_youtube_channel_playlist_scope(
             &scope,
             &owner,
             &[json!({"ownerId":"UCaaaaaaaaaaaaaaaaaaaaaa","canEdit":false})]
-        )
-        .is_err());
+        ).is_err());
         let wrong_channel = json!({
             "channelScope":{"ownerId":owner,"channelId":"UCaaaaaaaaaaaaaaaaaaaaaa"}
         });
@@ -8115,7 +8122,7 @@ mod tests {
             gapped_album_page: false,
             invalid_album_position: false,
         });
-        let service = RemotePlaylistService::new(store, transport.clone());
+        let service = RemotePlaylistService::new(store.clone(), transport.clone());
         set_confirmed_duration_account(&service, "browse-account");
 
         let page = service
@@ -8140,6 +8147,9 @@ mod tests {
         assert_eq!(page.tracks[1].provenance["remoteEntryId"], "entry-two");
         assert_eq!(page.tracks[0].provenance["plays"], 0);
         assert!(page.tracks[1].provenance.get("plays").is_none());
+        let track_id = &page.tracks[0].id;
+        assert!(store.get_track(track_id).unwrap().is_some());
+        assert!(!store.recording_is_in_library(track_id).unwrap());
     }
 
     #[tokio::test]

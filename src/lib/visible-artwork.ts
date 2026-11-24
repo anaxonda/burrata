@@ -1,9 +1,9 @@
 import { safeArtworkUrl } from "./artwork-url";
 
-type ArtworkRequest = {
+export type ArtworkLookup = {
   key: string;
   load: () => Promise<string | null>;
-  apply: (url: string) => void;
+  validate?: (value: unknown) => string | null;
 };
 
 const cache = new Map<string, string>();
@@ -11,7 +11,7 @@ const inFlight = new Map<string, Promise<string | null>>();
 const waiting = new Set<() => void>();
 const maxConcurrent = 2;
 
-export function observeArtwork(node: HTMLElement, request: ArtworkRequest) {
+export function observeArtwork(node: HTMLElement, request: ArtworkLookup & { apply: (url: string) => void }) {
   let active = true;
   const apply = (url: string | null) => { if (active && url) request.apply(url); };
 
@@ -27,7 +27,7 @@ export function observeArtwork(node: HTMLElement, request: ArtworkRequest) {
       void existing.then(apply);
       return;
     }
-    const pending = Promise.resolve().then(request.load).then(safeArtworkUrl).catch(() => null);
+    const pending = Promise.resolve().then(request.load).then(request.validate ?? safeArtworkUrl).catch(() => null);
     inFlight.set(request.key, pending);
     void pending.then(url => {
       inFlight.delete(request.key);

@@ -3966,7 +3966,10 @@ fn local_classical_tags(tag: &Tag) -> Option<serde_json::Value> {
         values.all(|value| value == first).then_some(first)
     };
     let work = unique(&[ItemKey::Work, ItemKey::Unknown("WORK".into())])?;
-    let movement = unique(&[ItemKey::Movement, ItemKey::Unknown("MOVEMENTNAME".into())]);
+    let movement = unique(&[
+        ItemKey::Movement,
+        ItemKey::Unknown("MOVEMENTNAME".into()),
+    ]);
     let ordinal = |value: &str| {
         value
             .trim()
@@ -3986,12 +3989,9 @@ fn local_classical_tags(tag: &Tag) -> Option<serde_json::Value> {
         Some(value) => (ordinal(value), None),
         None => (None, None),
     };
-    let explicit_total = unique(&[
-        ItemKey::MovementTotal,
-        ItemKey::Unknown("MOVEMENTTOTAL".into()),
-    ])
-    .as_deref()
-    .and_then(ordinal);
+    let explicit_total = unique(&[ItemKey::MovementTotal, ItemKey::Unknown("MOVEMENTTOTAL".into())])
+        .as_deref()
+        .and_then(ordinal);
     let movement_total = match (explicit_total, inline_total) {
         (Some(explicit), Some(inline)) if explicit != inline => None,
         (explicit, inline) => explicit.or(inline),
@@ -4005,11 +4005,7 @@ fn local_classical_tags(tag: &Tag) -> Option<serde_json::Value> {
         (movement_number, movement_total)
     };
     let mut composers = Vec::new();
-    for name in tag
-        .get_strings(&ItemKey::Composer)
-        .filter_map(bounded)
-        .take(16)
-    {
+    for name in tag.get_strings(&ItemKey::Composer).filter_map(bounded).take(16) {
         if !composers.contains(&name) {
             composers.push(name);
         }
@@ -4085,35 +4081,16 @@ mod tests {
         tag.insert_text(ItemKey::Movement, "II. Larghetto".into());
         tag.insert_text(ItemKey::MovementNumber, "2/3".into());
         tag.insert_text(ItemKey::Composer, "Ludwig van Beethoven".into());
-        tag.insert_text(
-            ItemKey::MusicBrainzWorkId,
-            "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA".into(),
-        );
-        let mut track = Track {
-            title: "File title".into(),
-            ..Track::default()
-        };
+        tag.insert_text(ItemKey::MusicBrainzWorkId, "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA".into());
+        let mut track = Track { title: "File title".into(), ..Track::default() };
         apply_local_library_tags(&mut track, Some(&tag));
         assert_eq!(track.title, "File title");
-        assert_eq!(
-            track.provenance["embeddedClassical"]["work"],
-            "Violin Concerto, Op. 61"
-        );
-        assert_eq!(
-            track.provenance["embeddedClassical"]["movement"],
-            "II. Larghetto"
-        );
+        assert_eq!(track.provenance["embeddedClassical"]["work"], "Violin Concerto, Op. 61");
+        assert_eq!(track.provenance["embeddedClassical"]["movement"], "II. Larghetto");
         assert_eq!(track.provenance["embeddedClassical"]["movementNumber"], 2);
         assert_eq!(track.provenance["embeddedClassical"]["movementTotal"], 3);
-        assert_eq!(
-            track.provenance["embeddedClassical"]["workId"],
-            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-        );
-        assert!(
-            crate::recording_identity::RecordingIdentity::from_track(&track)
-                .work_ids
-                .is_empty()
-        );
+        assert_eq!(track.provenance["embeddedClassical"]["workId"], "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        assert!(crate::recording_identity::RecordingIdentity::from_track(&track).work_ids.is_empty());
 
         tag.insert_text(ItemKey::MovementTotal, "4".into());
         assert!(local_classical_tags(&tag).unwrap()["movementTotal"].is_null());

@@ -3282,7 +3282,8 @@ fn stage_native_worker_snapshot(root: &Path, embedded: &[(&str, &str)]) -> Resul
     let target = root.join(format!("sha256-{version}"));
     let matches_snapshot = |directory: &Path| -> bool {
         assets.iter().all(|(relative, bytes)| {
-            fs::read(directory.join(relative)).is_ok_and(|existing| existing.as_slice() == *bytes)
+            fs::read(directory.join(relative))
+                .is_ok_and(|existing| existing.as_slice() == *bytes)
         })
     };
     if target.is_dir() {
@@ -4335,17 +4336,13 @@ pub(crate) fn reset_profile_credentials(old_profile: &Path) -> Option<String> {
     let Some(session) = read_persisted_session(old_profile) else {
         return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into());
     };
-    let failed = ["spotify", "youtube"]
-        .into_iter()
-        .filter(|provider| {
-            let name = format!("{provider}:{}", session.session_id);
-            !matches!(
-                keyring::Entry::new(NATIVE_KEYRING_SERVICE, &name)
-                    .and_then(|entry| entry.delete_credential()),
-                Ok(()) | Err(keyring::Error::NoEntry)
-            )
-        })
-        .count();
+    let failed = ["spotify", "youtube"].into_iter().filter(|provider| {
+        let name = format!("{provider}:{}", session.session_id);
+        !matches!(
+            keyring::Entry::new(NATIVE_KEYRING_SERVICE, &name).and_then(|entry| entry.delete_credential()),
+            Ok(()) | Err(keyring::Error::NoEntry)
+        )
+    }).count();
     (failed > 0).then(|| "The system keyring could not remove an old managed provider credential. The new profile cannot use it. Unlock the keyring and remove Burrata's provider-session entries if needed.".into())
 }
 
@@ -4354,11 +4351,8 @@ fn read_persisted_session(data_dir: &Path) -> Option<PersistedSession> {
     let bytes = fs::read(path).ok()?;
     let session = serde_json::from_slice::<PersistedSession>(&bytes).ok()?;
     ((16..=128).contains(&session.session_id.len())
-        && session
-            .session_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
-    .then_some(session)
+        && session.session_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
+        .then_some(session)
 }
 
 fn load_or_create_session(data_dir: &Path) -> PersistedSession {

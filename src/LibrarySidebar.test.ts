@@ -167,7 +167,7 @@ describe("LibrarySidebar provider presets", () => {
     const onRadioContext = vi.fn();
     const stations = [
       { id: "modern", name: "Modern FM", faviconUrl: "https://example.com/modern.png", favicon: "https://example.com/old.png" },
-      { id: "legacy", name: "Legacy FM", faviconUrl: "", favicon: "https://example.com/legacy.png" },
+      { id: "legacy", name: "Legacy FM", faviconUrl: "", favicon: "http://example.com/legacy.png" },
     ];
     const target = render({ view: "radio", activeRadioStationId: "modern", radioStations: stations, onRadioStation, onRadioContext });
     await settle();

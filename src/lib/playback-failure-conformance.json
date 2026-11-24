@@ -1,5 +1,25 @@
 [
   {
+    "reason": "Audio startup timed out while buffering.",
+    "failure": {
+      "category": "timeout",
+      "stage": "output",
+      "scope": "operation",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "This YouTube premiere has not started yet.",
+    "failure": {
+      "category": "source_unavailable",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": false
+    },
+    "skip": false
+  },
+  {
     "reason": "No audio results were returned by the available providers. Open the catalog source or choose another source.",
     "failure": {
       "category": "no_match",

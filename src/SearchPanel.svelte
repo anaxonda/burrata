@@ -2,7 +2,8 @@
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { onDestroy, onMount, tick } from "svelte";
-  import type { ArtistRef, ArtistReleaseRef } from "./lib/artist-types";
+  import type { ArtistRef, ArtistReleaseRef, ArtistSearchResult } from "./lib/artist-types";
+  import { territoryLabel } from "./lib/territory-label";
   import type { Candidate, Chapter, Track } from "./lib/types";
   import { isPlaceholderChapterTitle, validChapterRange } from "./lib/chapters";
   import { call, desktop } from "./lib/api";
@@ -23,6 +24,7 @@
   import { captureSearchUiControlSnapshot, extendSearchUiControlSnapshot, searchUiControlExpired } from "./lib/search-ui-control-revision";
   import { addSearchHistoryEntry, readSearchHistory, removeSearchHistoryEntry, writeSearchHistory, type SearchHistoryEntry } from "./lib/search-history";
   import { parseSpotifyLink, type SpotifyLink } from "./lib/spotify-link";
+  import { classicalTrackDisplay, isUpcomingYouTubeUpload } from "./lib/track-display";
   import type { AutomationSearchErrorCode, AutomationSearchKind, AutomationSearchReport, AutomationSearchRequest, AutomationSearchSourceId } from "./lib/search-ui-automation";
 
   export type SearchKind = "all" | "tracks" | "artists" | "albums" | "videos" | "playlists" | "profiles" | "channels";
@@ -30,7 +32,8 @@
   export type SearchPage = { sourceId?: string; results?: SearchRow[]; nextCursor?: string | null; complete?: boolean; progress?: string | null; warnings?: string[] };
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
   export type SearchPlaybackChapters = { videoId: string; chapters: Pick<Chapter, "id" | "title" | "startTime" | "endTime">[] };
-  export type SearchTrackActions = { trackForQueue: () => Track; checkChapters?: () => void };
+  export type SearchTrackActions = { trackForQueue: () => Track; checkChapters?: () => void; showRecordingCredits?: () => void };
+  type RecordingCredits = { classicalWork: unknown; recordingRelations: unknown };
 
   // The compact track plus its one-pixel divider is the estimated row.
   const searchTrackHeight = 63;
@@ -49,7 +52,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onOpenSpotifyLink, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onOpenSpotifyLink, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, searchArtists, searchSuggestionsEnabled = true, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {}, onInspectedChapters,
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, showProviderCounts = true,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -60,7 +63,7 @@
     searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number; exactVideoUrl?: boolean }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
     enrichTrack?: (track: Track) => Promise<Track>;
-    onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<unknown[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track, fromLibrary?: boolean) => void | Promise<void>;
+    onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<ArtistSearchResult[]>; searchSuggestionsEnabled?: boolean; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track, fromLibrary?: boolean) => void | Promise<void>;
     loadArtistProfile?: (artist: ArtistRef) => Promise<{ imageUrl?: string | null }>;
     onRemoteResult?: (row: SearchRow) => void;
     onOpenBandcampPlaylist?: (url: string) => void;
@@ -105,6 +108,10 @@
   let searchHistory = $state<SearchHistoryEntry[]>([]);
   let searchHistoryOpen = $state(false);
   let searchHistoryIndex = $state(-1);
+  let artistSuggestions = $state<ArtistSearchResult[]>([]);
+  let artistSuggestionIndex = $state(-1);
+  let artistSuggestionTimer: ReturnType<typeof setTimeout> | undefined;
+  let artistSuggestionRequest = 0;
   let submitted = $state("");
   let kind = $state<SearchKind>("all");
   const sources = $derived(availableSources?.length ? availableSources : DEFAULT_SOURCES);
@@ -131,6 +138,7 @@
   let overflowRows = $state<Record<string, SearchRow[]>>({});
   let warnings = $state<Record<string, string[]>>({});
   let expanded = $state<Record<string, boolean>>({});
+  let recordingCredits = $state<Partial<Record<string, Promise<RecordingCredits>>>>({});
   let collapsedSources = $state<Record<string, boolean>>({});
   let chapterExpanded = $state<Record<string, boolean>>({});
   let chaptersByRow = $state<Record<string, Candidate | "loading" | "none" | "unavailable" | "unknown">>({});
@@ -240,9 +248,58 @@
       if (text.trim()) void runSearch();
     });
   });
-  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; lazyArtworkScope++;lazyArtworkQueue=[]; cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
+  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; lazyArtworkScope++;lazyArtworkQueue=[]; cancelArtistSuggestions(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
 
   let searchInputFocused = false;
+  function cancelArtistSuggestions() {
+    clearTimeout(artistSuggestionTimer);
+    artistSuggestionRequest++;
+    artistSuggestions = [];
+    artistSuggestionIndex = -1;
+  }
+  function scheduleArtistSuggestions(query: string) {
+    cancelArtistSuggestions();
+    const lookup = searchArtists;
+    const term = query.trim();
+    if (!artistSuggestionsAvailable || !lookup || !searchInputFocused || term.length < 2 ||
+        [...term].length > 120 || /^(?:[a-z][a-z\d+.-]*:\S|www\.|\S+\.[a-z]{2,}\/)/i.test(term)) return;
+    const request = artistSuggestionRequest;
+    artistSuggestionTimer = setTimeout(async () => {
+      try {
+        const results = await lookup(term);
+        if (request === artistSuggestionRequest && text.trim() === term && artistSuggestionsAvailable)
+          artistSuggestions = results.slice(0, 6);
+      } catch {
+        // Suggestions can fail without interrupting an explicit search.
+      }
+    }, 300);
+  }
+  function chooseArtistSuggestion(result: ArtistSearchResult) {
+    cancelArtistSuggestions();
+    onArtist(result.artist);
+  }
+  function updateSearchInput(event: Event & { currentTarget: HTMLInputElement }) {
+    text = event.currentTarget.value;
+    searchHistoryIndex = -1;
+    searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0;
+    if ("isComposing" in event && event.isComposing) cancelArtistSuggestions();
+    else scheduleArtistSuggestions(text);
+    if (text.trim() !== submitted.trim()) {
+      cancelSearchTrackSelection();
+      cancelAutomationSearch();
+      generation++;
+      collectionRequest++;
+      clearCollectionDeadline();
+      collectingSearch = false;
+      collectionProgress = "";
+      providerReads.cancelAll();
+      collectionReads.cancelAll();
+      void cancelSoulseek();
+      collectionSoulseekSource = null;
+      statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status]));
+    }
+    onQueryChange(text);
+  }
   function rememberCompletedSearch(query: string) {
     searchHistory = addSearchHistoryEntry(searchHistory, { query, kind, mode: searchMode, sourceChoice, customSourceIds: [...customSourceIds], savedAt: Date.now() });
     writeSearchHistory(searchHistory);
@@ -279,10 +336,29 @@
       if (input.parentElement?.contains(document.activeElement)) return;
       searchInputFocused = false;
       searchHistoryOpen = false;
+      cancelArtistSuggestions();
     }, 0);
   }
 
-  function handleSearchHistoryKeys(event: KeyboardEvent) {
+  function handleSearchInputKeys(event: KeyboardEvent) {
+    if (event.isComposing) return;
+    if (artistSuggestions.length) {
+      const count = artistSuggestions.length;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        artistSuggestionIndex = (artistSuggestionIndex + 1) % count;
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        artistSuggestionIndex = artistSuggestionIndex < 0 ? count - 1 : (artistSuggestionIndex - 1 + count) % count;
+      } else if (event.key === "Enter" && artistSuggestionIndex >= 0) {
+        event.preventDefault();
+        chooseArtistSuggestion(artistSuggestions[artistSuggestionIndex]!);
+      }
+    }
+    if (event.key === "Escape") {
+      if (artistSuggestions.length) event.preventDefault();
+      cancelArtistSuggestions();
+    }
     if (searchHistoryOpen && !text.trim() && searchHistory.length) {
       if (event.key === "ArrowDown") { event.preventDefault(); searchHistoryIndex = (searchHistoryIndex + 1) % searchHistory.length; }
       else if (event.key === "ArrowUp") { event.preventDefault(); searchHistoryIndex = (searchHistoryIndex - 1 + searchHistory.length) % searchHistory.length; }
@@ -515,24 +591,31 @@
     void restartSearch();
   }
   let sourcePickerOpen = $state(false);
-  let draftSources = $state<string[]>([]);
   let sourceButton = $state<HTMLButtonElement>();
   let sourcePicker = $state<HTMLDivElement>();
   let pickerLeft = $state(8);
   let pickerTop = $state(8);
   let pickerMaxHeight = $state(300);
+  const sourcePickerId = $props.id();
+  const selectedSourceIds = $derived(activeSourceIds());
+  const artistSuggestionsAvailable = $derived(searchSuggestionsEnabled && !!searchArtists && searchMode === "online" && selectedSourceIds.length > 0);
+  $effect(() => {
+    if (!artistSuggestionsAvailable) cancelArtistSuggestions();
+  });
   const selectedSourceNames = $derived(enabledOnlineSources
-    .filter(source => sourceChoice === "all" || source.id === sourceChoice || (sourceChoice === "custom" && customSourceIds.includes(source.id)))
+    .filter(source => selectedSourceIds.includes(source.id))
     .map(source => source.name));
-  const sourceSummary = $derived(sourceChoice === "all" ? "All sources"
+  const sourceSummary = $derived(!selectedSourceNames.length ? "No sources" : sourceChoice === "all" ? "All sources"
     : selectedSourceNames.length > 1 ? `${selectedSourceNames[0]} + ${selectedSourceNames.length - 1}`
-    : selectedSourceNames[0] ?? "Choose sources");
+    : selectedSourceNames[0]);
   function portalSourcePicker(node: HTMLDivElement) {
     const theme = sourceButton && getComputedStyle(sourceButton);
-    for (const property of ["--line", "--surface", "--base", "--text", "--muted", "--accent"]) {
+    for (const property of ["--line", "--surface", "--raised", "--base", "--text", "--muted", "--accent",
+      "--button-min-height", "--button-radius", "--button-fill", "--button-edge", "--button-hover", "--button-down"]) {
       const value = theme?.getPropertyValue(property);
       if (value) node.style.setProperty(property, value);
     }
+    if (theme?.colorScheme) node.style.colorScheme = theme.colorScheme;
     document.body.appendChild(node);
     const dismissOnScroll = (event: Event) => {
       if (!(event.target instanceof Node && node.contains(event.target))) closeSourcePicker();
@@ -549,6 +632,10 @@
     sourcePickerOpen = false;
     if (restoreFocus) sourceButton?.focus();
   }
+  function dismissSourcePickerOutside(event: Event) {
+    if (!sourcePickerOpen || !(event.target instanceof Node)) return;
+    if (!sourcePicker?.contains(event.target) && !sourceButton?.contains(event.target)) closeSourcePicker();
+  }
   async function toggleSourcePicker() {
     if (sourcePickerOpen) { closeSourcePicker(true); return; }
     if (!sourceButton) return;
@@ -559,23 +646,22 @@
     const openBelow = below >= 270 || below >= above;
     pickerMaxHeight = Math.max(40, openBelow ? below : above);
     pickerTop = openBelow ? Math.max(8, anchor.bottom + 6) : 8;
-    draftSources = activeSourceIds();
     sourcePickerOpen = true;
     await tick();
     if (!sourcePickerOpen || !sourcePicker) return;
     if (!openBelow) pickerTop = Math.max(8, anchor.top - sourcePicker.getBoundingClientRect().height - 6);
-    sourcePicker.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+    const firstSource = sourcePicker.querySelector<HTMLInputElement>("input:checked") ??
+      sourcePicker.querySelector<HTMLInputElement>("input");
+    firstSource?.focus();
   }
-  function applySources() {
-    const ids = enabledOnlineSources.map(source => source.id).filter(id => draftSources.includes(id));
-    if (!ids.length) return;
+  function selectSources(requestedIds: string[]) {
+    const ids = enabledOnlineSources.map(source => source.id).filter(id => requestedIds.includes(id));
     const choice = ids.length === enabledOnlineSources.length && ids.length > 1 ? "all" : ids.length === 1 ? ids[0]! : "custom";
-    const changed = sourceChoice !== choice || (choice === "custom" &&
-      (ids.length !== customSourceIds.length || ids.some(id => !customSourceIds.includes(id))));
+    if (sourceChoice === choice && (choice !== "custom" ||
+      (ids.length === customSourceIds.length && ids.every(id => customSourceIds.includes(id))))) return;
     sourceChoice = choice;
     customSourceIds = choice === "custom" ? ids : [];
-    closeSourcePicker(true);
-    if (changed) void restartSearch();
+    void restartSearch();
   }
   async function restartSearch() {
     providerReads.cancelAll();
@@ -632,7 +718,7 @@
     if (!onQueueTracks || request !== generation || navigationDestroyed) return;
     const fresh: Track[] = [];
     for (const row of incoming) {
-      if (!row.track) continue;
+      if (!row.track || upcomingOnlineResult(row.sourceId, row.track)) continue;
       const key = identity(row);
       if (seenSearchRows.has(key)) continue;
       seenSearchRows.add(key);
@@ -830,7 +916,11 @@
   }));
   // Playback continuation follows the visible provider groups while the loaded
   // dataset remains intact for collection, sorting, selection, and snapshots.
-  const playableOccurrences = $derived(loadedOccurrences.filter(item => !collapsedSources[item.sourceId]));
+  function upcomingOnlineResult(sourceId: string, track: Track): boolean {
+    return searchMode === "online" && sourceId === "youtube" && isUpcomingYouTubeUpload(track);
+  }
+  const playableOccurrences = $derived(loadedOccurrences.filter(item =>
+    !collapsedSources[item.sourceId] && !upcomingOnlineResult(item.sourceId, item.track)));
   // Handles bind to a provider row's position within its group. Another provider
   // can finish loading without invalidating an already inspected occurrence.
   let searchControlRevision = crypto.randomUUID();
@@ -898,6 +988,7 @@
       queryInputPending: text.trim() !== submitted.trim(),
       kind, continueSearch, total: playableOccurrences.length, offset: start,
       hasMore: displayedSources.some(source => Boolean(cursors[source.id] || overflowRows[source.id]?.length)),
+      unavailableSourceIds: displayedSources.filter(source => statuses[source.id] === "Unavailable").map(source => source.id),
       collecting: collectingSearch, rows,
     };
   }
@@ -1037,6 +1128,7 @@
     if (hint) onInspectedChapters(hint);
   }
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
+    if (sourceId && upcomingOnlineResult(sourceId, track)) return;
     const playing = selectMonochromeSearchSource(row ? trackWithSearchChapters(track, row) : track, sourceId);
     if (!continueSearch) { onPlay?.(playing); return; }
     let index = sourceId && row ? playableOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
@@ -1166,9 +1258,10 @@
   const spotifyLink = $derived(onOpenSpotifyLink ? parseSpotifyLink(text) : null);
   function submitSearch(event: SubmitEvent) {
     event.preventDefault();
+    cancelArtistSuggestions();
     if (spotifyLink) onOpenSpotifyLink?.(spotifyLink);
     else if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
-    else void runSearch();
+    else if (selectedSourceIds.length) void runSearch();
   }
   function soulseekFolder(row: SearchRow): SoulseekFolder | null {
     if (row.sourceId !== "soulseek" || !row.data || typeof row.data !== "object") return null;
@@ -1331,7 +1424,23 @@
       expanded = { ...expanded, [identity(row)]: true };
       void inspectChapters(row);
     } : undefined;
-    onContext?.(track, event, { trackForQueue: () => trackWithSearchChapters(track, row), checkChapters });
+    const recordingId = row.sourceId === "musicbrainz" && track.provider === "musicbrainz"
+      && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(track.providerId) ? track.providerId : null;
+    const showRecordingCredits = recordingId && desktop() ? () => {
+      expanded = { ...expanded, [identity(row)]: true };
+      if (!recordingCredits[recordingId]) loadRecordingCredits(recordingId);
+    } : undefined;
+    onContext?.(track, event, { trackForQueue: () => trackWithSearchChapters(track, row), checkChapters, showRecordingCredits });
+  }
+  function loadRecordingCredits(recordingId: string) {
+    recordingCredits = {
+      ...Object.fromEntries(Object.entries(recordingCredits).slice(-63)),
+      [recordingId]: call<RecordingCredits>("get_musicbrainz_recording_credits", { recordingId }),
+    };
+  }
+  function recordingCreditDisplay(track: Track, credits: RecordingCredits) {
+    const provenance = typeof track.provenance === "object" && track.provenance !== null ? track.provenance : {};
+    return classicalTrackDisplay({ ...track, provenance: { ...provenance, ...credits } });
   }
   async function inspectChapters(row: SearchRow) {
     const id = identity(row);
@@ -1375,15 +1484,36 @@
 {/snippet}
 
 <svelte:window
-  onpointerdown={(event) => { if (sourcePickerOpen && event.target instanceof Node && !sourcePicker?.contains(event.target) && !sourceButton?.contains(event.target)) closeSourcePicker(); }}
+  onpointerdown={dismissSourcePickerOutside}
+  onfocusin={dismissSourcePickerOutside}
   onkeydown={(event) => { if (sourcePickerOpen && event.key === "Escape") { event.preventDefault(); closeSourcePicker(true); } }}
   onresize={() => closeSourcePicker()} />
 <section class="search-panel" aria-label="Discovery search">
   <div class="search-content" bind:this={searchElement}>
   <form class="search-form" onsubmit={submitSearch}>
     <div class="search-input-wrap">
-      <input aria-label="Search music" role="combobox" aria-autocomplete="none" aria-expanded={searchHistoryOpen && !text.trim()} aria-controls={searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined} aria-activedescendant={searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchHistoryKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); collectionSoulseekSource = null; statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
-      {#if searchHistoryOpen && !text.trim() && searchHistory.length}<div id="search-history-menu" class="search-history-menu" role="listbox" aria-label="Recent searches">
+      <input aria-label="Search music" role="combobox" aria-autocomplete={artistSuggestionsAvailable ? "list" : "none"}
+        aria-expanded={artistSuggestions.length > 0 || (searchHistoryOpen && !text.trim())}
+        aria-controls={artistSuggestions.length ? "artist-search-suggestions" : searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined}
+        aria-activedescendant={artistSuggestionIndex >= 0 ? `artist-search-suggestion-${artistSuggestionIndex}` : searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined}
+        onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }}
+        onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchInputKeys} bind:value={text} oninput={updateSearchInput}
+        oncompositionend={(event) => scheduleArtistSuggestions(event.currentTarget.value)}
+        placeholder="Track, artist, album, video or set" />
+      {#if artistSuggestions.length}
+        <ul id="artist-search-suggestions" class="artist-search-suggestions dropdown-menu" role="listbox" aria-label="Artist suggestions">
+          {#each artistSuggestions as result, index}
+            <li id={`artist-search-suggestion-${index}`} role="option" aria-selected={artistSuggestionIndex === index}>
+              <button type="button" class="dropdown-option" data-active={artistSuggestionIndex === index ? "" : undefined}
+                tabindex="-1" onmousedown={(event) => event.preventDefault()} onclick={() => chooseArtistSuggestion(result)}>
+                <span>{result.name}</span>
+                {#if result.disambiguation}<small>{result.disambiguation}</small>
+                {:else if result.country}<small>{territoryLabel(result.country)}</small>{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {:else if searchHistoryOpen && !text.trim() && searchHistory.length}<div id="search-history-menu" class="search-history-menu" role="listbox" aria-label="Recent searches">
         <div class="search-history-heading"><strong>Recent searches</strong><button type="button" class="clear-search-history" onclick={clearSearchHistory}>Clear history</button></div>
         {#each searchHistory as entry, index (entry.query.toLocaleLowerCase())}<div class="search-history-row" role="option" aria-selected={searchHistoryIndex === index}><button id={`search-history-item-${index}`} class="history-query" type="button" tabindex="-1" onclick={() => restoreSearchHistory(entry)}>{entry.query}<small>{entry.mode === "library" ? "My library" : entry.sourceChoice === "custom" ? "Selected sources" : entry.sourceChoice === "all" ? "All online sources" : sources.find(source => source.id === entry.sourceChoice)?.name ?? "Online"} · {kinds.find(option => option.id === entry.kind)?.label ?? "All"}</small></button><button class="remove-search-history" type="button" aria-label={`Remove ${entry.query} from search history`} title="Remove recent search" onclick={() => removeHistoryEntry(entry)}>×</button></div>{/each}
       </div>{/if}
@@ -1402,31 +1532,39 @@
     {#if searchMode === "library"}
       <p class="library-helper">Saved tracks, imports and downloads</p>
     {:else}
-      <button type="button" class="sources-toggle" bind:this={sourceButton} data-source-choice={sourceChoice}
-        aria-expanded={sourcePickerOpen} aria-controls={sourcePickerOpen ? "discovery-source-picker" : undefined}
-        title={selectedSourceNames.join(", ")} onclick={toggleSourcePicker}>
-        Sources · {sourceSummary} <span aria-hidden="true">▾</span>
-      </button>
+      <div class="source-field">
+        <span class="source-field-label">Sources</span>
+        <button type="button" class="sources-toggle dropdown-trigger" bind:this={sourceButton} data-source-choice={sourceChoice}
+          aria-label={`Sources, ${sourceSummary}`} aria-expanded={sourcePickerOpen} aria-controls={sourcePickerOpen ? sourcePickerId : undefined}
+          disabled={!enabledOnlineSources.length} title={selectedSourceNames.join(", ")} onclick={toggleSourcePicker}>
+          <span class="source-value">{sourceSummary}</span>
+          <MenuIcon name={sourcePickerOpen ? "arrow-up" : "arrow-down"} />
+        </button>
+      </div>
       {#if sourcePickerOpen}
-        <div class="source-picker" id="discovery-source-picker" role="group" aria-label="Choose online sources"
+        <div class="source-picker dropdown-menu" id={sourcePickerId} role="group" aria-label="Choose online sources"
           bind:this={sourcePicker} use:portalSourcePicker style:left={`${pickerLeft}px`}
           style:top={`${pickerTop}px`} style:max-height={`${pickerMaxHeight}px`}>
           <div class="source-picker-actions">
             <strong>Search sources</strong>
-            <button type="button" onclick={() => draftSources = []}>Clear</button>
-            <button type="button" onclick={() => draftSources = enabledOnlineSources.map(source => source.id)}>Select all</button>
+            <button type="button" onclick={() => selectSources([])}>Clear</button>
+            <button type="button" onclick={() => selectSources(enabledOnlineSources.map(source => source.id))}>Select all</button>
           </div>
-          {#each enabledOnlineSources as source (source.id)}
-            <label class="source-picker-row">
-              <input type="checkbox" data-source-id={source.id} checked={draftSources.includes(source.id)}
-                onchange={(event) => { draftSources = event.currentTarget.checked ? [...draftSources, source.id] : draftSources.filter(id => id !== source.id); }} />
-              <span>{source.name}</span>
-              {#if !sourceSupports(source.id)}<small>Unavailable for this result type</small>{/if}
-            </label>
-          {/each}
-          <div class="source-picker-actions">
-            <button type="button" onclick={() => closeSourcePicker(true)}>Cancel</button>
-            <button type="button" disabled={!draftSources.length} onclick={applySources}>Apply</button>
+          <div class="source-picker-options">
+            {#each enabledOnlineSources as source (source.id)}
+              {@const supported = sourceSupports(source.id)}
+              {@const noticeId = `${sourcePickerId}-${source.id}-availability`}
+              <label class="source-picker-row dropdown-option">
+                <input type="checkbox" data-source-id={source.id} aria-label={source.name}
+                  aria-describedby={supported ? undefined : noticeId} checked={selectedSourceIds.includes(source.id)}
+                  onchange={(event) => selectSources(event.currentTarget.checked
+                    ? [...selectedSourceIds, source.id] : selectedSourceIds.filter(id => id !== source.id))} />
+                <span>
+                  {source.name}
+                  {#if !supported}<small id={noticeId}>Unavailable for this result type</small>{/if}
+                </span>
+              </label>
+            {/each}
           </div>
         </div>
       {/if}
@@ -1439,7 +1577,9 @@
     {/each}
   </div>
   </div>
-  {#if youtubeCollectionSearchUnavailable}
+  {#if searchMode === "online" && !selectedSourceIds.length && enabledOnlineSources.length}
+    <p class="scope-hint" role="status">Choose at least one source to search.</p>
+  {:else if youtubeCollectionSearchUnavailable}
     <p id="unsupported-result-kinds" class="scope-hint" role="note">To search YouTube playlists and channels, connect YouTube in Settings or enable Browser-assisted access in the Burrata extension.</p>
   {:else if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
   {#if trackControlsApplicable}<div class="track-toolbar">
@@ -1451,7 +1591,7 @@
 
 
     </div>
-      <details class="loaded-track-filters"><summary aria-label={`Search filters and playback options${minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all" ? ", active duration filters" : ""}`}>Filters &amp; playback{#if minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all"} <span class="active-filter-indicator">· Active</span>{/if}</summary><div class="loaded-filter-fields">
+      <details class="loaded-track-filters"><summary class="dropdown-trigger" aria-label={`Search filters and playback options${minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all" ? ", active duration filters" : ""}`}>Filters &amp; playback{#if minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all"} <span class="active-filter-indicator">· Active</span>{/if}</summary><div class="loaded-filter-fields dropdown-menu">
     <label class="continue-setting"><input type="checkbox" aria-label="Play remaining loaded search results" bind:checked={continueSearch} /> Play remaining loaded search results</label>
     {#if onQueueTracks}<label class="continue-setting"><input type="checkbox" aria-label="Automatically queue newly loaded search results" checked={autoQueueSearchResults} onchange={(event) => setAutoQueueSearchResults(event.currentTarget.checked)} /> Automatically queue newly loaded results</label>{/if}
     <TrackDownloadFilter bind:value={downloadAvailability} />
@@ -1470,7 +1610,7 @@
   </div>{/if}
   </div>
   {#if collectingSearch || collectionProgress}<div class="collection-status" role="status">{collectionProgress}{#if collectingSearch}<button type="button" onclick={cancelCollection}>Cancel collection</button>{/if}</div>{/if}
-  {#if selectedSourceUnsupported && !(youtubeCollectionSearchUnavailable && (kind === "playlists" || kind === "channels"))}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source in Search in or change the result type.</p>{/if}
+  {#if selectedSourceUnsupported && !(youtubeCollectionSearchUnavailable && (kind === "playlists" || kind === "channels"))}<p class="scope-hint" role="status">{selectedSourceUnsupported.name} does not support {kinds.find(item => item.id === kind)?.label.toLocaleLowerCase()}. Choose another source or change the result type.</p>{/if}
 
   <div class="source-results" aria-live="polite">
     {#each displayedSources as source (source.id)}
@@ -1505,8 +1645,9 @@
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" fixedRowHeight={searchTrackHeight} position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : track.provider === "slskd" ? "Download to play" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList {showProviderCounts} showUpcomingAvailability={searchMode === "online" && source.id === "youtube"} tracks={[track]} presentation="playlist" fixedRowHeight={searchTrackHeight} position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : track.provider === "slskd" ? "Download to play" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
+                  {@const pendingRecordingCredits = row.sourceId === "musicbrainz" ? recordingCredits[track.providerId] : undefined}
                   {#if canLookUpChapters(row) && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
                     {#if chapterExpanded[identity(row)]}<div class="chapter-list">
@@ -1515,6 +1656,23 @@
                     </details>
                   {/if}
                   {#if expanded[identity(row)]}<p class="result-details">{detailLines(track).join(" · ")}</p>
+                    {#if pendingRecordingCredits}
+                      {#await pendingRecordingCredits}
+                        <p class="result-details" role="status">Loading recording credits…</p>
+                      {:then evidence}
+                        {@const credits = recordingCreditDisplay(track, evidence)}
+                        {#if credits}
+                          <dl class="recording-credits">
+                            {#if credits.workTitle}<dt>Work</dt><dd>{credits.workTitle}{credits.movement ? ` · ${credits.movement}` : ""}</dd>{/if}
+                            {#each credits.credits as credit (`${credit.artist.id}:${credit.role}`)}
+                              <dt>{credit.role}</dt><dd><button type="button" onclick={() => onArtist(credit.artist)}>{credit.name}</button></dd>
+                            {/each}
+                          </dl>
+                        {:else}<p class="result-details">No verified classical credits found for this recording.</p>{/if}
+                      {:catch}
+                        <button type="button" onclick={() => loadRecordingCredits(track.providerId)}>Retry recording credits</button>
+                      {/await}
+                    {/if}
                     {#if canLookUpChapters(row) && (cachedChapterState === "loading" || cachedChapterState === "unavailable" || cachedChapterState === "unknown" || !cachedChapterState)}
                       {#if cachedChapterState === "loading"}<span class="chapter-lookup-status" role="status">Checking chapters…</span>{:else}<button class="chapter-check" onclick={() => void inspectChapters(row)}>{cachedChapterState === "unavailable" ? "Retry chapter check" : "Check for chapters"}</button>{/if}
                     {/if}
@@ -1567,20 +1725,59 @@
 {/if}
 
 <style>
+  .artist-search-suggestions{position:absolute;z-index:8;inset:calc(100% + 4px) 0 auto;max-height:min(260px,45vh);margin:0;overflow:auto;list-style:none}
+  .artist-search-suggestions button{justify-content:space-between;gap:.75rem}
+  .artist-search-suggestions small{color:var(--muted);overflow-wrap:anywhere}
+  .recording-credits{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.3rem .8rem;margin:.45rem 0;font-size:.82rem}
+  .recording-credits dt{color:var(--muted)}
+  .recording-credits dd{margin:0;overflow-wrap:anywhere}
+  .recording-credits button{border:0;padding:0;background:none;color:var(--accent);text-decoration:underline;text-align:left}
   .search-toolbar { display:grid; flex:none; gap:.45rem; }
   .search-content { display:flex; flex:1; flex-direction:column; gap:inherit; min-height:0; overflow-y:auto; overflow-x:hidden; }
   .search-content > .search-form { position:sticky; top:0; flex:none; flex-wrap:nowrap; align-items:center; z-index:4; background:var(--panel); }
   .search-content > .search-form .search-input-wrap { flex:1 1 0; min-width:0; }
   .search-content > .search-form > button { flex:none; white-space:nowrap; }
-  .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
-  .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
-  .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}
-  .source-picker-actions strong{margin-right:auto;font-size:.84rem}
-  .source-picker-actions:last-child{justify-content:flex-end;margin-top:6px}
-  .source-picker-actions button{padding:4px 7px;font-size:.78rem;border:1px solid var(--line,#454a50);border-radius:6px;background:var(--base,#17191c);color:inherit}.source-picker-actions button:disabled{opacity:.5}
-  .source-picker-row{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;padding:7px 4px;font-size:.84rem}
-  .source-picker-row input{margin:0;flex:none}
-  .source-picker-row small{margin-left:auto;color:var(--muted,#a3a8ae);font-size:.7rem}
+  .source-field{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;justify-self:start}
+  .source-field-label{color:var(--muted);font-size:.76rem}
+  .sources-toggle{
+    display:inline-flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    min-width:0;
+    max-width:14rem;
+    padding:0 8px 0 10px;
+  }
+  .source-value{overflow:hidden;text-overflow:ellipsis}
+  .sources-toggle :global(svg){flex:none;width:14px;height:14px;color:var(--muted)}
+  .source-picker{
+    position:fixed;
+    z-index:1000;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    width:min(320px,calc(100vw - 16px));
+    box-sizing:border-box;
+    overflow:hidden;
+  }
+  .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:2px}
+  .source-picker-actions strong{margin-right:auto;font-size:.82rem}
+  .source-picker-actions button{padding-inline:10px}
+  .source-picker-options{min-height:0;overflow:auto;display:grid;gap:2px;padding:2px}
+  .source-picker-row{
+    flex-direction:row;
+    align-items:flex-start;
+    margin:0;
+    border:1px solid transparent;
+    font-size:.82rem;
+    line-height:1.35;
+  }
+  .source-picker-row:focus-within{border-color:var(--accent)}
+  .source-picker-row input{margin:2px 0 0;flex:none;accent-color:var(--accent)}
+  .source-picker-row span{min-width:0;overflow-wrap:anywhere}
+  .source-picker-row small{display:block;color:var(--muted);font-size:.72rem}
+  @media(max-height:280px){.source-picker{display:block;overflow:auto}.source-picker-options{overflow:visible}}
+  @container search-pane (max-width:640px){.source-field{grid-column:1/-1}}
 
 
   .source-status{display:inline-flex;align-items:center;gap:.45rem}

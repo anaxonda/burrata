@@ -34,6 +34,37 @@ it("shows available biography and next queue occurrence without starting playbac
  expect(document.body.textContent).toContain("A performer and researcher.");
  expect(document.querySelector(".next-track")?.textContent).toContain("Ederlezi");
 });
+const tinyDesk: Track = {
+  ...track, id: "youtube:_l1DbqVacBc", provider: "youtube", providerId: "_l1DbqVacBc",
+  title: "Will Liverman: Tiny Desk Concert", artist: "", album: null,
+  provenance: { channelName: "NPR Music", remotePlaylist: true },
+};
+
+it("shows the featured Tiny Desk artist on a legacy playlist row and offers artist search", async () => {
+  const props = setup({ track: tinyDesk, title: tinyDesk.title });
+  await tick();
+  const link = document.querySelector<HTMLButtonElement>(".recording .artist-link")!;
+  expect(link.textContent).toBe("Will Liverman");
+  expect(document.querySelector(".right-cards .credit-name")?.textContent).toBe("Will Liverman");
+  expect(document.body.textContent).toContain("Featured artist from the video title");
+  expect(document.body.textContent).not.toContain("Artist unknown");
+  link.click();
+  expect(props.onArtist).toHaveBeenCalledOnce();
+  expect(props.loadArtist).not.toHaveBeenCalled();
+});
+
+it("does not infer a Tiny Desk artist for a different channel even when the uploader name matches", async () => {
+  setup({ track: { ...tinyDesk, provenance: { channelName: "NPR Music", uploaderChannelId: "other-channel" } } });
+  await tick();
+  expect(document.querySelector(".recording .artist-caption")?.textContent).toBe("Artist unknown");
+});
+
+it("prefers an explicit artist over a featured name from an official channel title", async () => {
+  setup({ track: { ...tinyDesk, artist: "Verified credit", provenance: { uploaderChannelId: "UC4eYXhJI4-7wSWc8UNRwD4A" } } });
+  await tick();
+  expect(document.querySelector(".recording .artist-link")?.textContent).toBe("Verified credit");
+  expect(document.body.textContent).not.toContain("Featured artist from the video title");
+});
 it("restores keyboard focus to the opener on close",async()=>{
  const opener=document.createElement("button");document.body.append(opener);opener.focus();
  setup();await tick(); expect(document.activeElement?.getAttribute("aria-label")).toBe("Expanded Now Playing");

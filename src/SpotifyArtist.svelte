@@ -413,6 +413,12 @@
     const name = page?.artist.name;
     if (name && onBrowseArtistProvider) void onBrowseArtistProvider(name, "musicbrainz");
   }
+  function openAlbumArtist(name: string) {
+    const key = name.normalize("NFKC").trim().toLocaleLowerCase();
+    const creditedTrack = tracks.find(track => track.artist.normalize("NFKC").trim().toLocaleLowerCase() === key);
+    if (creditedTrack && onArtist) onArtist(creditedTrack);
+    else void onBrowseArtistProvider?.(name, "spotify");
+  }
   function albumPosition(track: Track): number | null {
     const provenance = track.provenance && typeof track.provenance === "object"
       ? track.provenance as Record<string, unknown>
@@ -524,7 +530,11 @@
   {#if albumQueueStatus}<p class={albumQueueStatus.loading ? "notice" : "notice error"} role={albumQueueStatus.loading ? "status" : "alert"}>{albumQueueStatus.text}</p>{/if}
   {#if albumPage}
     <ArtistBanner class="hero" heading="h1" name={albumPage.album.title} label={albumPage.album.albumType ?? "Album"} artworkUrl={albumPage.album.artworkUrl}>
-      {#snippet details()}<p>{[formatReleaseDate(albumPage?.album.releaseDate), albumPage?.album.artists.join(", ")].filter(Boolean).join(" · ")}</p>{/snippet}
+      {#snippet details()}
+        {@const date = formatReleaseDate(albumPage?.album.releaseDate)}
+        {@const artists = albumPage?.album.artists ?? []}
+        <p>{date}{#if date && artists.length}{" · "}{/if}{#each artists as artist, index}{#if index > 0}{", "}{/if}{#if onArtist || onBrowseArtistProvider}<button class="album-artist-link" type="button" onclick={() => openAlbumArtist(artist)}>{artist}</button>{:else}{artist}{/if}{/each}</p>
+      {/snippet}
       {#snippet actions()}
         {#if albumPage && onQueueSelected}
           <button type="button" aria-label={`Queue album ${albumPage.album.title}`} disabled={albumQueueStatus?.loading} onclick={() => { if (albumPage) void queueAlbum(albumPage.album); }}>
@@ -650,6 +660,8 @@
   .spotify-artist.album-view > :global(:first-child) { margin-block-start: var(--album-top-inset, 1rem); }
   .spotify-artist .browse-provider{box-sizing:border-box;min-height:34px;height:auto;padding:.3rem .6rem;font-size:.8rem;line-height:1.2}
   .spotify-artist .browse-provider{display:inline-flex;vertical-align:middle;margin:0}
+  .spotify-artist button.album-artist-link { background: transparent; border: 0; padding: 0; text-align: start; text-decoration: underline; text-underline-offset: .18em; }
+  .album-artist-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .spotify-artist .track-controls select,.spotify-artist .release-controls select{appearance:none;-webkit-appearance:none;box-sizing:border-box;display:block;height:34px;min-height:34px;max-height:34px;padding:0 30px 0 9px;font-size:12px;line-height:18px;text-align:left;background-image:linear-gradient(45deg,transparent 50%,var(--muted,#a3a8ae) 50%),linear-gradient(135deg,var(--muted,#a3a8ae) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 10px) 50%;background-size:4px 4px;background-repeat:no-repeat}
   .spotify-artist>.collection-scope{flex:none;margin:0;padding:0;border:0;border-radius:0;background:none;color:var(--muted,#a3a8ae);font-size:12px;line-height:1.4}
 </style>

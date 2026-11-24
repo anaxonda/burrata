@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-jellyfin-track-artwork"
+description = "Enables the get_jellyfin_track_artwork command without any pre-configured scope."
+commands.allow = ["get_jellyfin_track_artwork"]
+
+[[permission]]
+identifier = "deny-get-jellyfin-track-artwork"
+description = "Denies the get_jellyfin_track_artwork command without any pre-configured scope."
+commands.deny = ["get_jellyfin_track_artwork"]

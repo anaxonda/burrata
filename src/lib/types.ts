@@ -333,6 +333,8 @@ export interface Settings {
   playbackStartupTimeoutSeconds?: 20 | 30 | 45;
   theme: string;
   showProviderCounts?: boolean;
+  searchSuggestionsEnabled?: boolean;
+  showLibraryCatalogFilter?: boolean;
   ytDlpPath: string;
   ffmpegPath: string;
   ffprobePath: string;

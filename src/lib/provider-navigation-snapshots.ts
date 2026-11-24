@@ -1,5 +1,5 @@
 /** Memory-only, account-scoped snapshots for provider-native browsing routes. */
-export type ProviderSnapshotKind = "playlists" | "playlist-detail" | "spotify-artist" | "artist-page" | "search-panel" | "search-release";
+export type ProviderSnapshotKind = "playlists" | "playlist-detail" | "youtube-channel" | "spotify-artist" | "artist-page" | "search-panel" | "search-release";
 export type ProviderSnapshotEntry<T> = {
   kind: ProviderSnapshotKind;
   key: string;

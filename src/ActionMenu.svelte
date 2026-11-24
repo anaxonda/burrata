@@ -57,14 +57,22 @@
 </script>
 
 <svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onpointerdown={(event) => { if (dialog?.open && !dialog.contains(event.target as Node)) onClose(); }} />
-<dialog bind:this={dialog} bind:clientWidth={menuWidth} bind:clientHeight={menuHeight} class={`action-menu ${className}`} class:context-menu={anchored} {role} aria-label={label} aria-modal="true" style:left={anchored ? `${position.left}px` : undefined} style:top={anchored ? `${position.top}px` : undefined} style:--menu-player-height={`${Math.max(0, playerHeight)}px`} onclose={onClose} oncancel={(event) => { event.preventDefault(); onClose(); }} onclick={(event) => { if (event.target === dialog) onClose(); }} onkeydown={handleKeydown}>
+<dialog bind:this={dialog} bind:clientWidth={menuWidth} bind:clientHeight={menuHeight} class={`action-menu ${className}`} class:context-menu={anchored} class:dropdown-menu={anchored} {role} aria-label={label} aria-modal="true" style:left={anchored ? `${position.left}px` : undefined} style:top={anchored ? `${position.top}px` : undefined} style:--menu-player-height={`${Math.max(0, playerHeight)}px`} onclose={onClose} oncancel={(event) => { event.preventDefault(); onClose(); }} onclick={(event) => { if (event.target === dialog) onClose(); }} onkeydown={handleKeydown}>
   {#if title}<header><div class="action-menu-heading"><strong>{title}</strong>{#if subtitle}<small>{subtitle}</small>{/if}{#if badge}{@render badge()}{/if}</div><button class="action-menu-close" aria-label={closeLabel} onclick={onClose}>×</button></header>{/if}
   {@render children()}
 </dialog>
 
 <style>
-  :global(.action-menu) { position:fixed;z-index:100;box-sizing:border-box;inset:8px 0 calc(var(--menu-player-height,var(--player-height,90px)) + 8px);margin:auto;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - var(--menu-player-height,var(--player-height,90px)) - 16px);overflow:auto;padding:8px;border:1px solid var(--context-menu-border,var(--line));border-radius:10px;background:var(--context-menu-surface,var(--surface));color:var(--context-menu-text,var(--text));box-shadow:0 20px 80px #0008; }
-  :global(.action-menu.context-menu) { inset:auto;margin:0; }
+  :global(.action-menu) { position:fixed;z-index:100;box-sizing:border-box;inset:8px 0 calc(var(--menu-player-height,var(--player-height,90px)) + 8px);margin:auto;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - var(--menu-player-height,var(--player-height,90px)) - 16px);overflow:auto; }
+  :global(.action-menu:not(.context-menu)) { padding:8px;border:1px solid var(--context-menu-border,var(--line));border-radius:10px;background:var(--context-menu-surface,var(--surface));color:var(--context-menu-text,var(--text));box-shadow:0 20px 80px #0008; }
+  :global(.action-menu.context-menu) {
+    inset:auto;margin:0;
+    --context-menu-border:var(--line);
+    --context-menu-text:var(--text);
+    --context-menu-muted:var(--muted);
+    --context-menu-hover:color-mix(in srgb,var(--accent) 13%,var(--surface));
+    --context-menu-primary:color-mix(in srgb,var(--accent) 18%,var(--surface));
+  }
   :global(.action-menu::backdrop) { background:#0006; }
   :global(.action-menu.context-menu::backdrop) { background:transparent; }
   header { display:flex;align-items:center;gap:8px;padding:2px 4px 6px;border-bottom:1px solid var(--context-menu-border,var(--line));margin-bottom:4px;color:var(--context-menu-muted,var(--muted));font-size:11px; }
@@ -88,7 +96,7 @@
   :global(.action-menu button:focus-visible),:global(.action-menu a:focus-visible) { outline:2px solid var(--accent);outline-offset:1px; }
   @media (max-width:600px) { :global(.action-menu>button),:global(.action-menu .source-row .source-link) { min-height:42px; } }
   @media (min-width:601px) {
-    :global(.action-menu) { padding:5px;border-radius:6px;box-shadow:0 8px 28px #0007; }
+    :global(.action-menu:not(.context-menu)) { padding:5px;border-radius:6px;box-shadow:0 8px 28px #0007; }
     :global(.action-menu>button) { min-height:32px;gap:10px;padding:4px 8px;border-radius:3px; }
     :global(.action-menu>button.primary-action) { margin:1px 0;font-weight:600; }
     :global(.action-menu svg[aria-hidden="true"]) { width:18px;height:18px;flex-basis:18px; }

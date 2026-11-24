@@ -5,6 +5,7 @@ export const FIXED_RESOLVER_FAILURES = {
   recordingIdentityUnverified: "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.",
   missingDurationIdentityUnverified: "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
   soulseekDownloadRequired: "Download this Soulseek file before playing it.",
+  youtubePremierePending: "This YouTube premiere has not started yet.",
 } as const;
 
 export type FailureCategory = "cancelled" | "timeout" | "network" | "rate_limited" | "source_access" | "source_unavailable" | "source_private" | "source_deleted" | "no_match" | "recording_identity_mismatch" | "unsupported_audio" | "output" | "storage" | "parser" | "unknown";
@@ -42,12 +43,14 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   if (reason === FIXED_RESOLVER_FAILURES.noAudioResults || /^no playable audio match was found(?: for |[.:]|$)/.test(message)) return failure("no_match", "resolver", "recording", false, null);
   if (reason === FIXED_RESOLVER_FAILURES.recordingIdentityUnverified || reason === FIXED_RESOLVER_FAILURES.missingDurationIdentityUnverified || reason === "Verified source identity mismatch" || ["the resolved audio source identity does not match this recording", "source identity changed during audio resolution; select it again", "source identity changed during inspection; select it again"].includes(message)) return failure("recording_identity_mismatch", "resolver", "recording", false, null);
   if (message === "this source has no supported audio stream" || reason === FIXED_RESOLVER_FAILURES.soulseekDownloadRequired) return failure("unsupported_audio", "resolver", "recording", false, null);
+  if (reason.trim() === FIXED_RESOLVER_FAILURES.youtubePremierePending) return failure("source_unavailable", "extraction", "source", false, null);
   if (message.startsWith("invalid monochrome catalog")) return failure("parser", "resolver", "source", true);
   if (has("cancel", "superseded")) return failure("cancelled", "resolver", "operation", false);
   if (httpStatus === 429 || has("rate limit", "too many requests")) return failure("rate_limited", "transport", "source", true);
   if (message === "native http audio stream ended before the recording finished") return failure("source_unavailable", "transport", "source", true, null);
   if (message.includes("transport timeout failed")) return failure("timeout", "transport", "global", true);
   if (has("transport connect failed", "transport body failed", "transport request failed")) return failure("network", "transport", "global", true);
+  if (message === "audio startup timed out while buffering.") return failure("timeout", "output", "operation", true, null);
   if (has("timed out", "timeout", "deadline")) return failure("timeout", "resolver", "operation", true);
   if (has("storage", "disk full", "no space left", "read-only file system", "readonly database", "database is locked", "permission denied", "local audio is not registered", "local file", "os error 28", "disk quota exceeded", "os error 122", "helper_unpack_failed", "storage_unavailable")) return failure("storage", "storage", "global", true);
   if (has("output device", "audio output", "audio device", "audio sink", "cpal")) return failure("output", "output", "global", true);

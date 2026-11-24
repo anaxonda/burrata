@@ -142,10 +142,7 @@ enum UiNavigationTarget {
 impl UiNavigationTarget {
     fn kind(&self) -> &'static str {
         match self {
-            Self::View(_)
-            | Self::LibraryTab(_)
-            | Self::SettingsCategory(_)
-            | Self::SettingsControl(_) => "view",
+            Self::View(_) | Self::LibraryTab(_) | Self::SettingsCategory(_) | Self::SettingsControl(_) => "view",
             Self::SpotifyArtist(_) => "spotify_artist",
             Self::CatalogArtist(_, _) => "catalog_artist",
             Self::CatalogRelease(_, _) => "catalog_release",
@@ -322,16 +319,11 @@ fn parse_ui_navigation_request(arguments: &Value) -> Result<UiNavigationTarget, 
     }
     if let Some(tab) = object.get("libraryTab") {
         if object.len() == 2 && object.get("view").and_then(Value::as_str) == Some("library") {
-            if let Some(tab) = tab
-                .as_str()
-                .filter(|tab| matches!(*tab, "tracks" | "artists" | "albums"))
-            {
+            if let Some(tab) = tab.as_str().filter(|tab| matches!(*tab, "tracks" | "artists" | "albums")) {
                 return Ok(UiNavigationTarget::LibraryTab(tab.to_owned()));
             }
         }
-        return Err(ToolError::bad(
-            "A supported libraryTab requires only view=library",
-        ));
+        return Err(ToolError::bad("A supported libraryTab requires only view=library"));
     }
     if object.len() != 1 {
         return Err(ToolError::bad("UI navigation accepts exactly one target"));
@@ -2736,11 +2728,7 @@ fn parse_search_control_arguments(action: &str, arguments: &Value) -> Result<Val
             payload["enabled"] = json!(enabled);
         }
         "play" | "open_card" => {
-            let token_key = if action == "play" {
-                "occurrenceToken"
-            } else {
-                "cardToken"
-            };
+            let token_key = if action == "play" { "occurrenceToken" } else { "cardToken" };
             let revision = object
                 .get("revision")
                 .and_then(Value::as_str)
@@ -2777,13 +2765,9 @@ fn search_control_completion_expired(
 ) -> bool {
     let status = result.get("status").and_then(Value::as_str).unwrap_or("");
     let acted_at_ms = match (action, status) {
-        ("inspect" | "inspect_cards", "ready") => {
-            result.get("observedAtMs").and_then(Value::as_u64)
-        }
+        ("inspect" | "inspect_cards", "ready") => result.get("observedAtMs").and_then(Value::as_u64),
         ("set_continue", "complete") => result.get("appliedAtMs").and_then(Value::as_u64),
-        ("play" | "open_card", "dispatched") => {
-            result.get("dispatchedAtMs").and_then(Value::as_u64)
-        }
+        ("play" | "open_card", "dispatched") => result.get("dispatchedAtMs").and_then(Value::as_u64),
         _ => None,
     };
     if matches!(
@@ -2911,9 +2895,26 @@ fn sanitize_search_control_result(action: &str, result: &Value) -> Result<Value,
             let query_pending = result["queryInputPending"]
                 .as_bool()
                 .ok_or_else(|| "invalid query state".to_string())?;
-            Ok(
-                json!({"status":"ready","revision":revision,"query":query,"queryInputPending":query_pending,"mode":mode,"sourceId":source,"kind":kind,"continueSearch":continuation,"total":total,"offset":offset,"hasMore":has_more,"collecting":collecting,"rows":safe_rows}),
-            )
+            let mut response = json!({"status":"ready","revision":revision,"query":query,"queryInputPending":query_pending,"mode":mode,"sourceId":source,"kind":kind,"continueSearch":continuation,"total":total,"offset":offset,"hasMore":has_more,"collecting":collecting,"rows":safe_rows});
+            if let Some(raw) = result.get("unavailableSourceIds") {
+                let sources = raw
+                    .as_array()
+                    .filter(|values| values.len() < SEARCH_UI_SOURCE_IDS.len())
+                    .ok_or("invalid unavailable sources")?;
+                let mut unavailable = Vec::with_capacity(sources.len());
+                for value in sources {
+                    let id = value
+                        .as_str()
+                        .filter(|id| *id != "all" && SEARCH_UI_SOURCE_IDS.contains(id))
+                        .ok_or("invalid unavailable source")?;
+                    if (source != "all" && id != source) || unavailable.contains(&id) {
+                        return Err("invalid unavailable source".into());
+                    }
+                    unavailable.push(id);
+                }
+                response["unavailableSourceIds"] = json!(unavailable);
+            }
+            Ok(response)
         }
         ("inspect_cards", "ready") => {
             let total = result["total"]
@@ -2939,8 +2940,7 @@ fn sanitize_search_control_result(action: &str, result: &Value) -> Result<Value,
                     .as_str()
                     .filter(|v| v.len() <= 300)
                     .ok_or_else(|| "invalid title".to_string())?;
-                safe_cards
-                    .push(json!({"cardToken":token,"sourceId":source,"kind":kind,"title":title}));
+                safe_cards.push(json!({"cardToken":token,"sourceId":source,"kind":kind,"title":title}));
             }
             Ok(json!({
                 "status":"ready","revision":revision,"total":total,"offset":offset,
@@ -9297,6 +9297,14 @@ mod tests {
         let safe = sanitize_search_control_result("inspect", &inspect).unwrap();
         assert_eq!(safe["rows"][0].as_object().unwrap().len(), 5);
         assert!(safe.get("secret").is_none());
+        let mut failed_source = inspect.clone();
+        failed_source["unavailableSourceIds"] = json!(["youtube"]);
+        let inspected = sanitize_search_control_result("inspect", &failed_source).unwrap();
+        assert_eq!(inspected["unavailableSourceIds"], json!(["youtube"]));
+        for invalid in [json!(["youtube", "youtube"]), json!(["spotify"]), json!(["all"]), json!(["internal error"])] {
+            failed_source["unavailableSourceIds"] = invalid;
+            assert!(sanitize_search_control_result("inspect", &failed_source).is_err());
+        }
         assert!(sanitize_search_control_result("play", &inspect).is_err());
         let mut oversized = inspect.clone();
         oversized["rows"] = json!(vec![
@@ -9351,17 +9359,12 @@ mod tests {
         assert_eq!(tool_scope("inspect_search_cards"), Some("read"));
         assert_eq!(tool_scope("open_search_card"), Some("control"));
         assert_eq!(
-            parse_search_control_arguments("inspect_cards", &json!({"offset":1,"limit":200}))
-                .unwrap(),
+            parse_search_control_arguments("inspect_cards", &json!({"offset":1,"limit":200})).unwrap(),
             json!({"action":"inspect_cards","offset":1,"limit":200})
         );
         assert!(parse_search_control_arguments("inspect_cards", &json!({"limit":201})).is_err());
         assert_eq!(
-            parse_search_control_arguments(
-                "open_card",
-                &json!({"revision":revision,"cardToken":token})
-            )
-            .unwrap(),
+            parse_search_control_arguments("open_card", &json!({"revision":revision,"cardToken":token})).unwrap(),
             json!({"action":"open_card","revision":revision,"cardToken":token})
         );
         for invalid in [
@@ -9382,33 +9385,19 @@ mod tests {
             json!({"status":"ready","revision":revision,"total":2,"offset":0,"hasMore":true,
                 "cards":[{"cardToken":token,"sourceId":"youtube","kind":"channel","title":"Station"}]})
         );
-        for (field, value) in [
-            ("title", json!("x".repeat(301))),
-            ("sourceId", json!("spotify")),
-            ("kind", json!("profile")),
-        ] {
+        for (field, value) in [("title", json!("x".repeat(301))), ("sourceId", json!("spotify")), ("kind", json!("profile"))] {
             let mut invalid = inspection.clone();
             invalid["cards"][0][field] = value;
             assert!(sanitize_search_control_result("inspect_cards", &invalid).is_err());
         }
-        assert!(!search_control_completion_expired(
-            "inspect_cards",
-            &inspection,
-            100,
-            101
-        ));
+        assert!(!search_control_completion_expired("inspect_cards", &inspection, 100, 101));
         let dispatch = json!({"status":"dispatched","revision":revision,"sourceId":"spotify",
             "kind":"playlist","dispatchedAtMs":100,"url":"https://open.spotify.com/playlist/example"});
         assert_eq!(
             sanitize_search_control_result("open_card", &dispatch).unwrap(),
             json!({"status":"dispatched","revision":revision,"sourceId":"spotify","kind":"playlist"})
         );
-        assert!(search_control_completion_expired(
-            "open_card",
-            &dispatch,
-            100,
-            101
-        ));
+        assert!(search_control_completion_expired("open_card", &dispatch, 100, 101));
         assert!(sanitize_search_control_result("play", &inspection).is_err());
     }
 
@@ -10614,27 +10603,14 @@ mod tests {
 
     #[test]
     fn navigation_can_open_only_known_library_tabs() {
-        let target =
-            parse_ui_navigation_request(&json!({"view":"library","libraryTab":"artists"})).unwrap();
-        assert_eq!(
-            target.payload(),
-            json!({"kind":"view","view":"library","libraryTab":"artists"})
-        );
+        let target = parse_ui_navigation_request(&json!({"view":"library","libraryTab":"artists"})).unwrap();
+        assert_eq!(target.payload(), json!({"kind":"view","view":"library","libraryTab":"artists"}));
         let receipt = sanitize_ui_navigation_completion(&target, "library", "complete").unwrap();
         assert_eq!(receipt["libraryTab"], "artists");
         assert_eq!(receipt["completionScope"], "route_transition");
-        assert!(
-            parse_ui_navigation_request(&json!({"view":"downloads","libraryTab":"artists"}))
-                .is_err()
-        );
-        assert!(
-            parse_ui_navigation_request(&json!({"view":"library","libraryTab":"playlists"}))
-                .is_err()
-        );
-        assert!(parse_ui_navigation_request(
-            &json!({"view":"library","libraryTab":"artists","collectionId":"another"})
-        )
-        .is_err());
+        assert!(parse_ui_navigation_request(&json!({"view":"downloads","libraryTab":"artists"})).is_err());
+        assert!(parse_ui_navigation_request(&json!({"view":"library","libraryTab":"playlists"})).is_err());
+        assert!(parse_ui_navigation_request(&json!({"view":"library","libraryTab":"artists","collectionId":"another"})).is_err());
     }
 
     #[test]

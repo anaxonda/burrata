@@ -23,12 +23,7 @@ const FILES: &[&str] = &[
     "automation.json",
     "browser-bridge.json",
 ];
-const DIRECTORIES: &[&str] = &[
-    "managed-provider-session",
-    "youtube-support",
-    "artwork",
-    "subsonic",
-];
+const DIRECTORIES: &[&str] = &["managed-provider-session", "youtube-support", "artwork", "subsonic", "jellyfin"];
 
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -391,7 +391,7 @@
     <div class="drawer-heading"><strong>Library navigation</strong><button aria-label="Close library menu" onclick={closeDrawer}>×</button></div>
     <div class="sidebar-tools">
       <details class="sidebar-filter-dropdown">
-        <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter sidebar</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
+        <summary class="dropdown-trigger" aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter sidebar</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
         <label class="playlist-filter-label">Filter by name or owner<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
       </details>
       <button class="collapse-sidebar" type="button" aria-label="Collapse all sidebar items" title="Collapse all sidebar items" onclick={collapseSidebar}>
@@ -551,9 +551,8 @@
   .sidebar-tools { display:flex; align-items:flex-start; gap:5px; margin:0 0 12px; }
   .sidebar-filter-dropdown { flex:1; min-width:0; }
   .collapse-sidebar { display:grid; place-items:center; flex:none; width:34px; min-height:34px; padding:0; color:var(--muted); }
-  .sidebar-filter-dropdown > summary { display:flex; align-items:center; gap:8px; min-height:34px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; color:var(--muted); cursor:pointer; list-style:none; font-size:11px; }
+  .sidebar-filter-dropdown > summary { display:flex; align-items:center; gap:8px; padding:4px 8px; cursor:pointer; list-style:none; font-size:11px; }
   .sidebar-filter-dropdown > summary::-webkit-details-marker { display:none; }
-  .sidebar-filter-dropdown > summary:hover,.sidebar-filter-dropdown[open] > summary { background:var(--raised); color:var(--text); }
   .sidebar-filter-dropdown > summary span:nth-child(2) { flex:1; }
   .sidebar-filter-dropdown > summary small { color:var(--accent); font-size:9px; }
   .sidebar-filter-dropdown > .playlist-filter-label { margin:7px 0 0; padding:0 2px; }

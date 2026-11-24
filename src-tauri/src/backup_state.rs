@@ -440,6 +440,8 @@ const PORTABLE_APPLICATION_FIELDS: &[&str] = &[
     "playlistMirroringEnabled",
     "compactPlaybackBar",
     "showProviderCounts",
+    "searchSuggestionsEnabled",
+    "showLibraryCatalogFilter",
     "autoPreview",
     "playRadioOnClick",
     "liveBpmEnabled",
@@ -1330,6 +1332,9 @@ fn sanitize_library_snapshot(path: &Path, snapshot_id: Uuid) -> Result<BackupSta
             .map(str::to_owned)
     });
     let tx = conn.unchecked_transaction().map_err(err)?;
+    let contained_server_connection: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM settings WHERE key IN ('subsonic.connection.v1','jellyfin.connection.v1'))", [], |row| row.get(0),
+    ).map_err(err)?;
     let mut summary = BackupStateSummary::default();
     for table in [
         "library_entity_tracks",
@@ -1343,6 +1348,8 @@ fn sanitize_library_snapshot(path: &Path, snapshot_id: Uuid) -> Result<BackupSta
         summary.omitted_cache_rows += delete_rows_if_table_exists(&tx, table)?;
     }
     summary.omitted_jobs = delete_rows_if_table_exists(&tx, "download_jobs")?;
+    let omitted_server_rows = prune_server_catalog_snapshot(&tx)?;
+    summary.omitted_cache_rows += omitted_server_rows;
     for spec in LIBRARY_TABLES {
         sanitize_table(&tx, spec, music_root.as_deref())?;
     }
@@ -1350,8 +1357,41 @@ fn sanitize_library_snapshot(path: &Path, snapshot_id: Uuid) -> Result<BackupSta
     count_library(&tx, &mut summary)?;
     tx.execute("INSERT INTO settings(key,value) VALUES('backupRestore.snapshotId.v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [serde_json::json!(snapshot_id.to_string()).to_string()]).map_err(err)?;
     tx.commit().map_err(err)?;
+    if omitted_server_rows > 0 || contained_server_connection {
+        conn.execute_batch("VACUUM;").map_err(err)?;
+    }
     verify_database(&conn)?;
     Ok(summary)
+}
+
+fn prune_server_catalog_snapshot(conn: &Connection) -> Result<usize> {
+    let has_catalog: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='library_server_members')",
+        [], |row| row.get(0),
+    ).map_err(err)?;
+    if !has_catalog { return Ok(0); }
+    // The playback archive already contains the full sanitized queue. Preserve
+    // saved tracks, user metadata and real references in the library archive.
+    conn.execute_batch("CREATE TEMP TABLE server_archive_omissions(id TEXT PRIMARY KEY);
+        INSERT INTO server_archive_omissions
+          SELECT l.id FROM library_server_members m
+          JOIN catalog_listings l ON l.id=m.listing_id
+          JOIN recordings r ON r.id=l.recording_id
+          WHERE m.cache_created=1 AND l.in_library=0 AND l.id=l.recording_id
+            AND r.favorite=0 AND r.disposition IS NULL AND r.manual_metadata='{}'
+            AND NOT EXISTS(SELECT 1 FROM catalog_listings alias WHERE alias.recording_id=r.id AND alias.id<>l.id)
+            AND NOT EXISTS(SELECT 1 FROM chart_entries c WHERE c.listing_id=l.id)
+            AND NOT EXISTS(SELECT 1 FROM collection_members c WHERE c.recording_id=l.id)
+            AND NOT EXISTS(SELECT 1 FROM playlist_ordered_entries p WHERE p.listing_id=l.id)
+            AND NOT EXISTS(SELECT 1 FROM local_assets a WHERE a.recording_id=l.id);").map_err(err)?;
+    let omitted = conn.execute("DELETE FROM catalog_listings WHERE id IN (SELECT id FROM server_archive_omissions)", []).map_err(err)?;
+    conn.execute_batch("DELETE FROM recordings WHERE id IN (SELECT id FROM server_archive_omissions);
+        DELETE FROM works WHERE id IN (SELECT 'work:' || id FROM server_archive_omissions)
+            AND NOT EXISTS(SELECT 1 FROM recordings r WHERE r.work_id=works.id);
+        DROP TABLE server_archive_omissions;
+        DELETE FROM library_server_members;
+        DELETE FROM library_server_catalogs;").map_err(err)?;
+    Ok(omitted)
 }
 
 fn sanitize_history_snapshot(path: &Path, summary: &mut BackupStateSummary) -> Result<()> {
@@ -5134,6 +5174,8 @@ fn safe_setting_value(key: &str, value: &Value) -> bool {
         | "playRadioOnClick"
         | "liveBpmEnabled"
         | "showProviderCounts"
+        | "searchSuggestionsEnabled"
+        | "showLibraryCatalogFilter"
         | "crossfadeEnabled"
         | "softNextEnabled"
         | "softTrackSelectionEnabled"
@@ -5481,9 +5523,7 @@ fn sanitize_manual_metadata(value: &Value) -> Value {
         } else if key == crate::storage::library::LIBRARY_ARTIST_CREDITS {
             serde_json::from_value(value.clone())
                 .ok()
-                .and_then(|credits| {
-                    crate::storage::library::normalize_library_artist_credits(credits).ok()
-                })
+                .and_then(|credits| crate::storage::library::normalize_library_artist_credits(credits).ok())
                 .filter(|credits| !credits.is_empty())
                 .and_then(|credits| serde_json::to_value(credits).ok())
         } else if key == "provenance" {
@@ -6205,6 +6245,31 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use sha2::Digest;
+
+    #[test]
+    fn server_catalog_backup_omits_browse_cache_but_preserves_saved_playlist_items() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("library.sqlite");
+        let store = Store::open(&path).unwrap();
+        let make_track = |item: &str| crate::models::Track {
+            id: format!("subsonic:account.{item}"), provider_id: format!("account.{item}"),
+            provider: "subsonic".into(), title: item.into(), ..Default::default()
+        };
+        let browse_only = make_track("browse");
+        let playlist_item = make_track("playlist");
+        store.replace_server_library_catalog("subsonic", "account", "r1", &[browse_only.clone(), playlist_item.clone()]).unwrap();
+        let playlist = store.create_collection("Keep playlist").unwrap();
+        store.append_playlist_entries(&playlist.id, &[playlist_item.clone()]).unwrap();
+        drop(store);
+
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON").unwrap();
+        assert_eq!(prune_server_catalog_snapshot(&conn).unwrap(), 1);
+        let by_id = |id: &str| conn.query_row("SELECT COUNT(*) FROM catalog_listings WHERE id=?1", [id], |row| row.get::<_, usize>(0)).unwrap();
+        assert_eq!(by_id(&browse_only.id), 0);
+        assert_eq!(by_id(&playlist_item.id), 1);
+        verify_database(&conn).unwrap();
+    }
 
     #[test]
     fn album_endpoint_and_artist_credit_boundaries_survive_safe_projection() {
@@ -7943,6 +8008,7 @@ mod tests {
     fn new_application_preferences_are_portable_and_validated() {
         let current = Settings {
             show_provider_counts: false,
+            search_suggestions_enabled: false,
             crossfade_enabled: true,
             crossfade_seconds: 9,
             soft_next_enabled: true,
@@ -7953,12 +8019,14 @@ mod tests {
         let portable = portable_application_fields(&original);
         let restored = application_from_archive(&serde_json::json!(portable)).unwrap();
         assert!(!restored.show_provider_counts);
+        assert!(!restored.search_suggestions_enabled);
         assert!(restored.crossfade_enabled);
         assert_eq!(restored.crossfade_seconds, 9);
         assert!(restored.soft_next_enabled);
         assert!(restored.soft_track_selection_enabled);
         assert!(!safe_setting_value("crossfadeSeconds", &Value::from(13)));
         assert!(!safe_setting_value("softNextEnabled", &Value::from("true")));
+        assert!(!safe_setting_value("searchSuggestionsEnabled", &Value::from("false")));
     }
 
     #[test]

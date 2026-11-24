@@ -479,6 +479,10 @@ pub struct Settings {
     pub theme: String,
     #[serde(default = "default_true")]
     pub show_provider_counts: bool,
+    #[serde(default = "default_true")]
+    pub search_suggestions_enabled: bool,
+    #[serde(default)]
+    pub show_library_catalog_filter: bool,
     pub yt_dlp_path: String,
     pub ffmpeg_path: String,
     pub ffprobe_path: String,
@@ -626,6 +630,8 @@ impl Default for Settings {
             playback_startup_timeout_seconds: default_playback_startup_timeout_seconds(),
             theme: "dark".into(),
             show_provider_counts: true,
+            search_suggestions_enabled: true,
+            show_library_catalog_filter: false,
             yt_dlp_path: "yt-dlp".into(),
             ffmpeg_path: "ffmpeg".into(),
             ffprobe_path: "ffprobe".into(),
@@ -681,6 +687,23 @@ mod playback_startup_settings_tests {
         assert_eq!(saved["showProviderCounts"], false);
         let restored: Settings = serde_json::from_value(saved).unwrap();
         assert!(!restored.show_provider_counts);
+    }
+
+    #[test]
+    fn search_suggestions_default_to_enabled_and_preserve_explicit_off() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("searchSuggestionsEnabled");
+        let mut settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(settings.search_suggestions_enabled);
+
+        settings.search_suggestions_enabled = false;
+        let saved = serde_json::to_value(settings).unwrap();
+        assert_eq!(saved["searchSuggestionsEnabled"], false);
+        let restored: Settings = serde_json::from_value(saved).unwrap();
+        assert!(!restored.search_suggestions_enabled);
     }
 
     #[test]

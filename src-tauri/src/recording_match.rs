@@ -1603,10 +1603,7 @@ fn captured_chart_composite_remixers(
     let composite_credits = |label: &str| {
         let label = label.trim().to_lowercase();
         let names = split_corroborated_credits(named_remix_credit(&label, '.')?, primary_credits)?;
-        let keys = names
-            .iter()
-            .map(|name| norm_artist(name))
-            .collect::<Vec<_>>();
+        let keys = names.iter().map(|name| norm_artist(name)).collect::<Vec<_>>();
         Some(keys)
     };
     let request_remixers = composite_credits(version)?;
@@ -2386,6 +2383,73 @@ fn collaboration_caption_credits(prefix: &str, expected: &[String]) -> Vec<Strin
     }
 }
 
+fn presenter_caption_credits(
+    prefix: &str,
+    expected: &[String],
+    corroborates_presenter: impl FnOnce(&str) -> bool,
+) -> Vec<String> {
+    static PRESENTS: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\s+presents\s+").unwrap());
+    let Some(join) = PRESENTS.find(prefix) else {
+        return Vec::new();
+    };
+    let presenter = &prefix[..join.start()];
+    let presenter_key = crate::recording_identity::artist_search_fold(presenter);
+    if !expected
+        .iter()
+        .any(|name| crate::recording_identity::artist_search_fold(name) == presenter_key)
+        || !corroborates_presenter(presenter)
+    {
+        return Vec::new();
+    }
+    collaboration_caption_credits(&format!("{presenter}, {}", &prefix[join.end()..]), expected)
+}
+
+/// Rank two already-inspectable YouTube results. Search captions and the
+/// display uploader can choose which to inspect first, but cannot prove
+/// recording identity. Resolved matching still requires the verified channel.
+pub(crate) fn youtube_presenter_inspection_hint(track: &Track, candidate: &Candidate) -> bool {
+    if candidate.provider != "youtube"
+        || candidate.title.len() > 512
+        || !candidate
+            .title
+            .as_bytes()
+            .windows(b"presents".len())
+            .any(|part| part.eq_ignore_ascii_case(b"presents"))
+        || track
+            .version
+            .as_ref()
+            .is_some_and(|version| !version.trim().is_empty())
+        || parse_recording_text(&track.title)
+            .semantic_versions()
+            .next()
+            .is_some()
+    {
+        return false;
+    }
+    let Some(uploader) = candidate.uploader.as_deref() else {
+        return false;
+    };
+    let expected = crate::recording_identity::declared_credit_names(track)
+        .unwrap_or_else(|| split_credits(&track.artist));
+    if !(2..=16).contains(&expected.len()) {
+        return false;
+    }
+    let title = title_key(&base_title(&track.title));
+    caption_splits(&candidate.title, false).any(|(prefix, suffix)| {
+        title_key(&base_title(suffix)) == title
+            && guest_from_title(suffix).is_empty()
+            && parse_recording_text(suffix)
+                .semantic_versions()
+                .next()
+                .is_none()
+            && !presenter_caption_credits(prefix, &expected, |presenter| {
+                uploader_matches_request_artist(uploader, presenter)
+            })
+            .is_empty()
+    })
+}
+
 /// Interpret collaboration joins only between the complete requested credits.
 /// Accent folding supplies comparison evidence for the source caption.
 fn request_scoped_collaboration_caption(
@@ -2428,26 +2492,12 @@ fn request_scoped_collaboration_caption(
                 // A presenter can be one of the catalog artists. Require the
                 // fresh verified presenter channel and the full requested
                 // lineup before interpreting "presents" as a credit boundary.
-                static PRESENTS: std::sync::LazyLock<regex::Regex> =
-                    std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\s+presents\s+").unwrap());
-                if let Some(join) = PRESENTS.find(prefix) {
-                    let presenter = &prefix[..join.start()];
-                    let lineup = &prefix[join.end()..];
-                    if verified_youtube_channel(presenter)
+                credits = presenter_caption_credits(prefix, expected, |presenter| {
+                    verified_youtube_channel(presenter)
                         && meta["channelId"]
                             .as_str()
                             .is_some_and(crate::youtube_recording_metadata::channel_id)
-                        && expected.iter().any(|name| {
-                            crate::recording_identity::artist_search_fold(name)
-                                == crate::recording_identity::artist_search_fold(presenter)
-                        })
-                    {
-                        credits = collaboration_caption_credits(
-                            &format!("{presenter}, {lineup}"),
-                            expected,
-                        );
-                    }
-                }
+                });
             }
             credits
         } else if let Some((group, lineup)) =
@@ -3515,16 +3565,15 @@ fn build_comparison(
     };
     let comparison_artist = &track.artist;
     let classical_caption_match = track.provider == "musicbrainz"
-        && [
-            Some(caption_title),
-            meta["track"].as_str(),
-            canonical_catalog,
-        ]
-        .into_iter()
-        .flatten()
-        .all(|observed| {
-            crate::classical_movement_title::bwv_movement_titles_equivalent(&track.title, observed)
-        });
+        && [Some(caption_title), meta["track"].as_str(), canonical_catalog]
+            .into_iter()
+            .flatten()
+            .all(|observed| {
+                crate::classical_movement_title::bwv_movement_titles_equivalent(
+                    &track.title,
+                    observed,
+                )
+            });
     let unresolved_annotation = !recording_scoped_title_alias
         && !classical_caption_match
         && prepared_unknown_annotation(
@@ -3949,9 +3998,7 @@ fn build_comparison(
     // Flat artist arrays and generic captions stay open-world. The narrowly
     // validated full-caption case above is an explicit structure witness.
     let credits_complete = structured_credits_complete
-        || release_caption
-            .as_ref()
-            .is_some_and(|release| release.fresh)
+        || release_caption.as_ref().is_some_and(|release| release.fresh)
         || fresh_caption_credits_complete
         || bound_caption_credits_complete;
     let request_credits_complete = (request_identity.credits_complete

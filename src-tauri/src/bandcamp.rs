@@ -45,6 +45,34 @@ pub(crate) fn validate_album_page_url(raw: &str) -> Result<Url, String> {
     validate_page_url(raw, "album")
 }
 
+pub(crate) fn is_original_browser_track_link(track: &Track) -> bool {
+    let provenance = &track.provenance;
+    if track.provider != "bandcamp"
+        || provenance["browserImport"] != true
+        || provenance["captureProvider"] != "bandcamp"
+        || !matches!(provenance["sourceKind"].as_str(), Some("album" | "playlist" | "collection"))
+        || provenance["playbackMode"] != "lookup"
+        || ["playbackMode", "sourceUrl", "durationSeconds", "album"]
+            .iter()
+            .any(|field| {
+                let value = &provenance["manualFields"][*field];
+                !value.is_null() && value != false
+            })
+        || has_manual_identity_conflict(track)
+        || track.asset_id.is_some()
+        || !provenance["portablePlaybackSource"].is_null()
+    {
+        return false;
+    }
+    let Ok(page) = validate_track_page_url(&track.source_url) else {
+        return false;
+    };
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(page.as_str().as_bytes());
+    page.as_str() == track.source_url
+        && track.provider_id == format!("{digest:x}")
+        && track.id.strip_prefix("bandcamp:") == Some(track.provider_id.as_str())
+}
+
 /// Whether this request has enough saved, exact Bandcamp identity to justify a
 /// fresh page fetch for direct-source playback. This deliberately ignores
 /// candidate source metadata; it is only a request-side gate.

@@ -1,14 +1,16 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { safeArtworkUrls } from "./lib/artwork-url";
+  import { observeArtwork, type ArtworkLookup } from "./lib/visible-artwork";
 
   let {
-    name, label, artworkUrl, artworkFallback, heading = "h2", class: className = "", details, actions, onArtworkError, ariaLabel, oncontextmenu,
+    name, label, artworkUrl, artworkFallback, artworkLookup, heading = "h2", class: className = "", details, actions, onArtworkError, ariaLabel, oncontextmenu,
   }: {
     name: string;
     label: string;
     artworkUrl?: string | null;
     artworkFallback?: string | null;
+    artworkLookup?: ArtworkLookup;
     ariaLabel?: string;
     oncontextmenu?: (event: MouseEvent) => void;
     heading?: "h1" | "h2";
@@ -18,7 +20,10 @@
     onArtworkError?: (url: string) => void;
   } = $props();
   let failedArtwork = $state<string[]>([]);
-  const source = $derived(safeArtworkUrls([artworkUrl, artworkFallback]).find(url => !failedArtwork.includes(url)));
+  let loadedArtwork = $state<{ key: string; url: string } | null>(null);
+  const remoteSource = $derived(safeArtworkUrls([artworkUrl, artworkFallback]).find(url => !failedArtwork.includes(url)));
+  const source = $derived(remoteSource ?? (loadedArtwork && loadedArtwork.key === artworkLookup?.key
+    && !failedArtwork.includes(loadedArtwork.url) ? loadedArtwork.url : undefined));
 
   function rejectArtwork(event: Event) {
     const url = (event.currentTarget as HTMLImageElement).getAttribute("src");
@@ -30,6 +35,10 @@
 
 <header class={`artist-banner ${className}`} style:--artist-artwork={source ? `url(${JSON.stringify(source)})` : undefined} role={ariaLabel ? "group" : undefined} aria-label={ariaLabel} {oncontextmenu}>
   <div class="portrait" aria-hidden="true">
+    {#if artworkLookup && !remoteSource}
+      {@const lookup = artworkLookup}
+      {#key lookup.key}<span class="artwork-sentinel" use:observeArtwork={{ ...lookup, apply: url => loadedArtwork = { key: lookup.key, url } }}></span>{/key}
+    {/if}
     {#if source}<img src={source} alt="" onerror={rejectArtwork} />{:else}<span class="placeholder">♫</span>{/if}
   </div>
   <div class="identity">
@@ -53,9 +62,10 @@
     filter:blur(24px); clip-path:inset(0 round 9px); opacity:.35; pointer-events:none;
   }
   .portrait {
-    display:grid; place-items:center; flex:none; width:clamp(72px,14vw,148px);
+    position:relative; display:grid; place-items:center; flex:none; width:clamp(72px,14vw,148px);
     aspect-ratio:1; overflow:hidden; border-radius:8px; background:var(--surface); box-shadow:0 8px 24px #0004;
   }
+  .artwork-sentinel { position:absolute; inset:0; pointer-events:none; }
   .portrait img { width:100%; height:100%; object-fit:cover; }
   .placeholder { color:var(--muted); font-size:clamp(24px,5vw,46px); }
   .identity { flex:1; min-width:0; overflow-wrap:anywhere; }

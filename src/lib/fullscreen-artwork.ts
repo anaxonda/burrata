@@ -11,11 +11,11 @@ function validMbid(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function publicArtworkUrl(value: unknown): URL | null {
+function publicArtworkUrl(value: unknown, allowQuery = false): URL | null {
   if (typeof value !== "string" || value.length > 2048) return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && !url.port && !url.search && !url.hash ? url : null;
+    return url.protocol === "https:" && !url.username && !url.password && !url.port && (allowQuery || !url.search) && !url.hash ? url : null;
   } catch {
     return null;
   }
@@ -73,9 +73,11 @@ function youtubeMusicArtworkCandidates(url: URL): ArtworkImage[] {
 }
 
 function youtubeVideoArtworkCandidates(url: URL): ArtworkImage[] {
-  const match = url.pathname.match(/^\/(vi|vi_webp)\/([A-Za-z0-9_-]{11})\/(default|mqdefault|hqdefault|sddefault)\.(jpg|webp)$/);
+  const match = url.pathname.match(/^\/(vi|vi_webp)\/([A-Za-z0-9_-]{11})\/(default|mqdefault|hqdefault|sddefault)(_custom_\d{1,3})?\.(jpg|webp)$/);
   if (!match) return [];
-  const [, folder, id, size, extension] = match;
+  const [, folder, id, size, custom, extension] = match;
+  if (custom && size !== "hqdefault") return [];
+  if ([...url.searchParams.keys()].some(key => key !== "sqp" && key !== "rs")) return [];
   if ((folder === "vi_webp" ? "webp" : "jpg") !== extension) return [];
   const base = `${url.origin}/${folder}/${id}/`;
   const maxres = { url: `${base}maxresdefault.${extension}`, width: 1280, height: 720 };
@@ -117,11 +119,12 @@ function storeArtworkCandidates(url: URL, path: RegExp, sizes: readonly number[]
 }
 
 function selectedArtworkCandidates(artworkUrl: Track["artworkUrl"]): ArtworkImage[] {
-  const url = publicArtworkUrl(artworkUrl);
+  const url = publicArtworkUrl(artworkUrl, true);
   if (!url) return [];
   const host = url.hostname;
-  if (host === "yt3.googleusercontent.com" || host === "yt3.ggpht.com") return youtubeMusicArtworkCandidates(url);
   if (host === "i.ytimg.com" || host === "img.youtube.com") return youtubeVideoArtworkCandidates(url);
+  if (url.search) return [];
+  if (host === "yt3.googleusercontent.com" || host === "yt3.ggpht.com") return youtubeMusicArtworkCandidates(url);
   if (/^f[1-4]\.bcbits\.com$/.test(host)) return bandcampArtworkCandidates(url);
   if (/^i[1-4]\.sndcdn\.com$/.test(host)) return soundCloudArtworkCandidates(url);
   if (host === "geo-media.beatport.com") {

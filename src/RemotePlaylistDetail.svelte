@@ -318,7 +318,9 @@
     const rowPosition = provenance.positionScope === "page" || typeof provenance.position !== "number"
       ? (tracks.indexOf(track) >= 0 ? tracks.indexOf(track) + 1 : index + 1)
       : provenance.position;
-    return `${unavailable ? `Unavailable from ${provider === "spotify" ? "Spotify" : "YouTube"} · ` : ""}Playlist position ${rowPosition}`;
+    const status = unavailable ? `Unavailable from ${provider === "spotify" ? "Spotify" : "YouTube"}` : "";
+    const originalPosition = rowPosition === index + 1 ? "" : `Playlist position ${rowPosition}`;
+    return [status, originalPosition].filter(Boolean).join(" · ");
   }
   function queueAll(mode: "append" | "next") {
     queueAnchor = null;

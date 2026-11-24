@@ -50,6 +50,24 @@ function render(props: Record<string, unknown>) {
 }
 
 describe("ArtistPage", () => {
+  it.each([
+    ["not configured", "Connect Last.fm in Settings to load top tracks."],
+    ["unavailable", "Last.fm profile details could not be loaded for this artist."],
+    ["available", "No Last.fm top tracks to display for this artist."],
+  ])("shows the specific Last.fm empty state for %s", async (status, message) => {
+    const ref = artist("lastfm-coverage-artist", "Fixture Artist");
+    const target = render({
+      initialArtistRef: ref.artist,
+      initialSection: "overview",
+      getArtistProfile: async () => ({
+        ...profile(ref),
+        sourceCoverage: [{ provider: "lastfm", status, detail: "" }],
+      }),
+    });
+    await settle();
+    expect(target.querySelector(".top-tracks")?.textContent).toContain(message);
+  });
+
   it("saves a verified complete release when its album card has no reported track count", async () => {
     const ref=artist('complete-library-artist','Complete Artist');
     const album=release('complete-library-album','Complete Record','https://musicbrainz.org/release/complete','Album');

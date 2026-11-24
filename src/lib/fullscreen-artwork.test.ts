@@ -75,6 +75,17 @@ it("uses larger thumbnails from the selected YouTube video ID", () => {
   ]);
 });
 
+it("upgrades a custom playlist thumbnail to the same video's standard higher-resolution images", () => {
+  const base = "https://i.ytimg.com/vi/_l1DbqVacBc/";
+  const artworkUrl = `${base}hqdefault_custom_1.jpg?sqp=thumbnail-options&rc=unrecognized`;
+  const upload = track({ provider: "youtube", providerId: "_l1DbqVacBc", artworkUrl, provenance: {} });
+  expect(fullscreenArtworkUpgradeCandidates(upload)).toEqual([]);
+  expect(fullscreenArtworkUpgradeCandidates({ ...upload, artworkUrl: artworkUrl.replace("rc=unrecognized", "rs=thumbnail-variant") })).toEqual([
+    { url: `${base}sddefault.jpg`, width: 640, height: 480 },
+    { url: `${base}maxresdefault.jpg`, width: 1280, height: 720 },
+  ]);
+});
+
 it.each([
   ["https://f4.bcbits.com/img/a2324687513_3.jpg", "https://f4.bcbits.com/img/a2324687513_5.jpg", "https://f4.bcbits.com/img/a2324687513_10.jpg", 700, 1200],
   ["https://i1.sndcdn.com/artworks-nU2mhziz3vmX-0-large.png", "https://i1.sndcdn.com/artworks-nU2mhziz3vmX-0-t500x500.png", "https://i1.sndcdn.com/artworks-nU2mhziz3vmX-0-t1080x1080.png", 500, 1080],

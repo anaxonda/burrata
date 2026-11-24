@@ -1,4 +1,5 @@
 import type { Track } from './types';
+import type { SubsonicScope } from './subsonic';
 import type { ArtistReleaseRef } from './artist-types';
 
 export interface LibraryEntity {
@@ -73,6 +74,7 @@ export function groupLibraryEntities(items: readonly LibraryEntity[]): LibraryEn
 export interface LibraryBrowserState {
   tab: 'tracks' | 'artists' | 'albums' | 'works' | 'subsonic';
   workKey?: string | null;
+  subsonicScope?: SubsonicScope;
   entity: LibraryEntity | null;
   familyListingId: string | null;
   section: 'albums' | 'tracks';

@@ -79,9 +79,9 @@ pub mod models;
 pub mod monochrome;
 pub(crate) mod monochrome_playback;
 pub mod monochrome_resolver;
+mod musicbrainz_apple_disc;
 #[cfg(target_os = "linux")]
 pub mod mpris;
-mod musicbrainz_apple_disc;
 pub mod native_output;
 mod native_session_migration;
 pub mod observed_analysis;
@@ -132,12 +132,13 @@ mod source_preparation;
 mod spotify_catalog_identity;
 mod spotify_mb_crosswalk;
 mod staged_recognition;
-pub mod storage;
-pub mod stream_analysis;
 mod subsonic;
 mod subsonic_cache;
 mod subsonic_client;
+mod jellyfin_client;
 mod subsonic_login;
+pub mod storage;
+pub mod stream_analysis;
 pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
@@ -156,6 +157,7 @@ mod youtube_download_recovery;
 pub mod youtube_music;
 pub(crate) mod youtube_recording_metadata;
 pub mod youtube_support;
+mod youtube_transcript;
 mod youtube_web_search;
 use acquisition::{AcquisitionManager, AcquisitionProvider};
 use models::*;
@@ -342,14 +344,63 @@ fn browse_subsonic(
     query: String,
     offset: usize,
     limit: usize,
+    scope: Option<subsonic::BrowseScope>,
 ) -> Result<subsonic::Page> {
-    state.subsonic.page(&query, offset, limit)
+    state.subsonic.page(&query, offset, limit, scope)
+}
+
+#[tauri::command]
+async fn get_subsonic_track_artwork(
+    state: State<'_, AppState>,
+    track_id: String,
+) -> Result<Option<String>> {
+    state.subsonic.track_artwork(&track_id).await
 }
 
 #[tauri::command]
 async fn refresh_subsonic(state: State<'_, AppState>) -> Result<subsonic::Status> {
     let _library_write = state.store.try_library_write()?;
     state.subsonic.refresh().await
+}
+
+#[tauri::command]
+async fn get_jellyfin_status(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let Ok(_library_write) = state.store.try_library_write() else { return state.jellyfin.status(); };
+    state.jellyfin.status_with_existing_login().await
+}
+
+#[tauri::command]
+async fn connect_jellyfin(state: State<'_, AppState>, endpoint: String, username: String, password: String) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.jellyfin.connect(&endpoint, &username, password).await
+}
+
+#[tauri::command]
+async fn disconnect_jellyfin(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.jellyfin.disconnect().await
+}
+
+#[tauri::command]
+async fn refresh_jellyfin(state: State<'_, AppState>) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.jellyfin.refresh().await
+}
+
+#[tauri::command]
+async fn set_jellyfin_preferences(state: State<'_, AppState>, visible: bool, allow_fallback: bool) -> Result<subsonic::Status> {
+    let _library_write = state.store.try_library_write()?;
+    state.jellyfin.preferences(visible, allow_fallback).await
+}
+
+#[tauri::command]
+fn browse_jellyfin(state: State<'_, AppState>, query: String, offset: usize, limit: usize, scope: Option<subsonic::BrowseScope>) -> Result<subsonic::Page> {
+    state.jellyfin.page(&query, offset, limit, scope)
+}
+
+#[tauri::command]
+async fn get_jellyfin_track_artwork(state: State<'_, AppState>, track_id: String) -> Result<Option<String>> {
+    state.jellyfin.track_artwork(&track_id).await
 }
 
 #[tauri::command]
@@ -363,21 +414,12 @@ async fn seed_subsonic(
         None
     } else {
         let selected = tauri::async_runtime::spawn_blocking(move || {
-            app.dialog()
-                .file()
+            app.dialog().file()
                 .add_filter("Strawberry database", &["db", "sqlite", "sqlite3"])
                 .blocking_pick_file()
-        })
-        .await
-        .map_err(|_| "Could not open the file picker")?;
-        let Some(selected) = selected else {
-            return Ok(None);
-        };
-        Some(
-            selected
-                .into_path()
-                .map_err(|_| "Choose a local Strawberry database")?,
-        )
+        }).await.map_err(|_| "Could not open the file picker")?;
+        let Some(selected) = selected else { return Ok(None); };
+        Some(selected.into_path().map_err(|_| "Choose a local Strawberry database")?)
     };
     let _library_write = state.store.try_library_write()?;
     state.subsonic.import_strawberry(path).await.map(Some)
@@ -2260,9 +2302,12 @@ async fn set_local_album_match(
 async fn get_library_entity(
     state: State<'_, AppState>,
     id: String,
+    include_derived: Option<bool>,
 ) -> Result<Option<storage::library::LibraryEntity>> {
     let store = state.store.clone();
-    tokio::task::spawn_blocking(move || store.library_saved_entity_status(&id))
+    tokio::task::spawn_blocking(move || if include_derived == Some(true) {
+        store.library_entity_status(&id)
+    } else { store.library_saved_entity_status(&id) })
         .await
         .map_err(|e| e.to_string())?
 }
@@ -2344,6 +2389,7 @@ async fn list_library_entity_tracks(
     availability: Option<String>,
     min_duration: Option<f64>,
     max_duration: Option<f64>,
+    saved_only: Option<bool>,
     limit: usize,
     offset: usize,
 ) -> Result<storage::library::LibraryTrackPage> {
@@ -2362,7 +2408,7 @@ async fn list_library_entity_tracks(
                 offset,
             )
         } else {
-            store.list_library_entity_tracks(
+            store.list_library_entity_tracks_with_scope(
                 &id,
                 query.as_deref().unwrap_or(""),
                 sort.as_deref().unwrap_or("sourceOrder"),
@@ -2372,6 +2418,7 @@ async fn list_library_entity_tracks(
                 max_duration,
                 limit,
                 offset,
+                saved_only == Some(true),
             )
         }
     })
@@ -2505,6 +2552,13 @@ async fn get_artist_collaborations(
             &artist_credentials(state.connections.clone()).await?,
         )
         .await
+}
+#[tauri::command]
+async fn get_musicbrainz_recording_credits(
+    state: State<'_, AppState>,
+    recording_id: String,
+) -> Result<serde_json::Value> {
+    state.artists.musicbrainz_recording_credits(&recording_id).await
 }
 #[tauri::command]
 async fn resolve_recording_metadata(
@@ -3267,6 +3321,7 @@ pub(crate) struct AppState {
     _mpris: Option<mpris::MprisService>,
     local_audio: Arc<local_audio::LocalAudioManager>,
     subsonic: Arc<subsonic::Service>,
+    jellyfin: Arc<subsonic::Service>,
     webview_audio_transport: Arc<webview_audio_transport::WebviewAudioTransport>,
     webview_audio_transcoder: Arc<webview_audio_transcode::WebviewAudioTranscoder>,
     acquisition: Arc<AcquisitionManager>,
@@ -6609,9 +6664,7 @@ fn update_track(
     library_artist_credits: Option<Vec<storage::library::LibraryArtistCredit>>,
 ) -> Result<Track> {
     if let Some(credits) = library_artist_credits {
-        return state
-            .store
-            .update_library_artist_credits(&track.id, credits);
+        return state.store.update_library_artist_credits(&track.id, credits);
     }
     let updated = state.store.update_track(&track)?;
     let recording = state.store.recording_id(&updated.id)?;
@@ -7876,6 +7929,32 @@ fn current_lyrics_snapshot(state: &AppState) -> serde_json::Value {
     let saved = lyrics_autoplay_metadata::lookup_id(&snapshot)
         .and_then(|id| state.store.get_track(id).ok().flatten());
     lyrics_autoplay_metadata::with_saved_metadata(snapshot, saved.as_ref())
+}
+
+#[tauri::command]
+async fn get_current_youtube_transcript(
+    state: State<'_, AppState>,
+    video_id: String,
+) -> Result<Option<youtube_transcript::Transcript>> {
+    let current_upload = || {
+        let snapshot = state.playback.snapshot_page(0, 1);
+        let track = &snapshot["track"];
+        let candidate = &snapshot["candidate"];
+        track["provider"].as_str() == Some("youtube")
+            && track["providerId"].as_str() == Some(video_id.as_str())
+            && crate::acquisition::youtube_video_id(track["sourceUrl"].as_str().unwrap_or_default()).as_deref() == Some(video_id.as_str())
+            && (candidate.is_null() || (candidate["provider"].as_str() == Some("youtube")
+                && crate::acquisition::youtube_video_id(candidate["url"].as_str().unwrap_or_default()).as_deref() == Some(video_id.as_str())))
+    };
+    if !current_upload() {
+        return Err("The current YouTube video changed".into());
+    }
+    let settings = state.store.settings()?;
+    let result = youtube_transcript::load(&video_id, &settings).await;
+    if !current_upload() {
+        return Err("The current YouTube video changed".into());
+    }
+    result
 }
 
 #[tauri::command]
@@ -9759,6 +9838,8 @@ pub fn run() {
             let local_audio = local_audio::LocalAudioManager::new(store.clone());
             let subsonic = subsonic::Service::new(store.clone(), &dir);
             acquisition.set_subsonic_service(subsonic.clone());
+            let jellyfin = subsonic::Service::new_for(store.clone(), &dir, subsonic::Protocol::Jellyfin);
+            acquisition.set_jellyfin_service(jellyfin.clone());
             let webview_audio_transport = webview_audio_transport::WebviewAudioTransport::new();
             let webview_audio_transcoder = webview_audio_transcode::WebviewAudioTranscoder::new();
             #[cfg(target_os = "linux")]
@@ -9777,7 +9858,7 @@ pub fn run() {
                 }
             }
             startup_mark("browser_host.refresh.end");
-            let router = automation.router().merge(local_audio.router()).merge(subsonic.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
+            let router = automation.router().merge(local_audio.router()).merge(subsonic.router()).merge(jellyfin.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
             startup_mark("browser_bridge.begin");
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
             startup_mark("browser_bridge.end");
@@ -9879,6 +9960,7 @@ pub fn run() {
             startup_mark("automation_endpoint.registered");
             local_audio.set_base_url(browser.base_url());
             subsonic.set_base_url(browser.base_url());
+            jellyfin.set_base_url(browser.base_url());
             webview_audio_transport.set_base_url(browser.base_url());
             webview_audio_transcoder.set_base_url(browser.base_url());
             let playlist_watcher = match playlist_watch::PlaylistWatcher::start(app.handle().clone(), store.clone(), history.clone()) { Ok(watcher) => Some(watcher), Err(error) => { diagnostics.push(error); None } };
@@ -9889,7 +9971,7 @@ pub fn run() {
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, profile_dir: dir, factory_reset_freeze: Arc::default(), backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, subsonic, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, profile_dir: dir, factory_reset_freeze: Arc::default(), backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, subsonic, jellyfin, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -9904,7 +9986,8 @@ pub fn run() {
             migrate_native_playback, get_playback_snapshot, playback_command,
             get_browser_install_status, register_browser_host, unregister_browser_host,
             get_subsonic_status, connect_subsonic, disconnect_subsonic, set_subsonic_preferences,
-            browse_subsonic, refresh_subsonic, seed_subsonic,
+            browse_subsonic, get_subsonic_track_artwork, refresh_subsonic, seed_subsonic,
+            get_jellyfin_status, connect_jellyfin, disconnect_jellyfin, refresh_jellyfin, set_jellyfin_preferences, browse_jellyfin, get_jellyfin_track_artwork,
             youtube_support_status,youtube_support_check,youtube_support_update,youtube_support_rollback,youtube_support_diagnose,
             get_radio_stations, rename_radio_station,  resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,
             search_radio_stations, add_radio_station, add_custom_radio_station, edit_radio_station_url, get_radio_playlist_option, set_radio_playlist_option, list_radio_playlist_targets, remove_radio_station,
@@ -9987,7 +10070,7 @@ pub fn run() {
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
-            get_current_track_lyrics, search_current_track_lyric_candidates, select_current_track_lyric_candidate, save_current_track_lyrics_to_file, export_current_track_lyrics_text,
+            get_current_track_lyrics, get_current_youtube_transcript, search_current_track_lyric_candidates, select_current_track_lyric_candidate, save_current_track_lyrics_to_file, export_current_track_lyrics_text,
             export_playback_diagnostics,
 
             get_diagnostics,
@@ -10022,7 +10105,7 @@ pub fn run() {
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
             search_artists, search_albums, resolve_track_album, get_cached_track_album, remember_track_album_choice, verify_spotify_album_membership, get_artist_artwork, get_lastfm_top_track_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
-            get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
+            get_artist_tracks, get_artist_collaborations, get_musicbrainz_recording_credits, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,
             analyze_local_assets, get_analysis_status, start_selected_asset_analysis, get_selected_asset_analysis, cancel_selected_asset_analysis, apply_selected_asset_analysis, start_selected_stream_analysis, start_stream_media_analysis, get_cached_stream_media_analysis, get_selected_stream_analysis, cancel_selected_stream_analysis, apply_selected_stream_analysis, scan_local_playlists, sync_playlists, playlist_watcher_running,

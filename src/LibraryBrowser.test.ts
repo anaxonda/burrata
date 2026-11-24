@@ -103,7 +103,7 @@ describe('saved library views', () => {
       { ...artist, id: 'artist:ref:traxsource:long-two', name: longName, provider: 'traxsource', providerId: 'traxsource-profile-with-long-reference-123456789', trackCount: 1, albumCount: 1 },
     ];
     const artistCall = vi.fn(async () => ({ items: profiles, total: profiles.length }));
-    const artistView = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists' }, call: artistCall }); await settle();
+    const artistView = render({ showCatalogProviderFilter: true, browserState: { ...initialLibraryBrowserState(), tab: 'artists' }, call: artistCall }); await settle();
     const artistCard = artistView.target.querySelector<HTMLElement>('.artist-family')!;
     expect(artistCard.querySelector(':scope > strong')?.textContent).toBe(longName);
     expect(artistCard.querySelectorAll('.version-choice')).toHaveLength(2);
@@ -163,7 +163,7 @@ describe('saved library views', () => {
     const state = writable(initialState);
     const onNavigate = vi.fn((next: LibraryBrowserState) => state.set(next));
     const model = fromStore(state);
-    const { target } = render({ call, onNavigate, onStateChange: state.set }, model);
+    const { target } = render({ call, onNavigate, onStateChange: state.set, showCatalogProviderFilter: true }, model);
     await settle();
     const grouping = target.querySelector<HTMLSelectElement>('[aria-label="Artist grouping"]')!;
     expect(grouping.value).toBe('individual');
@@ -226,35 +226,101 @@ describe('saved library views', () => {
     const metadataProfile: LibraryEntity = { ...artist, id: 'artist:metadata:["gillian welch"]', name: 'Gillian Welch', provider: null, providerId: null, explicitlySaved: false, trackCount: 14, albumCount: 0 };
     const unresolvedDiscogs: LibraryEntity = { ...artist, id: 'artist:ref:discogs:0', name: 'Gillian Welch', provider: 'discogs', providerId: '0', explicitlySaved: false, trackCount: 16, albumCount: 1 };
     const catalogProfile: LibraryEntity = { ...artist, id: 'artist:ref:musicbrainz:canonical', name: 'Gillian Welch', provider: 'discogs', providerId: '255403', aliases: ['artist:ref:musicbrainz:canonical', 'artist:ref:discogs:255403'], explicitlySaved: false, trackCount: 48, albumCount: 4 };
+    const jellyfinProfile: LibraryEntity = { ...artist, id: 'artist:ref:jellyfin:scoped-jellyfin-id', name: 'Gillian Welch', provider: 'jellyfin', providerId: 'scoped-jellyfin-id', explicitlySaved: false, trackCount: 11, albumCount: 1 };
+    const subsonicProfile: LibraryEntity = { ...jellyfinProfile, id: 'artist:ref:subsonic:scoped-subsonic-id', provider: 'subsonic', providerId: 'scoped-subsonic-id' };
     const rawCollaboration: LibraryEntity = { ...artist, id: 'artist:metadata:["gillian welch & david rawlings"]', name: 'Gillian Welch & David Rawlings', provider: null, providerId: null, explicitlySaved: false, trackCount: 1, albumCount: 0 };
     const creditedDuet: LibraryEntity = { ...artist, id: 'artist:metadata:["gillian welch, alison krauss"]', name: 'Gillian Welch, Alison Krauss', provider: null, providerId: null, explicitlySaved: false, trackCount: 1, albumCount: 0 };
-    const call = vi.fn(async () => ({ items: [metadataProfile, unresolvedDiscogs, catalogProfile, rawCollaboration, creditedDuet], total: 5 }));
+    const call = vi.fn(async () => ({ items: [metadataProfile, unresolvedDiscogs, catalogProfile, jellyfinProfile, subsonicProfile, rawCollaboration, creditedDuet], total: 7 }));
     const { target, props } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists' }, call }); await settle();
     expect(target.querySelectorAll('.artist-family')).toHaveLength(1);
     expect(target.querySelectorAll('.entity-card')).toHaveLength(3);
     const family = target.querySelector<HTMLElement>('.artist-family')!;
-    expect(family.textContent).toContain('3 source profiles');
-    expect(family.textContent).toContain('2 sources');
+    expect(family.textContent).toContain('5 profiles');
+    expect(family.textContent).toContain('4 sources');
     const profiles = family.querySelectorAll<HTMLButtonElement>('.version-choice');
-    expect(profiles).toHaveLength(3);
+    expect(profiles).toHaveLength(5);
+    expect(profiles[0].textContent).toContain('Local library');
     expect(profiles[0].textContent).toContain('14 saved tracks');
     expect(profiles[1].textContent).toContain('identity unresolved');
     expect(profiles[2].textContent).toContain('4 albums');
-    profiles[2].click();
-    expect(props.onNavigate).toHaveBeenCalledWith(expect.objectContaining({ entity: catalogProfile }));
-    expect(props.onNavigate.mock.calls[0][0].entity.id).toBe(catalogProfile.id);
+    expect(profiles[3].getAttribute('aria-label')).toBe('Open Gillian Welch, Jellyfin, 11 tracks, 1 album');
+    expect(profiles[4].getAttribute('aria-label')).toContain('Subsonic');
+    expect(family.innerHTML).not.toContain('scoped-jellyfin-id');
+    expect(family.innerHTML).not.toContain('scoped-subsonic-id');
+    profiles[3].click();
+    expect(props.onNavigate).toHaveBeenCalledWith(expect.objectContaining({ entity: jellyfinProfile }));
+    expect(props.onNavigate.mock.calls[0][0].entity.id).toBe(jellyfinProfile.id);
     const separateCards = [...target.querySelectorAll('.entity-card')].filter(card => !card.classList.contains('artist-family'));
     expect(separateCards.some(card => card.textContent?.includes('Gillian Welch & David Rawlings'))).toBe(true);
     expect(separateCards.some(card => card.textContent?.includes('Gillian Welch, Alison Krauss'))).toBe(true);
   });
 
+  it.each(['jellyfin', 'subsonic'])('loads the validated %s cover into the album hero through a track from the album', async (provider) => {
+    const account = 'a'.repeat(64);
+    const album = { ...albumVersion(`album:ref:${provider}:${account}.Y292ZXI`, 'Server Album', 'Artist', provider, '2021'), trackCount: 1 };
+    const track = { ...saved, id: `${provider}:${account}.track`, provider, providerId: `${account}.track`, album: album.name, provenance: { serverAlbumId: 'cover' } };
+    const cover = 'data:image/png;base64,iVBORw0KGgo=';
+    const commandName = `get_${provider}_track_artwork`;
+    const call = vi.fn(async (command: string) => command === commandName ? cover : { tracks: [track], total: 1 });
+    const { target } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'albums', entity: album }, call });
+    await vi.waitFor(() => expect(target.querySelector('[aria-label="Album overview"] .portrait img')?.getAttribute('src')).toBe(cover));
+    expect(call).toHaveBeenCalledWith(commandName, { trackId: track.id });
+  });
+
+  it('lazily loads the exact Subsonic artist banner and the server version of a grouped album', async () => {
+    const account = 'b'.repeat(64);
+    const provider = 'subsonic';
+    const artistProviderId = `${account}.YXJ0aXN0`;
+    const albumProviderId = `${account}.YWxidW0`;
+    const artistEntry: LibraryEntity = { ...artist, provider, providerId: artistProviderId, id: `artist:ref:${provider}:${artistProviderId}` };
+    const serverAlbum: LibraryEntity = { ...albumVersion(`album:ref:${provider}:${albumProviderId}`, 'Fixture Album', artistEntry.name, provider, '2021'), providerId: albumProviderId };
+    const otherVersion = albumVersion('album:musicbrainz:fixture', serverAlbum.name, serverAlbum.artist, 'musicbrainz', '2021');
+    const track: Track = { ...saved, provider, providerId: `${account}.track`, id: `${provider}:${account}.track`, album: serverAlbum.name, albumArtist: artistEntry.name, provenance: { serverArtistId: 'artist', serverAlbumId: 'album' } };
+    const unrelated: Track = { ...track, providerId: `${account}.unrelated`, id: `${provider}:${account}.unrelated`, albumArtist: 'Different album artist' };
+    const cover = 'data:image/png;base64,iVBORw0KGgo=';
+    const intersects: (() => void)[] = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersects.push(() => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+      }
+      observe() {}
+      disconnect() {}
+    });
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === 'list_library_entities') return { items: [otherVersion, serverAlbum], total: 2 };
+      if (command === 'list_library_entity_tracks') return { tracks: args?.id === artistEntry.id ? [unrelated, track] : [track], total: 1 };
+      if (command === 'get_subsonic_track_artwork' && args?.trackId === track.id) return cover;
+      return null;
+    });
+    const { target } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists', entity: artistEntry }, call });
+    await settle();
+    expect(target.querySelector('.album-family')).not.toBeNull();
+    expect(call.mock.calls.some(([command]) => command === 'list_library_entity_tracks')).toBe(false);
+    for (const enter of intersects) enter();
+    await vi.waitFor(() => {
+      expect(target.querySelector('header .portrait img')?.getAttribute('src')).toBe(cover);
+      expect(target.querySelector('.album-family .card-art img')?.getAttribute('src')).toBe(cover);
+    });
+    expect(call).toHaveBeenCalledWith('list_library_entity_tracks', expect.objectContaining({ id: artistEntry.id, limit: 8 }));
+    expect(call).toHaveBeenCalledWith('list_library_entity_tracks', expect.objectContaining({ id: serverAlbum.id, limit: 1 }));
+    expect(call).not.toHaveBeenCalledWith('get_subsonic_track_artwork', { trackId: unrelated.id });
+  });
+
   it('sends explicit source, year, and sort filters to the album query', async () => {
     const call = vi.fn(async () => ({ items: [], total: 0 }));
-    const { target } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'albums', entitySource: 'musicbrainz', entityYear: '1998', entitySort: 'year' }, call }); await settle();
+    const { target } = render({ showCatalogProviderFilter: true, browserState: { ...initialLibraryBrowserState(), tab: 'albums', entitySource: 'musicbrainz', entityYear: '1998', entitySort: 'year' }, call }); await settle();
     expect(target.querySelector('[aria-label="Filter albums by source"]')).not.toBeNull();
     expect(target.querySelector('[aria-label="Filter albums by year"]')).not.toBeNull();
     expect(target.querySelector('[aria-label="Sort saved albums and artists"]')).not.toBeNull();
     expect(call).toHaveBeenLastCalledWith('list_library_entities', expect.objectContaining({ source: 'musicbrainz', year: '1998', sort: 'year', descending: false }));
+  });
+
+  it('hides the source controls without a server or the optional catalog filter', async () => {
+    const call = vi.fn(async () => ({ items: [], total: 0 }));
+    const { target } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists', entitySource: 'musicbrainz' }, call });
+    await settle();
+    expect(target.querySelector('.library-source-filter')).toBeNull();
+    expect(call).toHaveBeenCalledWith('list_library_entities', expect.objectContaining({ source: null }));
   });
 
   it('plays only returned saved tracks and never requests a provider catalog', async () => {

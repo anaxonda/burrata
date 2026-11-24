@@ -17,6 +17,8 @@ use tokio::sync::watch;
 
 use crate::playback_failure::SOULSEEK_DOWNLOAD_REQUIRED;
 
+#[path = "musicbrainz_video_link.rs"]
+mod musicbrainz_video_link;
 #[path = "playback_match.rs"]
 mod policy_matching;
 #[path = "spotify_role_context.rs"]
@@ -99,7 +101,9 @@ impl ResolutionFailure {
         .contains(&message.as_str())
         {
             ResolutionFailureKind::IdentityRejected
-        } else if message == "Audio source storage operation failed" {
+        } else if message == "Audio source storage operation failed"
+            || message == crate::playback_failure::EXTRACTOR_TEMP_STORAGE_FULL
+        {
             ResolutionFailureKind::Storage
         } else if message == EXTRACTION_ATTEMPTS_EXHAUSTED
             || message == "Playback extraction attempt budget exhausted"
@@ -138,7 +142,10 @@ impl ResolutionFailure {
     fn preferred(self, other: Self) -> Self {
         // Stable provider order breaks equal-category ties, never completion
         // timing. A later empty search cannot erase a source/network failure.
-        if other.kind > self.kind {
+        if other.kind > self.kind
+            || (other.kind == self.kind
+                && other.message == crate::playback_failure::EXTRACTOR_TEMP_STORAGE_FULL)
+        {
             other
         } else {
             self
@@ -339,6 +346,7 @@ pub(crate) struct SourceTrace {
     manual_selection_soft_deadline: Option<tokio::time::Instant>,
     shared_lookup_id: Option<uuid::Uuid>,
     event_provider: Option<&'static str>,
+    bound_soundcloud_fallback_search: bool,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     extraction_ceiling: usize,
     original_playlist_youtube_link: Option<OriginalPlaylistYoutubeLink>,
@@ -395,6 +403,7 @@ impl SourceTrace {
             manual_selection_soft_deadline: None,
             shared_lookup_id: None,
             event_provider: None,
+            bound_soundcloud_fallback_search: false,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             extraction_ceiling: ORDINARY_EXTRACTION_LIMIT,
             original_playlist_youtube_link: None,
@@ -507,6 +516,19 @@ impl SourceTrace {
             })
             .unwrap_or_else(|| Duration::from_millis(settings.streaming_fallback_delay_ms.into()))
     }
+
+    fn with_automatic_fallback_search(mut self, track: &Track, providers: &[String]) -> Self {
+        self.bound_soundcloud_fallback_search =
+            providers.iter().any(|provider| provider == "soundcloud")
+                && exact_musicbrainz_fallback_recording(track);
+        self
+    }
+
+    pub(crate) fn provider_search_timeout(&self, provider: &str) -> Option<Duration> {
+        (self.bound_soundcloud_fallback_search && provider == "soundcloud")
+            .then_some(Duration::from_secs(8))
+    }
+
     pub(crate) fn with_shared_lookup(mut self, id: uuid::Uuid) -> Self {
         self.shared_lookup_id = Some(id);
         self
@@ -1873,7 +1895,7 @@ fn catalog_entry_requires_audio_identity(track: &Track) -> bool {
 
 // Keep Subsonic's authenticated relay and fallback futures off the ordinary
 // resolver stack, including when no Subsonic account is configured.
-async fn resolve_subsonic(
+async fn resolve_media_server(
     store: &Store,
     acquisition: &AcquisitionManager,
     track: &Track,
@@ -1885,21 +1907,19 @@ async fn resolve_subsonic(
     attempt_limit: usize,
 ) -> Result<ResolvedSource, String> {
     let service = acquisition
-        .subsonic_service()
-        .ok_or("Subsonic playback is unavailable")?;
-    let fallback = service.fallback_track(track);
-    let direct_deadline = if fallback.is_some() {
+        .media_server_service(&track.provider)
+        .ok_or("Media server playback is unavailable")?;
+    let direct_deadline = if service.fallback_track(track).is_some() {
         deadline.cap(Duration::from_secs(5))
     } else {
         deadline.instant()
     };
     let direct = tokio::time::timeout_at(direct_deadline, service.resolve(track, &settings))
         .await
-        .unwrap_or_else(|_| Err("The Subsonic server did not respond in time".into()));
-    let fallback = match (direct, fallback) {
-        (Ok(source), _) => return Ok(source),
-        (Err(error), None) => return Err(error),
-        (Err(_), Some(fallback)) => fallback,
+        .unwrap_or_else(|_| Err("The media server did not respond in time".into()));
+    let fallback = match direct {
+        Ok(source) => return Ok(source),
+        Err(error) => service.fallback_track(track).ok_or(error)?,
     };
     let mut exact_settings = settings;
     exact_settings.matching_level = crate::recording_match::MatchLevel::Exact;
@@ -1917,10 +1937,23 @@ async fn resolve_subsonic(
         attempt_limit,
     ))
     .await?;
+    if service.fallback_track(track).is_none() {
+        return Err("Online fallback for this media server is no longer available".into());
+    }
     if !crate::subsonic::verified_alternate(&alternate) {
-        return Err("Subsonic is unavailable and no verified alternate recording was found".into());
+        return Err("The media server is unavailable and no verified alternate recording was found".into());
     }
     Ok(alternate)
+}
+
+fn recently_observed_youtube_premiere(track: &Track, now: i64) -> bool {
+    track.provider == "youtube"
+        && track.local_path.is_none()
+        && track.asset_id.is_none()
+        && track.provenance["youtubeUpcoming"] == true
+        && track.provenance["youtubeUpcomingObservedAt"]
+            .as_i64()
+            .is_some_and(|observed| now.checked_sub(observed).is_some_and(|age| (0..60).contains(&age)))
 }
 
 async fn resolve_inner(
@@ -1943,22 +1976,17 @@ async fn resolve_inner(
         &track.provider,
         json!({"durationMs":settings_started.elapsed().as_millis()}),
     );
-    if track.provider == "subsonic" {
+    if matches!(track.provider.as_str(), "subsonic" | "jellyfin") {
         if selected.is_some() {
-            return Err("Play the saved Subsonic recording without an override".into());
+            return Err("Play the saved server recording without an override".into());
         }
-        return Box::pin(resolve_subsonic(
-            store,
-            acquisition,
-            track,
-            cancel,
-            settings,
-            trace,
-            failed,
-            deadline,
-            attempt_limit,
-        ))
-        .await;
+        return Box::pin(resolve_after_local_preflight(store, track, bypass_local, |prepared| async move {
+            if !bypass_local && prepared.local_path.is_some() {
+                resolve_inner_prepared(store, acquisition, &prepared, None, cancel, settings, trace, failed, deadline, attempt_limit).await
+            } else {
+                resolve_media_server(store, acquisition, &prepared, cancel, settings, trace, failed, deadline, attempt_limit).await
+            }
+        })).await;
     }
     let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false)
         || track.provenance.get("portablePlaybackSource").is_some();
@@ -1992,6 +2020,9 @@ async fn resolve_inner(
             .is_none_or(|candidate| candidate.provider == "slskd");
     resolve_after_local_preflight(store, track, (explicit_source && !soulseek_file) || bypass_local, |prepared_track| {
         Box::pin(async move {
+            if selected.is_none() && recently_observed_youtube_premiere(&prepared_track, chrono::Utc::now().timestamp()) {
+                return Err(crate::playback_failure::YOUTUBE_PREMIERE_PENDING.into());
+            }
             if soulseek_file && prepared_track.local_path.is_none() {
                 return Err(SOULSEEK_DOWNLOAD_REQUIRED.into());
             }
@@ -3403,7 +3434,41 @@ async fn resolve_inner_prepared_ordinary(
             }
         }
     }
-    if let Some(linked) = implicit_first_candidate(track, selected.is_some(), &settings, failed) {
+    let implicit_link = implicit_first_candidate(track, selected.is_some(), &settings, failed);
+    let catalog_video = if implicit_link.is_none()
+        && !source_resolution_is_pinned(track, selected.is_some(), &settings, true)
+        && !matches!(
+            settings.preferred_streaming_source.as_str(),
+            "bandcamp" | "monochrome" | "soundcloud"
+        )
+        && trace.can_spend_extraction_for("youtube")
+        && deadline.remaining() >= Duration::from_secs(5)
+        && musicbrainz_video_link::eligible(track)
+    {
+        let video_lookup = Box::pin(musicbrainz_video_link::VideoLink::load(
+            acquisition.alias_store(),
+            track,
+        ));
+        let link = tokio::select! {
+            biased;
+            _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+            result = tokio::time::timeout_at(deadline.cap(Duration::from_secs(3)), video_lookup) => {
+                result.ok().flatten()
+            }
+        };
+        let link = link.filter(|link| !candidate_failed(&link.candidate(track), failed));
+        trace.event(
+            "musicbrainz_video_link_lookup",
+            "youtube",
+            json!({"found":link.is_some()}),
+        );
+        link
+    } else {
+        None
+    };
+    if let Some(linked) =
+        implicit_link.or_else(|| catalog_video.as_ref().map(|link| link.candidate(track)))
+    {
         // A saved link gets the first half of the operation to resolve. At that
         // boundary, start ordinary source resolution but leave the linked
         // attempt alive against the same overall deadline.
@@ -3426,6 +3491,23 @@ async fn resolve_inner_prepared_ordinary(
                 alias_pass,
             ))
             .await;
+            let result = result.and_then(|source| {
+                if let Some(link) = &catalog_video {
+                    let accepted = source
+                        .candidate
+                        .as_ref()
+                        .is_some_and(|candidate| link.matches_resolved(candidate, &source.quality));
+                    trace.event(
+                        "musicbrainz_video_link_verification",
+                        "youtube",
+                        json!({"accepted":accepted}),
+                    );
+                    if !accepted {
+                        return Err(SOURCE_IDENTITY_REJECTED.into());
+                    }
+                }
+                Ok(source)
+            });
             if let Err(error) = &result {
                 if !implicit_link_error_is_terminal(error, deadline) {
                     trace.note_source_failure(&linked_provider, error, false);
@@ -3476,6 +3558,31 @@ async fn resolve_inner_prepared_ordinary(
     .await
 }
 
+fn exact_musicbrainz_fallback_recording(track: &Track) -> bool {
+    let catalog = &track.provenance["catalog"];
+    track.provider == "musicbrainz"
+        && crate::spotify_mb_crosswalk::valid_mbid(&track.provider_id)
+        && track.id == format!("musicbrainz:{}", track.provider_id)
+        && track.source_url == format!("https://musicbrainz.org/recording/{}", track.provider_id)
+        && catalog["provider"] == "musicbrainz"
+        && catalog["verified"] == true
+        && catalog["recordingId"].as_str() == Some(track.provider_id.as_str())
+        && track
+            .duration_seconds
+            .is_some_and(|seconds| seconds.is_finite() && seconds > 0.0)
+        && [
+            "artist",
+            "artistCredits",
+            "title",
+            "version",
+            "durationSeconds",
+            "isrc",
+            "playbackMode",
+        ]
+        .iter()
+        .all(|field| track.provenance["manualFields"][*field] != true)
+}
+
 async fn resolve_ordinary_streaming_sources(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -3518,6 +3625,9 @@ async fn resolve_ordinary_streaming_sources(
     }
     let mut preferred = settings.clone();
     preferred.streaming_fallback_enabled = false;
+    // Preserve the original provider order before deriving branch settings.
+    // The fallback branch otherwise presents its first provider as preferred.
+    let fallback_trace = trace.clone().with_automatic_fallback_search(track, &fallbacks);
     if attempt_limit == 1 {
         return Box::pin(resolve_serial(
             store,
@@ -3526,7 +3636,7 @@ async fn resolve_ordinary_streaming_sources(
             None,
             cancel,
             settings,
-            trace,
+            &fallback_trace,
             failed,
             deadline,
             attempt_limit,
@@ -3545,7 +3655,7 @@ async fn resolve_ordinary_streaming_sources(
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         result = prefer_with_grace(
             Box::pin(resolve_serial(store, acquisition, track, None, child.clone(), preferred, trace, failed, deadline, attempt_limit, alias_pass)),
-            Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, trace, failed, deadline, attempt_limit, alias_pass)),
+            Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, &fallback_trace, failed, deadline, attempt_limit, alias_pass)),
             grace,
         ) => result,
     };
@@ -3814,6 +3924,17 @@ fn direct_youtube_policy(value: Option<&str>) -> bool {
     value.is_none_or(|value| value == "1")
 }
 
+fn youtube_playlist_occurrence_has_no_duration(track: &Track) -> bool {
+    track.duration_seconds.is_none()
+        && track.id.strip_prefix("youtube:") == Some(track.provider_id.as_str())
+        && track.provenance["remotePlaylist"] == true
+        && track.provenance["available"] == true
+        && track.provenance["youtubeUpcoming"] != true
+        && track.provenance["remoteEntryId"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+}
+
 pub(crate) fn direct_youtube_explicit_id<'a>(
     track: &Track,
     candidate: &'a Candidate,
@@ -3837,12 +3958,10 @@ pub(crate) fn direct_youtube_explicit_id<'a>(
         || track.provenance["chapters"]
             .as_array()
             .is_some_and(|chapters| !chapters.is_empty())
-        || track
-            .duration_seconds
-            .is_some_and(|duration| !duration.is_finite() || duration <= 0.0)
-        || !track
-            .duration_seconds
-            .is_some_and(|duration| duration.is_finite() && (5.0..=86_400.0).contains(&duration))
+        || !match track.duration_seconds {
+            Some(duration) => (5.0..=86_400.0).contains(&duration),
+            None => youtube_playlist_occurrence_has_no_duration(track),
+        }
     {
         return None;
     }
@@ -3983,15 +4102,56 @@ fn explicit_youtube_title_matches(track: &Track, candidate: &Candidate, fresh: &
     !artist.is_empty() && !title.is_empty() && fresh == format!("{artist} {title}")
 }
 
+fn explicit_youtube_metadata_matches(
+    track: &Track,
+    candidate: &Candidate,
+    audio: &acquisition::PreviewAudio,
+    pinned: bool,
+) -> bool {
+    if !fresh_candidate_audio_identity_matches(track, candidate, audio) {
+        return false;
+    }
+    let Some(fresh_duration) = audio.duration_seconds else {
+        return false;
+    };
+    let Some(fresh_title) = audio.resolved_title.as_deref() else {
+        return false;
+    };
+    let exact_selection = pinned && direct_youtube_explicit_id(track, candidate, 2).is_some();
+    match track.duration_seconds {
+        // An exact upload already has independent duration evidence. Its
+        // caption can change without changing the selected source.
+        Some(expected) => {
+            (fresh_duration - expected).abs() <= 2.0
+                && (exact_selection || explicit_youtube_title_matches(track, candidate, fresh_title))
+        }
+        // Public playlist entries can omit duration. Require the same video
+        // and caption, and use the finite VOD duration supplied by the player.
+        None => {
+            exact_selection
+                && (5.0..=86_400.0).contains(&fresh_duration)
+                && explicit_youtube_title_matches(track, candidate, fresh_title)
+        }
+    }
+}
+
 async fn try_direct_youtube_explicit(
     acquisition: &AcquisitionManager,
     track: &Track,
     candidate: &Candidate,
+    settings: &Settings,
     pinned: bool,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
 ) -> Result<Option<acquisition::PreviewAudio>, String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if let Some(reason) = acquisition.direct_youtube_skip_reason(candidate, settings) {
+        trace.event("direct_youtube_skipped", "youtube", json!({"reason":reason}));
+        return Ok(None);
+    }
     try_direct_youtube_explicit_with_opportunity(
         acquisition,
         track,
@@ -4135,6 +4295,11 @@ where
         )
         .await
         .map_err(|failure| {
+            if failure.stage == "format"
+                && matches!(failure.code, "FORMAT_MISMATCH" | "FORMAT_UNAVAILABLE")
+            {
+                acquisition.remember_direct_youtube_format_miss(candidate, stamp.clone());
+            }
             trace.event(
                 "direct_youtube_failure",
                 "youtube",
@@ -4151,20 +4316,7 @@ where
         if !audio.provider_session_current() {
             return Err("Audio source provider session changed during resolution".to_owned());
         }
-        if !fresh_candidate_audio_identity_matches(track, candidate, &audio)
-            || audio
-                .duration_seconds
-                .zip(track.duration_seconds)
-                .is_none_or(|(fresh, expected)| (fresh - expected).abs() > 2.0)
-            || audio.resolved_title.as_deref().is_none_or(|fresh| {
-                // An explicitly selected upload is identified by its exact
-                // provider ID and canonical source URLs, not mutable upload
-                // captions. Unpinned requests retain title/version checks;
-                // mapped catalog-source proof is handled separately.
-                !(pinned && direct_youtube_explicit_id(track, candidate, 2).is_some())
-                    && !explicit_youtube_title_matches(track, candidate, fresh)
-            })
-        {
+        if !explicit_youtube_metadata_matches(track, candidate, &audio, pinned) {
             return Err("Direct source identity rejected".to_owned());
         }
         let audio = validate(audio, cancel.clone(), trace.clone(), opportunity).await?;
@@ -4225,33 +4377,21 @@ async fn try_direct_youtube_mapped(
             crate::youtube_direct_experiment::resolve_explicit_aac(&id, budget, cancel).await
         },
         |audio, cancel, trace, deadline| async move {
-            let observed_before = candidate
-                .source_metadata
-                .as_ref()
+            let observed_before = candidate.source_metadata.as_ref()
                 .and_then(|metadata| metadata["duration"].as_f64())
                 .or(candidate.duration_seconds);
-            if let Some(runtime) = audio
-                .duration_seconds
-                .filter(|runtime| Some(*runtime) != observed_before)
-            {
+            if let Some(runtime) = audio.duration_seconds.filter(|runtime| Some(*runtime) != observed_before) {
                 let mut fresh = candidate.clone();
                 fresh.duration_seconds = Some(runtime);
                 if let Some(metadata) = fresh.source_metadata.as_mut() {
                     metadata["duration"] = json!(runtime);
                 }
-                if !policy_matching::cached_direct_allowed(
-                    store,
-                    track,
-                    &fresh,
-                    settings.matching_level,
-                    settings.flexible_matching,
-                ) {
+                if !policy_matching::cached_direct_allowed(store, track, &fresh, settings.matching_level, settings.flexible_matching) {
                     return Err("Remembered direct source runtime no longer matches".into());
                 }
             }
             acquisition
-                .validate_playback_audio_uncached_traced(candidate, audio, cancel, trace, deadline)
-                .await
+                .validate_playback_audio_uncached_traced(candidate, audio, cancel, trace, deadline).await
         },
     )
     .await
@@ -4619,6 +4759,23 @@ async fn resolve_serial(
     use crate::bandcamp_fallback::LinkedAlbumLookup;
     let bandcamp_eligible = !selected_candidate_present
         && crate::bandcamp_fallback::eligible_in_order(track, &settings, pinned, attempt_limit);
+    // A provider that cannot attempt this recording must not reserve part of
+    // the startup deadline. An explicit or linked Bandcamp page still gets
+    // its existing opportunity independently of discovery eligibility.
+    if !pinned
+        && !bandcamp_eligible
+        && candidates.iter().all(|candidate| candidate.provider != "bandcamp")
+    {
+        let prior_count = providers.len();
+        providers.retain(|provider| provider != "bandcamp");
+        if providers.len() != prior_count {
+            trace.event(
+                "provider_skipped",
+                "bandcamp",
+                json!({"reason":"ordered_fallback_ineligible"}),
+            );
+        }
+    }
     let mut linked_album_lookup = LinkedAlbumLookup::Inline;
     if bandcamp_eligible && crate::bandcamp_fallback::has_exact_linked_album_reference(track) {
         if let Some(position) = providers.iter().position(|provider| provider == "bandcamp") {
@@ -5628,6 +5785,7 @@ async fn resolve_serial(
                     acquisition,
                     track,
                     &candidate,
+                    &settings,
                     pinned,
                     cancel.clone(),
                     trace,
@@ -8518,6 +8676,19 @@ fn overrides_import_url(track: &Track, settings: &Settings) -> bool {
     {
         return false;
     }
+    // The importer writes "lookup" even for exact first-party Bandcamp links.
+    // Respect a manual lookup and the configured provider policy, then let a
+    // verified original link use the existing linked-source-first path.
+    if !settings.override_playlist_track_urls
+        && (settings.preferred_streaming_source == "bandcamp"
+            || (settings.streaming_fallback_enabled
+                && settings.bandcamp_fallback_enabled
+                && settings.streaming_fallback_sources.iter().any(|source| source == "bandcamp")))
+        && crate::bandcamp::playback_enabled()
+        && crate::bandcamp::is_original_browser_track_link(track)
+    {
+        return false;
+    }
     (track.provenance["playbackMode"].as_str() == Some("lookup")
         || (settings.override_playlist_track_urls
             && (track.provider == "import"
@@ -9992,6 +10163,85 @@ mod tests {
             None,
             Some(1)
         )));
+    }
+
+    #[test]
+    fn direct_youtube_accepts_durationless_playlist_occurrences_with_fresh_exact_metadata() {
+        let track = Track {
+            id: "youtube:kiy05zewUpg".into(),
+            provider: "youtube".into(),
+            provider_id: "kiy05zewUpg".into(),
+            source_url: "https://www.youtube.com/watch?v=kiy05zewUpg".into(),
+            title: "Floating Points (5 Hour Set) | Boiler Room: New York".into(),
+            provenance: json!({"remotePlaylist":true,"available":true,"remoteEntryId":"fixture"}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: track.id.clone(),
+            provider: track.provider.clone(),
+            url: track.source_url.clone(),
+            title: track.title.clone(),
+            ..Candidate::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://r1---fixture.googlevideo.com/videoplayback".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("mp4a.40.2".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(19_770.0),
+            source_metadata: None,
+            resolved_title: Some(track.title.clone()),
+            resolved_provider_id: Some(track.provider_id.clone()),
+            chapters: None,
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        assert_eq!(
+            direct_youtube_explicit_id(&track, &candidate, 2),
+            Some("kiy05zewUpg")
+        );
+        assert!(explicit_youtube_metadata_matches(&track, &candidate, &audio, true));
+        assert!(!explicit_youtube_metadata_matches(&track, &candidate, &audio, false));
+
+        for altered in [
+            acquisition::PreviewAudio {
+                resolved_title: Some("Floating Points (different set)".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                resolved_provider_id: Some("aqz-KE-bpKQ".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: None,
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: Some(f64::INFINITY),
+                ..audio.clone()
+            },
+        ] {
+            assert!(!explicit_youtube_metadata_matches(&track, &candidate, &altered, true));
+        }
+        for provenance in [
+            json!({"remotePlaylist":true,"available":false,"remoteEntryId":"fixture"}),
+            json!({"remotePlaylist":true,"available":true}),
+            json!({"remotePlaylist":true,"available":true,"remoteEntryId":"fixture","youtubeUpcoming":true}),
+        ] {
+            let altered = Track {
+                provenance,
+                ..track.clone()
+            };
+            assert!(direct_youtube_explicit_id(&altered, &candidate, 2).is_none());
+        }
+        let with_duration = Track {
+            duration_seconds: Some(19_800.0),
+            ..track
+        };
+        assert!(!explicit_youtube_metadata_matches(&with_duration, &candidate, &audio, true));
     }
 
     #[test]
@@ -14257,6 +14507,58 @@ mod tests {
     }
 
     #[test]
+    fn bandcamp_browser_playlist_original_precedes_lookup_only_under_original_link_policy() {
+        let url = "https://maddiemorrismusic.bandcamp.com/track/live-off-roses";
+        let snapshot: crate::browser_bridge::BrowserSnapshot = serde_json::from_value(json!({
+            "schemaVersion": 1, "kind": "playlist", "provider": "bandcamp",
+            "title": "Album capture", "sourceUrl": "https://maddiemorrismusic.bandcamp.com/album/skin",
+            "capturedAt": "2026-11-23T18:00:00Z", "complete": true, "expectedTotal": 1, "entries": [{
+                "position": 1, "artist": "Maddie Morris", "title": "Live Off Roses",
+                "sourceUrl": url, "durationSeconds": 299.59,
+            }],
+        })).unwrap();
+        let capture = crate::browser_bridge::validate_snapshot(&snapshot).unwrap();
+        let track = &capture.tracks[0];
+        assert!(crate::bandcamp::is_original_browser_track_link(track));
+        let settings = Settings::default();
+        if crate::bandcamp::playback_enabled() {
+            let candidate = implicit_first_candidate(track, false, &settings, &[]).unwrap();
+            assert_eq!(candidate.provider, "bandcamp");
+            assert_eq!(candidate.url, url);
+        }
+
+        let mut manually_changed = track.clone();
+        manually_changed.provenance["manualFields"] = json!({"playbackMode":true});
+        assert!(implicit_first_candidate(&manually_changed, false, &settings, &[]).is_none());
+        let mut changed_url = track.clone();
+        changed_url.source_url = "https://maddiemorrismusic.bandcamp.com/track/different-song".into();
+        assert!(implicit_first_candidate(&changed_url, false, &settings, &[]).is_none());
+        assert!(implicit_first_candidate(track, true, &settings, &[]).is_none());
+
+        let lookup = Settings { override_playlist_track_urls: true, ..settings.clone() };
+        assert!(implicit_first_candidate(track, false, &lookup, &[]).is_none());
+        let no_bandcamp = Settings { streaming_fallback_sources: vec!["soundcloud".into()], ..settings };
+        assert!(implicit_first_candidate(track, false, &no_bandcamp, &[]).is_none());
+    }
+
+    #[test]
+    fn upcoming_youtube_cues_expire_and_do_not_shadow_a_local_copy() {
+        let mut track = Track {
+            provider: "youtube".into(),
+            provenance: json!({"youtubeUpcoming":true,"youtubeUpcomingObservedAt":1000}),
+            ..Track::default()
+        };
+        assert!(recently_observed_youtube_premiere(&track, 1059));
+        assert!(!recently_observed_youtube_premiere(&track, 1060));
+        assert!(!recently_observed_youtube_premiere(&track, 999));
+        track.local_path = Some("/fixture/local.flac".into());
+        assert!(!recently_observed_youtube_premiere(&track, 1010));
+        track.local_path = None;
+        track.provenance["youtubeUpcomingObservedAt"] = Value::Null;
+        assert!(!recently_observed_youtube_premiere(&track, 1010));
+    }
+
+    #[test]
     fn imported_recording_playback_mode_is_explicit_and_chapters_stay_pinned() {
         let mut settings = Settings::default();
         let mut track = Track {
@@ -16248,11 +16550,7 @@ mod tests {
             "UC-cnCe5zradDZlcI8YZboBg"
         );
         assert!(policy_matching::cached_direct_allowed(
-            &store,
-            &track,
-            &restored,
-            level,
-            Default::default()
+            &store, &track, &restored, level, Default::default()
         ));
         assert!(direct_youtube_mapped_anchors(&track, &restored, Some(proof_json), 2).is_some());
 
@@ -16285,11 +16583,7 @@ mod tests {
             ..Default::default()
         };
         assert!(!policy_matching::cached_direct_allowed(
-            &store,
-            &track,
-            &other_level,
-            crate::recording_match::MatchLevel::Flexible,
-            strict_runtime,
+            &store, &track, &other_level, crate::recording_match::MatchLevel::Flexible, strict_runtime,
         ));
     }
 
@@ -16997,6 +17291,71 @@ mod scheduling_tests {
             vec!["soundcloud", "bandcamp"]
         );
     }
+
+    #[test]
+    fn soundcloud_search_cap_is_limited_to_verified_musicbrainz_fallbacks() {
+        let recording_id = "2e9d5495-ce53-4b4f-89f6-2a24858f7307";
+        let track = Track {
+            provider: "musicbrainz".into(),
+            provider_id: recording_id.into(),
+            id: format!("musicbrainz:{recording_id}"),
+            source_url: format!("https://musicbrainz.org/recording/{recording_id}"),
+            duration_seconds: Some(718.226),
+            provenance: json!({
+                "catalog": {
+                    "provider": "musicbrainz",
+                    "recordingId": recording_id,
+                    "verified": true,
+                    "video": false,
+                },
+            }),
+            ..Track::default()
+        };
+        let trace = SourceTrace::new(None, None, None);
+        let sources = ["youtube".into(), "soundcloud".into(), "bandcamp".into()];
+        let fallbacks = crate::source_fallback::provider_order("youtube", true, &sources, false);
+        let fallback_trace = trace
+            .clone()
+            .with_automatic_fallback_search(&track, &fallbacks);
+        assert_eq!(
+            fallback_trace.provider_search_timeout("soundcloud"),
+            Some(Duration::from_secs(8))
+        );
+        assert_eq!(fallback_trace.provider_search_timeout("youtube"), None);
+        assert_eq!(trace.provider_search_timeout("soundcloud"), None);
+
+        let soundcloud_preferred =
+            crate::source_fallback::provider_order("soundcloud", true, &sources, false);
+        assert_eq!(
+            trace
+                .clone()
+                .with_automatic_fallback_search(&track, &soundcloud_preferred)
+                .provider_search_timeout("soundcloud"),
+            None,
+        );
+
+        let mut edited = track.clone();
+        edited.provenance["manualFields"] = json!({"artistCredits": true});
+        let mut wrong_recording = track.clone();
+        wrong_recording.provenance["catalog"]["recordingId"] =
+            json!("d878c401-949a-4187-9afa-2a7f9a122518");
+        let mut unknown_duration = track.clone();
+        unknown_duration.duration_seconds = None;
+        let other_provider = Track {
+            provider: "spotify".into(),
+            ..track
+        };
+        for excluded in [edited, wrong_recording, unknown_duration, other_provider] {
+            assert_eq!(
+                trace
+                    .clone()
+                    .with_automatic_fallback_search(&excluded, &fallbacks)
+                    .provider_search_timeout("soundcloud"),
+                None,
+            );
+        }
+    }
+
     #[tokio::test]
     async fn preferred_wins_inside_grace() {
         assert_eq!(
@@ -17287,6 +17646,13 @@ mod catalog_alias_priority_tests {
         failures.record("Monochrome catalog connection failed".into());
         assert_eq!(failures.deadline(), storage);
         assert_eq!(failures.finish(false), storage);
+        let full = crate::playback_failure::EXTRACTOR_TEMP_STORAGE_FULL;
+        assert_eq!(merge_resolution_errors(storage, full.into()), full);
+        let mut exhausted = SerialResolutionFailures::default();
+        exhausted.record(full.into());
+        exhausted.record(PLAYBACK_DEADLINE_MESSAGE.into());
+        assert_eq!(exhausted.deadline(), full);
+        assert_eq!(exhausted.finish(false), full);
         let mut no_storage = SerialResolutionFailures::default();
         no_storage.record(safe_extractor_error(
             "[PYI-123:ERROR] Failed to extract libpython: decompression failed",
@@ -17755,7 +18121,7 @@ mod native_only_recovery_tests {
 
     #[test]
     fn verified_chart_remix_accepts_reordered_credits_after_exact_catalog_refresh() {
-        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
+        use crate::recording_match::{MatchAction, MatchLevel, MatchStage, assess};
 
         let id = "29216617";
         let url = "https://www.beatport.com/track/mundian-to-bach-ke/29216617";

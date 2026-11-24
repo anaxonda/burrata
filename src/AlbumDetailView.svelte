@@ -6,14 +6,16 @@
   import { call } from "./lib/api";
   import TrackList from "./TrackList.svelte";
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
+  import MenuIcon from "./MenuIcon.svelte";
   import { classicalTrackListRows, type WorkProgramme } from "./lib/classical-works";
   import type { AlbumDetailMetadata, AlbumDetailSelectOption, AlbumLoudnessAnalysisStart, AlbumLoudnessAnalysisStatus } from "./lib/album-detail-view";
   import type { LoudnessResourceIdentity } from "./lib/loudness-normalization";
   import type { Track } from "./lib/types";
+  import type { ArtworkLookup } from "./lib/visible-artwork";
 
   type SharedTrackListProps = Omit<ComponentProps<typeof TrackList>, "presentation">;
   let {
-    metadata, albumTracks, resolveAlbumTracks, actionTrackCount = albumTracks.length, analysisScopeComplete = true, analysisUnavailableReason = "Album analysis requires the complete album track list.", analysisIdentity, loading = false, ownsScroll = true, onArtistClick,
+    metadata, artworkLookup, albumTracks, resolveAlbumTracks, actionTrackCount = albumTracks.length, analysisScopeComplete = true, analysisUnavailableReason = "Album analysis requires the complete album track list.", analysisIdentity, loading = false, ownsScroll = true, onArtistClick,
     onPlayAlbum, onQueueAlbum, playAlbumLabel = "▶ Play album", queueAlbumLabel = "＋ Queue album", onDownloadAlbum, downloadAlbumLabel = "Download album", onSearchAlbumSoulseek, soulseekSearchAvailable = false,
     onAddAlbumToPlaylist, onSaveAlbum, saveAlbumLabel = "Save album", onSaveLoadedTracks, saveLoadedTracksLabel = "Save loaded tracks", saving = false,
     onAnalyzeLoudness, analysisTargetLabel = "this album", trackListProps,
@@ -23,6 +25,7 @@
     headerActions, moreActions, scopeHelp, notices, actionStatus = "", visibleTrackCount = 0, loadingMessage = "Loading tracks…", emptyMessage = "No tracks are available.",
   }: {
     metadata: AlbumDetailMetadata; albumTracks: Track[]; resolveAlbumTracks?: () => Promise<Track[]>; actionTrackCount?: number; analysisScopeComplete?: boolean; analysisUnavailableReason?: string; analysisIdentity: string; loading?: boolean; ownsScroll?: boolean;
+    artworkLookup?: ArtworkLookup;
     onArtistClick?: (artist: string) => void;
     onPlayAlbum: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void | Promise<void>;
     onQueueAlbum: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void | Promise<void>;
@@ -243,7 +246,7 @@
 
 <section class="album-detail" class:owns-scroll={ownsScroll} aria-label={`${metadata.title} album`}>
   <ArtistBanner class="album-hero" heading="h1" name={metadata.title} label={metadata.sourceLabel || "Album"}
-    artworkUrl={metadata.artworkUrl} artworkFallback={musicBrainzCover(metadata.sourceUrl)} ariaLabel="Album overview" oncontextmenu={openAlbumContextMenu}>
+    artworkUrl={metadata.artworkUrl} artworkFallback={musicBrainzCover(metadata.sourceUrl)} {artworkLookup} ariaLabel="Album overview" oncontextmenu={openAlbumContextMenu}>
     {#snippet details()}
       {#if metadata.artistNames?.length}<p class="artists">{#each metadata.artistNames as artist, index}<span>{#if index > 0}<span aria-hidden="true"> · </span>{/if}{#if onArtistClick}<button class="artist-credit" onclick={() => onArtistClick?.(artist)}>{artist}</button>{:else}{artist}{/if}</span>{/each}</p>{:else if metadata.artist}<p class="artists">{metadata.artist}</p>{/if}
       {#if metadata.year || metadata.scopeLabel}<p class="album-meta release-meta">{metadata.year ?? ""}{#if metadata.scopeLabel}<span>{metadata.year ? " · " : ""}{metadata.scopeLabel}</span>{/if}</p>{/if}
@@ -251,27 +254,27 @@
       <div class="hero-actions">
         <button class="primary" disabled={actionTrackCount < 1 || loading} onclick={() => void playAlbum()}>{playAlbumLabel}</button>
         <button disabled={actionTrackCount < 1 || loading} onclick={() => void queueAlbum()}>{queueAlbumLabel}</button>
-        {#if onDownloadAlbum || onSearchAlbumSoulseek}<details class="album-menu album-actions-menu download-menu" bind:this={downloadActions} ontoggle={() => { if (downloadActions?.open) openMenu("download"); }}>
-          <summary aria-label={`Download album options for ${metadata.title}`}>{downloadAlbumLabel} ▾</summary>
-          <div class="menu-content" role="group" aria-label={`Download options for ${metadata.title}`}>
-            {#if onDownloadAlbum}<button class="download-album-action" type="button" disabled={actionTrackCount < 1 || loading} onclick={() => void downloadAlbum()}>{downloadAlbumLabel}</button>{/if}
-            {#if onSearchAlbumSoulseek}<button type="button" aria-label={`Search album ${metadata.title} on Soulseek`} disabled={!soulseekSearchAvailable} title={!soulseekSearchAvailable ? "Enable and configure Soulseek in Settings → Connections to search albums." : undefined} onclick={() => void searchSoulseek()}>Search album on Soulseek</button>{#if !soulseekSearchAvailable}<small>Enable and configure Soulseek in Settings → Connections.</small>{/if}{/if}
+        {#if onDownloadAlbum || (onSearchAlbumSoulseek && soulseekSearchAvailable)}<details class="album-menu album-actions-menu download-menu" bind:this={downloadActions} ontoggle={() => { if (downloadActions?.open) openMenu("download"); }}>
+          <summary class="dropdown-trigger" aria-label={`Download album options for ${metadata.title}`}>{downloadAlbumLabel}<MenuIcon name="arrow-down" /></summary>
+          <div class="menu-content dropdown-menu" role="group" aria-label={`Download options for ${metadata.title}`}>
+            {#if onDownloadAlbum}<button class="download-album-action dropdown-option" type="button" disabled={actionTrackCount < 1 || loading} onclick={() => void downloadAlbum()}>{downloadAlbumLabel}</button>{/if}
+            {#if onSearchAlbumSoulseek && soulseekSearchAvailable}<button class="dropdown-option" type="button" aria-label={`Search album ${metadata.title} on Soulseek`} onclick={() => void searchSoulseek()}>Search album on Soulseek</button>{/if}
           </div>
         </details>{/if}
         {#if onAddAlbumToPlaylist}<button class="add-album-playlist" disabled={actionTrackCount < 1 || loading} onclick={() => void runAlbumCallback("Could not add album to playlist", items => onAddAlbumToPlaylist?.(items, metadata.title))}>Add to playlist</button>{/if}
         {#if onSaveAlbum}<button disabled={actionTrackCount < 1 || loading || saving} onclick={() => void runAlbumCallback("Could not save album", items => onSaveAlbum?.(items))}>{saveAlbumLabel}</button>{/if}
         {#if onSaveLoadedTracks}<button class="save-album" disabled={actionTrackCount < 1 || loading || saving} onclick={() => void runAlbumCallback("Could not save tracks", items => onSaveLoadedTracks?.(items))}>{saving ? "Saving to Library…" : saveLoadedTracksLabel}</button>{/if}
         {#if metadata.sourceUrl || onAnalyzeLoudness || moreActions}<details class="album-menu album-actions-menu more-menu" bind:this={moreMenu} ontoggle={() => { if (moreMenu?.open) openMenu("more"); }}>
-          <summary aria-label={`More album actions for ${metadata.title}`} title="More album actions">⋯</summary>
-          <div class="menu-content more-content" role="group" aria-label={`More album actions for ${metadata.title}`}>
+          <summary class="dropdown-trigger" aria-label={`More album actions for ${metadata.title}`} title="More album actions">⋯</summary>
+          <div class="menu-content more-content dropdown-menu" role="group" aria-label={`More album actions for ${metadata.title}`}>
             {#if metadata.sourceUrl}
-              <a class="album-source" href={metadata.sourceUrl} target="_blank" rel="noreferrer" onclick={() => { if (moreMenu) moreMenu.open = false; }}>{metadata.sourceLabel ? `Open ${metadata.sourceLabel} source ↗` : "Open album source ↗"}</a>
+              <a class="album-source dropdown-option" href={metadata.sourceUrl} target="_blank" rel="noreferrer" onclick={() => { if (moreMenu) moreMenu.open = false; }}>{metadata.sourceLabel ? `Open ${metadata.sourceLabel} source ↗` : "Open album source ↗"}</a>
             {/if}
             {#if onAnalyzeLoudness}<section class="album-loudness-analysis" aria-label="Album loudness analysis"><strong>Album loudness</strong>
               <p>Requires local files for every track. Download or import the tracks first. Analysis measures the release without added inter-track silence.</p>
               {#if !analysisScopeComplete}<p role="note">{analysisUnavailableReason}</p>{/if}
-              <button disabled={!analysisScopeComplete || actionTrackCount < 2 || loading || loudnessAnalysisState === "running"} title={!analysisScopeComplete ? analysisUnavailableReason : undefined} onclick={() => void analyzeAlbumLoudness()}>{loudnessAnalysisState === "running" ? "Analyzing album…" : loudnessAlbumResource ? "Reanalyze album loudness" : "Analyze album loudness"}</button>
-              {#if loudnessAnalysisState === "running"}<button onclick={() => void cancelAlbumLoudnessAnalysis()}>Cancel analysis</button>{/if}
+              <button class="dropdown-option" disabled={!analysisScopeComplete || actionTrackCount < 2 || loading || loudnessAnalysisState === "running"} title={!analysisScopeComplete ? analysisUnavailableReason : undefined} onclick={() => void analyzeAlbumLoudness()}>{loudnessAnalysisState === "running" ? "Analyzing album…" : loudnessAlbumResource ? "Reanalyze album loudness" : "Analyze album loudness"}</button>
+              {#if loudnessAnalysisState === "running"}<button class="dropdown-option" onclick={() => void cancelAlbumLoudnessAnalysis()}>Cancel analysis</button>{/if}
               {#if loudnessAnalysisProgress}<p role="status">{loudnessAnalysisProgress}</p>{/if}
               {#if loudnessAnalysisError}<p role="alert">{loudnessAnalysisError}</p>{/if}
             </section>
@@ -307,8 +310,20 @@
 <style>
   .album-tracks-title { margin: 0; }
   .album-track-scope { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-  .album-detail{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;box-sizing:border-box}.album-detail.owns-scroll{height:100%;overflow:auto;flex:1}.album-detail:not(.owns-scroll){height:auto;overflow:visible;flex-shrink:0}.album-detail input,.album-detail select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--button-radius,7px);padding:.5rem .65rem}.artists{overflow-wrap:anywhere}.artists,.album-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artist-credit{max-width:100%;border:0!important;background:transparent!important;padding:0!important;text-align:left;white-space:normal;overflow-wrap:anywhere;text-decoration:underline}.album-source{color:var(--muted,#a3a8ae);font-size:.8rem}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}.album-menu{position:relative}.album-menu summary{box-sizing:border-box;min-height:34px;padding:.4rem .6rem;cursor:pointer;list-style:none;white-space:nowrap;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;font-size:.8rem;line-height:1.2}.album-menu summary::-webkit-details-marker{display:none}.menu-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:.4rem;min-width:210px;max-width:min(330px,calc(100vw - 2rem));padding:.5rem;background:var(--panel,#17191c);border:1px solid var(--border,#454a50);border-radius:8px;box-shadow:0 8px 22px #0008}.menu-content button{text-align:left}.menu-content small{max-width:220px;color:var(--muted,#a3a8ae);font-size:.75rem}.more-content strong{font-size:.85rem}.more-content p{margin:0;color:var(--muted,#a3a8ae);font-size:.78rem;line-height:1.4}.album-loudness-analysis{display:grid;gap:.4rem}.more-menu{margin-inline-start:auto}.more-menu summary{min-width:34px;text-align:center;font-size:1.2rem}.album-track-scope,.album-action-status{margin:.35rem 0 0;color:var(--muted,#a3a8ae);font-size:.82rem}.album-tracks-title{margin:0;font-size:1.1rem}.album-tracks-title span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.track-controls input,.track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls label{display:flex;align-items:center;gap:.25rem;color:var(--muted,#a3a8ae);font-size:.8rem}.album-detail button:focus-visible,.album-detail input:focus-visible,.album-detail select:focus-visible,.album-menu summary:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.track-controls input{color:var(--text,#eee)}
-  @media(max-width:620px){.album-detail{padding:.7rem}.hero-actions button{padding:.4rem .5rem}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}.menu-content{max-width:calc(100vw - 1.4rem)}}
+  .album-detail{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;box-sizing:border-box}.album-detail.owns-scroll{height:100%;overflow:auto;flex:1}.album-detail:not(.owns-scroll){height:auto;overflow:visible;flex-shrink:0}.album-detail input,.album-detail select{font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:var(--button-radius,7px);padding:.5rem .65rem}.artists{overflow-wrap:anywhere}.artists,.album-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artist-credit{max-width:100%;border:0!important;background:transparent!important;padding:0!important;text-align:left;white-space:normal;overflow-wrap:anywhere;text-decoration:underline}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}
+  .album-menu{position:relative}
+  .album-menu summary{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px;cursor:pointer;list-style:none;white-space:nowrap}
+  .album-menu summary::-webkit-details-marker{display:none}
+  .album-menu summary :global(svg){width:14px;height:14px;flex:none;color:var(--muted)}
+  .album-menu[open] summary :global(svg){transform:rotate(180deg)}
+  .menu-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:2px;min-width:210px;max-width:min(330px,calc(100vw - 2rem))}
+  .more-content strong{font-size:.85rem}
+  .more-content p{margin:0;color:var(--muted);font-size:.78rem;line-height:1.4}
+  .album-loudness-analysis{display:grid;gap:.4rem;padding:6px 8px}
+  .more-menu{margin-inline-start:auto}
+  .more-menu summary{min-width:34px;justify-content:center;font-size:1.2rem}
+  .album-track-scope,.album-action-status{margin:.35rem 0 0;color:var(--muted,#a3a8ae);font-size:.82rem}.album-tracks-title{margin:0;font-size:1.1rem}.album-tracks-title span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.track-controls input,.track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls label{display:flex;align-items:center;gap:.25rem;color:var(--muted,#a3a8ae);font-size:.8rem}.album-detail button:focus-visible,.album-detail input:focus-visible,.album-detail select:focus-visible,.album-menu summary:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.track-controls input{color:var(--text,#eee)}
+  @media(max-width:620px){.album-detail{padding:.7rem}.hero-actions > button{padding:.4rem .5rem}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}.menu-content{max-width:calc(100vw - 1.4rem)}}
   .album-detail{container-name:album-detail;container-type:inline-size}
   .album-detail > :global(.album-hero:has(.album-menu[open])) { z-index: 5; }
   .album-detail.owns-scroll { --album-top-inset: 1rem; padding-block-start: 0; }

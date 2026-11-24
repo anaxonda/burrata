@@ -228,7 +228,7 @@ describe("RemotePlaylistDetail", () => {
   it("labels explicit provider unavailability without treating true or unknown as unavailable", async () => {
     const rows = [
       { ...track("provider-missing", "Provider missing"), provenance: { remoteEntryId: "entry-missing", available: false } },
-      { ...track("provider-present", "Provider present"), provenance: { remoteEntryId: "entry-present", available: true } },
+      { ...track("provider-present", "Provider present"), provenance: { remoteEntryId: "entry-present", available: true, position: 8 } },
       { ...track("provider-unknown", "Provider unknown"), provenance: { remoteEntryId: "entry-unknown" } },
     ];
     const call = vi.fn(async (command: string) => {
@@ -241,11 +241,10 @@ describe("RemotePlaylistDetail", () => {
     expect(renderedRows[0]?.textContent).toContain("Unavailable from Spotify");
     expect(renderedRows[1]?.textContent).not.toContain("Unavailable from Spotify");
     expect(renderedRows[2]?.textContent).not.toContain("Unavailable from Spotify");
-    expect(renderedRows.map(row => row.textContent)).toEqual(expect.arrayContaining([
-      expect.stringContaining("Playlist position 1"),
-      expect.stringContaining("Playlist position 2"),
-      expect.stringContaining("Playlist position 3"),
-    ]));
+    expect(renderedRows[0]?.textContent).not.toContain("Playlist position");
+    expect(renderedRows[1]?.textContent).toContain("Playlist position 8");
+    expect(renderedRows[2]?.textContent).not.toContain("Playlist position");
+    expect([...target.querySelectorAll(".track-position")].map(node => node.textContent)).toEqual(["1", "2", "3"]);
   });
 
   it("restores loaded pages and playlist controls only for the same provider account revision", async () => {

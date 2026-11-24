@@ -333,6 +333,7 @@ fn parse_entry(
         }
         Some(_) => return Err("YouTube channel entry has invalid channel metadata".into()),
     }
+    let upcoming = entry["live_status"].as_str() == Some("is_upcoming");
     let duration = match entry.get("duration") {
         None | Some(Value::Null) => None,
         Some(value) => {
@@ -361,7 +362,7 @@ fn parse_entry(
         // Direct uploads cannot establish the performer/recording credit.
         artist: String::new(),
         title: title.to_owned(),
-        duration_seconds: duration,
+        duration_seconds: if upcoming { None } else { duration },
         artwork_url: artwork,
         provenance: json!({
             "sourceKind": "youtubeChannelUpload",
@@ -370,6 +371,8 @@ fn parse_entry(
             "uploaderChannelId": channel_id,
             "uploaderChannelTitle": channel_title,
             "uploaderName": uploader,
+            "youtubeUpcoming": upcoming,
+            "youtubeUpcomingObservedAt": upcoming.then(|| chrono::Utc::now().timestamp()),
             "position": position,
             "remoteUrl": video_url,
         }),
@@ -522,6 +525,18 @@ mod tests {
         assert_eq!(track.provenance["uploaderName"], "MAJ");
         assert_eq!(track.provenance["sourceKind"], "youtubeChannelUpload");
         assert!(page.complete && page.next_cursor.is_none());
+    }
+
+    #[test]
+    fn upcoming_channel_upload_keeps_the_provider_schedule_flag() {
+        let id = "UCGBpxWJr9FNOcFYA5GkKrMg";
+        let track = parse_entry(
+            &json!({"id":"obKEphN9qSA","title":"Scheduled set","live_status":"is_upcoming","duration":3491}),
+            id, "Boiler Room", 1,
+        ).unwrap();
+        assert_eq!(track.provenance["youtubeUpcoming"], true);
+        assert_eq!(track.id, "youtube:obKEphN9qSA");
+        assert_eq!(track.duration_seconds, None);
     }
 
     #[test]

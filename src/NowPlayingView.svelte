@@ -8,9 +8,10 @@
   import LyricsPanel, { type CurrentTrackLyrics, type LyricsSyncResult, type LyricCandidates } from "./LyricsPanel.svelte";
   import type {RecordingInformationResult, RecordingReleaseInfo} from "./lib/recording-information";
   import type { Track } from "./lib/types";
+  import { youtubeFeaturedArtist } from "./lib/track-display";
   import { fullscreenArtworkUpgradeCandidates } from "./lib/fullscreen-artwork";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
-  let { track, setTrack = track, lyricsTrack = track, contextLookupConfigured = false, contextLookupRevision = 0, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, queueOpen = false, onFavorite }: {
+  let { track, setTrack = track, lyricsTrack = track, contextLookupConfigured = false, contextLookupRevision = 0, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, panelOpen = false, onFavorite }: {
     track: Track; setTrack?: Track; contextLookupConfigured?: boolean; contextLookupRevision?: number; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
     detectedArtworkUrl?: string | null; artworkMode?: "set" | "detected" | "both"; onArtworkModeChange?: (mode: "set" | "detected" | "both") => void;
     onSeek?: (seconds: number) => void;
@@ -20,12 +21,13 @@
     loadArtist: (track: Track) => Promise<ArtistProfile | null>;
     loadRecording?: (track: Track) => Promise<RecordingInformationResult>;
     onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void; onClose: () => void; onArtist: () => void; onArtistRef?: (artist: ArtistRef) => void;
-    onAlbum?: () => void; onQueue: () => void; queueOpen?: boolean; onFavorite: () => void;
+    onAlbum?: () => void; onQueue: () => void; panelOpen?: boolean; onFavorite: () => void;
   } = $props();
   function contextTrackIdentity(value: Track): string { const range=value.playbackRange; return JSON.stringify([value.id,value.provider,value.title,value.artist,value.album ?? "",value.version ?? "",value.recordingDate ?? "",range ? [range.parentTrackId,range.chapterId,range.startTime,range.endTime] : null]); }
   const contextTargets = $derived.by(() => contextTrackIdentity(lyricsTrack) !== contextTrackIdentity(setTrack)
     ? [{track:lyricsTrack,label:"Detected song",targetKind:"song" as const},{track:setTrack,label:"Full set",targetKind:"set" as const}]
     : undefined);
+  const featuredArtist = $derived(youtubeFeaturedArtist(track));
   const credits = $derived.by(() => {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     const catalog = provenance.catalog && typeof provenance.catalog === "object" ? provenance.catalog as Record<string, unknown> : {};
@@ -47,7 +49,7 @@
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   });
 </script>
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && !queueOpen && !event.defaultPrevented) { event.preventDefault(); onClose(); } }} />
+<svelte:window onkeydown={(event) => { if (event.key === "Escape" && !panelOpen && !event.defaultPrevented) { event.preventDefault(); onClose(); } }} />
 <section bind:this={view} class="now-playing-view" style:bottom={`${playerInset}px`} style:--player-inset={`${playerInset}px`} aria-label="Expanded Now Playing" tabindex="-1">
   <div class="artwork-stage">
     {#if artworkMode !== "set" && detectedArtworkUrl}
@@ -68,12 +70,12 @@
         {#if context !== "Now playing"}<div><small>PLAYING FROM</small><strong>{context}</strong></div>{/if}
         {#if detectedArtworkUrl && onArtworkModeChange}
           <details use:dismissDetails class="artwork-menu" bind:this={artworkMenu}>
-            <summary aria-label="Fullscreen artwork options" title="Artwork display">⋯</summary>
-            <div class="artwork-choice" role="group" aria-label="Artwork display">
+            <summary class="dropdown-trigger" aria-label="Fullscreen artwork options" title="Artwork display">⋯</summary>
+            <div class="artwork-choice dropdown-menu" role="group" aria-label="Artwork display">
               <strong class="artwork-choice-heading">Artwork display</strong>
-              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "set"} onchange={() => { onArtworkModeChange?.("set"); if (artworkMenu) artworkMenu.open = false; }} /> Set artwork</label>
-              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "detected"} onchange={() => { onArtworkModeChange?.("detected"); if (artworkMenu) artworkMenu.open = false; }} /> Detected track</label>
-              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "both"} onchange={() => { onArtworkModeChange?.("both"); if (artworkMenu) artworkMenu.open = false; }} /> Side by side</label>
+              <label class="dropdown-option"><input type="radio" name="fullscreen-artwork" checked={artworkMode === "set"} onchange={() => { onArtworkModeChange?.("set"); if (artworkMenu) artworkMenu.open = false; }} /> Set artwork</label>
+              <label class="dropdown-option"><input type="radio" name="fullscreen-artwork" checked={artworkMode === "detected"} onchange={() => { onArtworkModeChange?.("detected"); if (artworkMenu) artworkMenu.open = false; }} /> Detected track</label>
+              <label class="dropdown-option"><input type="radio" name="fullscreen-artwork" checked={artworkMode === "both"} onchange={() => { onArtworkModeChange?.("both"); if (artworkMenu) artworkMenu.open = false; }} /> Side by side</label>
             </div>
           </details>
         {/if}
@@ -82,6 +84,7 @@
     <div class="recording">
       <h1>{title}</h1>
       {#if track.artist.trim()}<button class="artist-link" onclick={onArtist}>{track.artist}</button>
+      {:else if featuredArtist}<button class="artist-link" title="Featured artist from the video title" onclick={onArtist}>{featuredArtist}</button>
       {:else}<p class="artist-caption">Artist unknown</p>{/if}
       {#if track.album}
         {#if onAlbum}<button class="album-link" onclick={onAlbum}>{track.album}</button>
@@ -91,9 +94,9 @@
     </div>
     <div class="cards">
       <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
-      <div class="right-cards"><article><h2>Credits</h2>{#if credits.length}{#each credits as credit}<p class="credit-name">{credit.name}</p><small>{credit.role}</small>{/each}{:else}<p class="credit-name">{track.artist || "Artist unknown"}</p><small>Credited performers</small>{/if}{#if track.remixers?.length}<p class="credit-name">{track.remixers.join(", ")}</p><small>Remix</small>{/if}{#if track.label}<p class="credit-name">{track.label}</p><small>Label</small>{/if}</article>
+      <div class="right-cards"><article><h2>Credits</h2>{#if credits.length}{#each credits as credit}<p class="credit-name">{credit.name}</p><small>{credit.role}</small>{/each}{:else if featuredArtist}<p class="credit-name">{featuredArtist}</p><small>Featured artist from the video title</small>{:else}<p class="credit-name">{track.artist || "Artist unknown"}</p><small>Credited performers</small>{/if}{#if track.remixers?.length}<p class="credit-name">{track.remixers.join(", ")}</p><small>Remix</small>{/if}{#if track.label}<p class="credit-name">{track.label}</p><small>Label</small>{/if}</article>
       <article><div class="card-heading"><h2>Next in queue</h2><button class="subtle" onclick={onQueue}>Open queue</button></div>{#if nextTrack}<div class="next-track"><div class="next-art"><ArtworkImage urls={[nextTrack.artworkUrl]} /></div><div><strong>{nextTrack.title}</strong><p>{nextTrack.artist}</p></div></div>{:else}<p>No more tracks queued.</p>{/if}</article></div>
-      {#if loadLyrics}<article class="lyrics-card"><LyricsPanel track={lyricsTrack} {absolutePosition} bottomInset={bottom} {onSeek} {loadLyrics} {findLyrics} {chooseLyrics} {saveLyrics} {exportLyrics} {translationLanguage} {changeTranslationLanguage} {syncLyrics} {syncScope} {translationEnabled} {translationCredentialPresent} {translateLyrics} /></article>{/if}
+      {#if loadLyrics}<article class="lyrics-card"><LyricsPanel track={lyricsTrack} transcriptTrack={setTrack} {absolutePosition} bottomInset={bottom} {onSeek} {loadLyrics} {findLyrics} {chooseLyrics} {saveLyrics} {exportLyrics} {translationLanguage} {changeTranslationLanguage} {syncLyrics} {syncScope} {translationEnabled} {translationCredentialPresent} {translateLyrics} /></article>{/if}
     </div>
   </div>
 </section>
@@ -160,7 +163,15 @@
     article { padding: 22px; }
     h2 { font-size: 21px; }
   }
-  .artwork-menu{position:relative;margin-left:auto;flex:none}.artwork-menu summary{display:grid;place-items:center;list-style:none;width:44px;height:44px;border-radius:50%;background:#103c35e8;color:inherit;font-size:18px;letter-spacing:1px;cursor:pointer}.artwork-menu summary::-webkit-details-marker{display:none}.artwork-menu summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.artwork-choice{position:absolute;top:50px;right:0;display:grid;gap:8px;margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface,#202522);box-shadow:0 12px 32px #0006;width:210px;max-width:calc(100vw - 110px);box-sizing:border-box}.artwork-choice-heading{display:block;padding:0 0 4px;color:var(--muted);font-size:11px;font-weight:600}.artwork-choice label{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;min-height:32px;font-size:13px;color:var(--text);white-space:nowrap;cursor:pointer}.artwork-choice input{flex:0 0 auto;width:14px;height:14px;margin:0;padding:0;accent-color:var(--accent)}.hero-art.both-art{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,1200px,calc(2 * var(--cover-height) + 12px));aspect-ratio:auto;gap:12px;overflow:visible;box-shadow:none;border-radius:0}.hero-art.both-art > :global(*){width:100%;min-width:0;height:auto;aspect-ratio:1;justify-self:center;border-radius:12px;overflow:hidden;object-fit:cover}
+  .artwork-menu{position:relative;margin-left:auto;flex:none}
+  .artwork-menu summary{display:grid;place-items:center;list-style:none;width:44px;height:44px;font-size:18px;cursor:pointer}
+  .artwork-menu summary::-webkit-details-marker{display:none}
+  .artwork-menu summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .artwork-choice{position:absolute;top:calc(100% + 4px);right:0;display:grid;gap:2px;margin:0;width:210px;max-width:calc(100vw - 110px);box-sizing:border-box}
+  .artwork-choice-heading{display:block;padding:4px 8px;color:var(--muted);font-size:11px;font-weight:600}
+  .artwork-choice label{flex-direction:row;margin:0;min-height:32px;font-size:12px;color:var(--text);white-space:nowrap}
+  .artwork-choice input{flex:0 0 auto;width:14px;height:14px;margin:0;padding:0;accent-color:var(--accent)}
+  .hero-art.both-art{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,1200px,calc(2 * var(--cover-height) + 12px));aspect-ratio:auto;gap:12px;overflow:visible;box-shadow:none;border-radius:0}.hero-art.both-art > :global(*){width:100%;min-width:0;height:auto;aspect-ratio:1;justify-self:center;border-radius:12px;overflow:hidden;object-fit:cover}
   .artist-card :global(.artist-name){max-width:100%;white-space:normal;overflow-wrap:anywhere}
   .detected-artwork{width:100%;height:100%;object-fit:cover}
 </style>

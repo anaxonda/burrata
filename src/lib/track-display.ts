@@ -8,6 +8,27 @@ function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
+export function isUpcomingYouTubeUpload(track: Track): boolean {
+  return track.provider === "youtube" && object(track.provenance).youtubeUpcoming === true;
+}
+
+export function youtubeFeaturedArtist(track: Track): string | null {
+  if (track.provider !== "youtube" || track.artist.trim()) return null;
+  const provenance = object(track.provenance);
+  if (provenance.available === false || object(provenance.manualFields).artist === true) return null;
+  const channelId = provenance.uploaderChannelId;
+  const channelName = provenance.channelName ?? provenance.uploaderChannelTitle;
+  // Older playlist snapshots only carry the channel label. This is a search
+  // hint even when the stable channel ID is present, never a recording credit.
+  const isNpr = channelId == null
+    ? typeof channelName === "string" && channelName.trim().toLowerCase() === "npr music"
+    : channelId === "UC4eYXhJI4-7wSWc8UNRwD4A";
+  if (!isNpr) return null;
+  const name = /^(?<name>[^\p{Cc}]{1,120}?):\s+Tiny Desk(?: \(Home\))? Concert$/iu
+    .exec(track.title.trim())?.groups?.name.trim();
+  return name && /\p{L}/u.test(name) ? name : null;
+}
+
 const roleLabels: Record<string, string> = {
   composer: "Composer", orchestra: "Orchestra", conductor: "Conductor",
   instrument: "Instrumentalist", vocal: "Vocalist", performer: "Performer",
@@ -22,7 +43,9 @@ export function classicalTrackDisplay(track: Track) {
   if (track.provider !== "musicbrainz" &&
       !(track.provider === "catalog" && provenance.catalogProvider === "musicbrainz")) return null;
   const work = object(provenance.classicalWork);
-  if (work.classical !== true) return null;
+  const relations = Array.isArray(provenance.recordingRelations) ? provenance.recordingRelations.slice(0, 64) : [];
+  if (work.classical !== true && !relations.some(row =>
+    ["composer", "conductor", "orchestra", "performing orchestra"].includes(String(object(row).type)))) return null;
   const text = (value: unknown) => typeof value === "string" ? value.trim().slice(0, 512) : "";
   const workTitle = text(work.title);
   const manual = object(provenance.manualFields);
@@ -38,8 +61,7 @@ export function classicalTrackDisplay(track: Track) {
   if (Array.isArray(work.composers)) {
     for (const composer of work.composers.slice(0, 16)) addCredit(composer, "Composer");
   }
-  const relations = Array.isArray(provenance.recordingRelations) ? provenance.recordingRelations.slice(0, 64) : [];
-  for (const role of ["orchestra", "instrument", "vocal", "performer", "conductor"]) {
+  for (const role of ["composer", "orchestra", "instrument", "vocal", "performer", "conductor"]) {
     for (const row of relations) {
       const relation = object(row);
       if (relation.type === role || (role === "orchestra" && relation.type === "performing orchestra")) {

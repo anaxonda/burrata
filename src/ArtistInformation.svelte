@@ -5,6 +5,7 @@
   import { biographySegments } from "./lib/artist-biography";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
   import type { Track } from "./lib/types";
+  import { youtubeFeaturedArtist } from "./lib/track-display";
   let {track, loadArtist, onArtist, onArtistRef, compact = false}: {
     track: Track; loadArtist: (track: Track) => Promise<ArtistProfile | null>;
     onArtist: () => void; onArtistRef?: (artist: ArtistRef) => void; compact?: boolean;
@@ -12,6 +13,7 @@
   let profile = $state<ArtistProfile | null>(null);
   let loading = $state(false);
   let expanded = $state(false);
+  const featuredArtist = $derived(youtubeFeaturedArtist(track));
   const identity = $derived(JSON.stringify([track.id, track.artist, track.title, track.isrc ?? "",
     (track.provenance as {radioMetadata?: {identifiers?: {isrc?: unknown}}} | null)?.radioMetadata?.identifiers?.isrc ?? ""]));
   const wikipediaSource = $derived(profile?.biographySource === "Wikipedia" ? profile.links.find(link => link.provider === "wikipedia" && link.label === "Wikipedia biography")?.url : undefined);
@@ -19,7 +21,9 @@
   $effect(() => {
     identity;
     const current = untrack(() => track);
-    profile = null; loading = true; expanded = false;
+    profile = null; loading = false; expanded = false;
+    if (featuredArtist) return;
+    loading = true;
     let cancelled = false;
     void loadArtist(current).then(value => {if (!cancelled) profile = value;}).catch(() => {}).finally(() => {if (!cancelled) loading = false;});
     return () => {cancelled = true;};
@@ -29,8 +33,9 @@
 <section class="artist-information" class:compact aria-label="Artist information">
   <h2>About the artist</h2>
   {#if profile?.imageUrl}<div class="portrait"><ArtworkImage urls={[profile.imageUrl]} /></div>{/if}
-  <button class="artist-name" onclick={browse}>{profile?.artist.name ?? (track.artist || "Find artist")}</button>
+  <button class="artist-name" onclick={browse}>{profile?.artist.name ?? (track.artist || featuredArtist || "Find artist")}</button>
   {#if biography.length}<p class:clamped={!expanded}>{#each biography as segment}{#if segment.url}<button class="biography-link" onclick={() => void call("open_external_url", { url: segment.url })}>{segment.text}</button>{:else}{segment.text}{/if}{/each}</p><button class="subtle" onclick={() => expanded = !expanded}>{expanded ? "Show less" : "Read more"}</button>{#if profile?.biographySource}<small class="attribution">{#if wikipediaSource}<button class="source" onclick={() => void call("open_external_url", { url: wikipediaSource })}>Wikipedia ↗</button> · <button class="source" onclick={() => void call("open_external_url", { url: "https://creativecommons.org/licenses/by-sa/4.0/" })}>CC BY-SA ↗</button>{:else}{profile.biographySource}{/if}</small>{/if}
+  {:else if featuredArtist}<p>Featured artist from the video title.</p>
   {:else}<p>{loading ? "Loading artist information…" : "Artist information is not available for this recording."}</p>{/if}
   <button class="browse" onclick={browse}>Browse artist</button>
 </section>

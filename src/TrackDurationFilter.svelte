@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from "svelte";
+  import MenuIcon from "./MenuIcon.svelte";
   let { minDuration = $bindable(""), maxDuration = $bindable(""), minLabel = "Minimum track duration", maxLabel = "Maximum track duration", inline = false, includeDuration = true, extraFilters, extraFiltersActive = false, onchange }: {
     minDuration?: string; maxDuration?: string; minLabel?: string; maxLabel?: string; inline?: boolean; includeDuration?: boolean; extraFilters?: Snippet; extraFiltersActive?: boolean; onchange?: (minimum: string, maximum: string) => void;
   } = $props();
   let open = $state(false);
+  const panelId = $props.id();
   let root: HTMLDivElement;
   let panel: HTMLDivElement;
   let popupLeft = $state(0), popupTop = $state(0), popupMaxHeight = $state(600);
@@ -47,8 +49,8 @@
 
 <svelte:window onpointerdown={(event) => { if (open && root && event.target instanceof Node && !root.contains(event.target) && !panel?.contains(event.target)) open = false; }} onkeydown={(event) => { if (open && event.key === "Escape") { if (inline) event.preventDefault(); open = false; root.querySelector<HTMLButtonElement>(".filter-toggle")?.focus(); } }} />
 <div class="duration-filter" bind:this={root}>
-  <button type="button" class="filter-toggle" class:active={active || extraFiltersActive} aria-expanded={open} onclick={toggle}>Filters{#if active || extraFiltersActive}<span aria-label={extraFiltersActive ? "Additional filters active" : "Duration filter active"}> · {Number(active) + Number(extraFiltersActive)}</span>{/if}<span aria-hidden="true"> ▾</span></button>
-  <div class="duration-inputs" class:inline bind:this={panel} use:portal={open && !inline} style:left={`${popupLeft}px`} style:top={`${popupTop}px`} style:max-height={`${popupMaxHeight}px`} hidden={!open}>
+  <button type="button" class="filter-toggle dropdown-trigger" class:active={active || extraFiltersActive} aria-expanded={open} aria-controls={panelId} onclick={toggle}>Filters{#if active || extraFiltersActive}<span aria-label={extraFiltersActive ? "Additional filters active" : "Duration filter active"}> · {Number(active) + Number(extraFiltersActive)}</span>{/if}<MenuIcon name={open ? "arrow-up" : "arrow-down"} /></button>
+  <div id={panelId} class="duration-inputs dropdown-menu" class:inline bind:this={panel} use:portal={open && !inline} style:left={`${popupLeft}px`} style:top={`${popupTop}px`} style:max-height={`${popupMaxHeight}px`} hidden={!open}>
     {#if extraFilters}<div class="extra-filters">{@render extraFilters()}</div>{/if}
     {#if includeDuration}
       <strong>Track duration</strong>
@@ -64,5 +66,10 @@
   .extra-filters :global(label) { display: grid; gap: 4px; margin: 0; color: var(--muted); font-size: 11px; }
   .extra-filters :global(select) { width: 100%; min-width: 0; }
   .duration-inputs.inline{position:static;width:100%;max-width:none;margin-top:6px;box-shadow:none}
-  .duration-filter{position:relative;flex:0 0 auto;align-self:end;min-width:0}.duration-filter>.filter-toggle{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:3px;height:34px;min-height:34px;margin:0;padding:0 10px;border:1px solid var(--line,#454a50);border-radius:7px;background:var(--surface,#202328);color:var(--muted,#a3a8ae);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer}.duration-filter>.filter-toggle.active{color:var(--accent,#b8ec8c);border-color:var(--accent,#b8ec8c)}.duration-inputs{position:fixed;left:0;top:0;z-index:1000;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:9px;box-sizing:border-box;width:220px;max-width:calc(100vw - 32px);padding:12px;border:1px solid var(--line,#454a50);border-radius:8px;background:var(--surface,#202328);box-shadow:0 8px 24px #0007;color:var(--text,#eee)}.duration-inputs[hidden]{display:none}.duration-inputs>strong{grid-column:1/-1;font-size:12px;font-weight:600}.duration-inputs>label{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:11px}.duration-inputs input{box-sizing:border-box;display:block;width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid var(--line,#454a50);border-radius:6px;background:var(--base,#17191c);color:var(--text,#eee);font:inherit;font-size:12px;line-height:18px}.duration-inputs>.clear-duration{grid-column:1/-1;justify-self:start;min-height:28px;padding:3px 0;border:0;background:none;color:var(--accent,#b8ec8c);font:inherit;font-size:11px;cursor:pointer}.clear-duration:disabled{opacity:.45;cursor:default}
+  .duration-filter{position:relative;flex:0 0 auto;align-self:end;min-width:0}
+  .filter-toggle{display:inline-flex;align-items:center;gap:4px;margin:0;padding:0 8px;white-space:nowrap}
+  .filter-toggle :global(svg){width:14px;height:14px;flex:none;color:var(--muted)}
+  .filter-toggle.active{color:var(--accent);border-color:var(--accent)}
+  .duration-inputs{position:fixed;left:0;top:0;z-index:1000;overflow:auto;overscroll-behavior:contain;display:grid;grid-template-columns:1fr 1fr;gap:8px;box-sizing:border-box;width:220px;max-width:calc(100vw - 32px);padding:8px}
+  .duration-inputs[hidden]{display:none}.duration-inputs>strong{grid-column:1/-1;font-size:12px;font-weight:600}.duration-inputs>label{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:11px}.duration-inputs input{box-sizing:border-box;display:block;width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid var(--line,#454a50);border-radius:6px;background:var(--base,#17191c);color:var(--text,#eee);font:inherit;font-size:12px;line-height:18px}.duration-inputs>.clear-duration{grid-column:1/-1;justify-self:start;min-height:28px;padding:3px 0;border:0;background:none;color:var(--accent,#b8ec8c);font:inherit;font-size:11px;cursor:pointer}.clear-duration:disabled{opacity:.45;cursor:default}
 </style>

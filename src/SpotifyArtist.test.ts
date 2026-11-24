@@ -107,6 +107,22 @@ describe("SpotifyArtist pagination", () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it("opens each album header artist using the loaded credit or a Spotify artist search", async () => {
+    const release = { ...album("album-header", "The Final Kiss"), artists: ["In Strict Confidence", "Guest Artist"] };
+    const first = { ...track("first", "Fever"), artist: "In Strict Confidence" };
+    const onArtist = vi.fn(), onBrowseArtistProvider = vi.fn(), onPlay = vi.fn();
+    const call = vi.fn(async () => ({ album: release, tracks: [first], total: 1 }));
+    const target = render(call, onPlay, release.id, { initialAlbumId: release.id, onArtist, onBrowseArtistProvider });
+    await settle();
+    const credits = target.querySelectorAll<HTMLButtonElement>(".artist-banner .album-artist-link");
+    expect([...credits].map(button => button.textContent)).toEqual(release.artists);
+    credits[0].click();
+    credits[1].click();
+    expect(onArtist).toHaveBeenCalledExactlyOnceWith(first);
+    expect(onBrowseArtistProvider).toHaveBeenCalledExactlyOnceWith("Guest Artist", "spotify");
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
   it("fetches every album page before saving and keeps playlist and partial-save actions available", async () => {
     const release = album("whole-album", "Whole album");
     const first = track("first", "First"), second = track("second", "Second");

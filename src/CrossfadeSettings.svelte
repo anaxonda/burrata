@@ -11,12 +11,12 @@
   } = $props();
 </script>
 <div class="crossfade">
-  <div class="heading"><label><input type="checkbox" checked={enabled} onchange={event => onchange(event.currentTarget.checked, seconds)} /><span>Crossfade songs</span></label><InfoPopover label="About crossfade">Blend songs during natural transitions, including albums. Changes apply to the next transition.</InfoPopover></div>
+  <div class="heading"><label><input id="crossfade-settings" type="checkbox" checked={enabled} onchange={event => onchange(event.currentTarget.checked, seconds)} /><span>Crossfade songs</span></label><InfoPopover label="About crossfade">Blend songs during natural transitions, including albums. Changes apply to the next transition.</InfoPopover></div>
   {#if onsoftnextchange}
-    <div class="heading"><label><input type="checkbox" checked={softNext} onchange={event => onsoftnextchange?.(event.currentTarget.checked)} /><span>Soft Next</span></label><InfoPopover label="About Soft Next">Fade when you skip to the next queued track. The current track keeps playing while the next track loads.</InfoPopover></div>
+    <div class="heading"><label><input id="soft-next-setting" type="checkbox" checked={softNext} onchange={event => onsoftnextchange?.(event.currentTarget.checked)} /><span>Soft Next</span></label><InfoPopover label="About Soft Next">Fade when you skip to the next queued track. The current track keeps playing while the next track loads.</InfoPopover></div>
   {/if}
   {#if onsofttrackselectionchange}
-    <div class="heading"><label><input type="checkbox" checked={softTrackSelection} onchange={event => onsofttrackselectionchange?.(event.currentTarget.checked)} /><span>Fade when selecting a track</span></label></div>
+    <div class="heading"><label><input id="soft-track-selection-setting" type="checkbox" checked={softTrackSelection} onchange={event => onsofttrackselectionchange?.(event.currentTarget.checked)} /><span>Fade when selecting a track</span></label></div>
   {/if}
   {#if enabled || softNext || softTrackSelection}<label class="duration">Fade duration <select aria-label="Crossfade duration" value={seconds} onchange={event => onchange(enabled, Number(event.currentTarget.value))}>{#each Array.from({length:12}, (_, i) => i + 1) as n}<option value={n}>{n} {n === 1 ? "second" : "seconds"}</option>{/each}</select></label>{/if}
 </div>

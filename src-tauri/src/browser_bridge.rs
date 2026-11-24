@@ -2571,9 +2571,7 @@ mod tests {
     fn queued_import_requires_a_fresh_companion_with_browser_assisted_access() {
         let now = Instant::now();
         let expired = now - Duration::from_secs(76);
-        assert!(ensure_browser_import_ready(None, Some(2))
-            .unwrap_err()
-            .contains("not connected"));
+        assert!(ensure_browser_import_ready(None, Some(2)).unwrap_err().contains("not connected"));
         assert!(ensure_browser_import_ready(Some(&expired), Some(2)).is_err());
         for protocol in [None, Some(0), Some(1)] {
             assert!(ensure_browser_import_ready(Some(&now), protocol)
