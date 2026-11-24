@@ -632,30 +632,51 @@ fn classical_musicbrainz_query(query: &str) -> Option<String> {
     }
     let normalized = crate::matching::normalize(query);
     let words = normalized.split_whitespace().take(32).collect::<Vec<_>>();
-    let (start, end, required_recording) = words.iter().enumerate().find_map(|(index, title)| {
-        if !matches!(
-            *title,
-            "symphony" | "concerto" | "sonata" | "suite" | "quartet" | "partita"
-        ) {
-            return None;
-        }
-        let number = index
-            + if matches!(words.get(index + 1), Some(&"no" | &"number")) {
-                2
-            } else {
-                1
-            };
-        if let Some(number_word) = words.get(number).filter(|word| {
-            word.len() <= 3 && word.bytes().all(|byte| byte.is_ascii_digit())
-        }) {
-            return Some((index, number, format!("({title} AND {number_word})")));
-        }
-        let instrument_index = index.checked_sub(1)?;
-        let instrument = words[instrument_index];
-        (*title == "concerto"
-            && matches!(instrument, "violin" | "viola" | "cello" | "piano" | "flute" | "oboe" | "clarinet" | "bassoon" | "harp" | "trumpet" | "horn"))
-            .then(|| (instrument_index, index, format!("\"{instrument} concerto\"")))
-    })?;
+    let (start, end, required_recording) =
+        words.iter().enumerate().find_map(|(index, title)| {
+            if !matches!(
+                *title,
+                "symphony" | "concerto" | "sonata" | "suite" | "quartet" | "partita"
+            ) {
+                return None;
+            }
+            let number = index
+                + if matches!(words.get(index + 1), Some(&"no" | &"number")) {
+                    2
+                } else {
+                    1
+                };
+            if let Some(number_word) = words
+                .get(number)
+                .filter(|word| word.len() <= 3 && word.bytes().all(|byte| byte.is_ascii_digit()))
+            {
+                return Some((index, number, format!("({title} AND {number_word})")));
+            }
+            let instrument_index = index.checked_sub(1)?;
+            let instrument = words[instrument_index];
+            (*title == "concerto"
+                && matches!(
+                    instrument,
+                    "violin"
+                        | "viola"
+                        | "cello"
+                        | "piano"
+                        | "flute"
+                        | "oboe"
+                        | "clarinet"
+                        | "bassoon"
+                        | "harp"
+                        | "trumpet"
+                        | "horn"
+                ))
+            .then(|| {
+                (
+                    instrument_index,
+                    index,
+                    format!("\"{instrument} concerto\""),
+                )
+            })
+        })?;
     let mut query = format!("+recording:{required_recording}");
     for word in words[..start].iter().chain(&words[end + 1..]).take(18) {
         if word.len() >= 2 && word.chars().all(char::is_alphanumeric) {
@@ -2154,7 +2175,10 @@ mod tests {
                 .iter()
                 .map(|row| row.id.as_str())
                 .collect::<Vec<_>>(),
-            ["monochrome:12345678901234567", "monochrome:12345678901234569"]
+            [
+                "monochrome:12345678901234567",
+                "monochrome:12345678901234569"
+            ]
         );
         assert!(store
             .get_track("monochrome:12345678901234568")
@@ -2907,12 +2931,16 @@ mod tests {
 
     #[test]
     fn classical_musicbrainz_query_handles_an_unnumbered_instrumental_concerto() {
-        let query = super::classical_musicbrainz_query("Tchaikovsky Violin Concerto Hilary Hahn").unwrap();
+        let query =
+            super::classical_musicbrainz_query("Tchaikovsky Violin Concerto Hilary Hahn").unwrap();
         assert!(query.starts_with("+recording:\"violin concerto\""));
         for name in ["tchaikovsky", "hilary", "hahn"] {
             assert!(query.contains(&format!("artistname:\"{name}\"^4")));
         }
-        assert_eq!(super::classical_musicbrainz_query("festival concerto recording"), None);
+        assert_eq!(
+            super::classical_musicbrainz_query("festival concerto recording"),
+            None
+        );
     }
 
     #[test]

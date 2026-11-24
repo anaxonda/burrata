@@ -42,14 +42,42 @@ const AUDIO_LEASE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
 const MAX_LEASES: usize = 64;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Protocol { Subsonic, Jellyfin }
+pub(crate) enum Protocol {
+    Subsonic,
+    Jellyfin,
+}
 
 impl Protocol {
-    fn provider(self) -> &'static str { match self { Self::Subsonic => "subsonic", Self::Jellyfin => "jellyfin" } }
-    fn label(self) -> &'static str { match self { Self::Subsonic => "Subsonic", Self::Jellyfin => "Jellyfin" } }
-    fn preference(self) -> &'static str { match self { Self::Subsonic => PREF, Self::Jellyfin => "jellyfin.connection.v1" } }
-    fn keyring_service(self) -> &'static str { match self { Self::Subsonic => KEYRING_SERVICE, Self::Jellyfin => "org.burrata.discovery.jellyfin" } }
-    fn bridge_route(self) -> &'static str { match self { Self::Subsonic => "subsonic-audio", Self::Jellyfin => "jellyfin-audio" } }
+    fn provider(self) -> &'static str {
+        match self {
+            Self::Subsonic => "subsonic",
+            Self::Jellyfin => "jellyfin",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Subsonic => "Subsonic",
+            Self::Jellyfin => "Jellyfin",
+        }
+    }
+    fn preference(self) -> &'static str {
+        match self {
+            Self::Subsonic => PREF,
+            Self::Jellyfin => "jellyfin.connection.v1",
+        }
+    }
+    fn keyring_service(self) -> &'static str {
+        match self {
+            Self::Subsonic => KEYRING_SERVICE,
+            Self::Jellyfin => "org.burrata.discovery.jellyfin",
+        }
+    }
+    fn bridge_route(self) -> &'static str {
+        match self {
+            Self::Subsonic => "subsonic-audio",
+            Self::Jellyfin => "jellyfin-audio",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -59,26 +87,61 @@ enum ServerClient {
 }
 
 impl ServerClient {
-    async fn connect(protocol: Protocol, endpoint: &str, username: &str, password: String, profile: &str) -> Result<Self, String> {
+    async fn connect(
+        protocol: Protocol,
+        endpoint: &str,
+        username: &str,
+        password: String,
+        profile: &str,
+    ) -> Result<Self, String> {
         match protocol {
-            Protocol::Subsonic => Client::connect(endpoint, username, password).await.map(Self::Subsonic),
-            Protocol::Jellyfin => crate::jellyfin_client::Client::connect_with_device_id(endpoint, username, password, profile).await.map(Self::Jellyfin),
+            Protocol::Subsonic => Client::connect(endpoint, username, password)
+                .await
+                .map(Self::Subsonic),
+            Protocol::Jellyfin => crate::jellyfin_client::Client::connect_with_device_id(
+                endpoint, username, password, profile,
+            )
+            .await
+            .map(Self::Jellyfin),
         }
     }
-    async fn song_catalog_page(&self, offset: usize, limit: usize) -> Result<(Vec<Song>, usize), String> {
-        match self { Self::Subsonic(c) => c.song_catalog_page(offset, limit).await, Self::Jellyfin(c) => c.song_catalog_page(offset, limit).await }
+    async fn song_catalog_page(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<Song>, usize), String> {
+        match self {
+            Self::Subsonic(c) => c.song_catalog_page(offset, limit).await,
+            Self::Jellyfin(c) => c.song_catalog_page(offset, limit).await,
+        }
     }
     async fn song(&self, id: &str) -> Result<Song, String> {
-        match self { Self::Subsonic(c) => c.song(id).await, Self::Jellyfin(c) => c.song(id).await }
+        match self {
+            Self::Subsonic(c) => c.song(id).await,
+            Self::Jellyfin(c) => c.song(id).await,
+        }
     }
     async fn album_cover_id(&self, id: &str) -> Result<Option<String>, String> {
-        match self { Self::Subsonic(c) => c.album_cover_id(id).await, Self::Jellyfin(c) => c.album_cover_id(id).await }
+        match self {
+            Self::Subsonic(c) => c.album_cover_id(id).await,
+            Self::Jellyfin(c) => c.album_cover_id(id).await,
+        }
     }
     async fn cover_art(&self, id: &str) -> Result<(&'static str, Vec<u8>), String> {
-        match self { Self::Subsonic(c) => c.cover_art(id).await, Self::Jellyfin(c) => c.cover_art(id).await }
+        match self {
+            Self::Subsonic(c) => c.cover_art(id).await,
+            Self::Jellyfin(c) => c.cover_art(id).await,
+        }
     }
-    async fn stream(&self, id: &str, range: Option<HeaderValue>) -> Result<reqwest::Response, String> {
-        match self { Self::Subsonic(c) => c.stream(id, range).await, Self::Jellyfin(c) => c.stream(id, range).await }
+    async fn stream(
+        &self,
+        id: &str,
+        range: Option<HeaderValue>,
+    ) -> Result<reqwest::Response, String> {
+        match self {
+            Self::Subsonic(c) => c.stream(id, range).await,
+            Self::Jellyfin(c) => c.stream(id, range).await,
+        }
     }
 }
 
@@ -95,7 +158,13 @@ struct Configuration {
 
 impl Configuration {
     fn account(&self) -> String {
-        scope_hash(self.endpoint.as_bytes(), self.authenticated_account.as_deref().unwrap_or(&self.username).as_bytes())
+        scope_hash(
+            self.endpoint.as_bytes(),
+            self.authenticated_account
+                .as_deref()
+                .unwrap_or(&self.username)
+                .as_bytes(),
+        )
     }
 }
 
@@ -118,8 +187,14 @@ pub(crate) fn suppress_automatic_login(store: &Store) -> Result<(), String> {
 /// contains only saved track references and never carries a connection.
 pub(crate) fn preserve_current_connection(current: &Store, staged: &Store) -> Result<(), String> {
     for protocol in [Protocol::Subsonic, Protocol::Jellyfin] {
-        if current.get_json_preference(protocol.preference())?.is_some() {
-            staged.set_json_preference(protocol.preference(), &json!(read_configuration(current, protocol)?))?;
+        if current
+            .get_json_preference(protocol.preference())?
+            .is_some()
+        {
+            staged.set_json_preference(
+                protocol.preference(),
+                &json!(read_configuration(current, protocol)?),
+            )?;
         }
     }
     Ok(())
@@ -196,7 +271,10 @@ impl Service {
 
     pub(crate) fn router(self: &Arc<Self>) -> Router {
         Router::new()
-            .route(&format!("/{}/{{token}}", self.protocol.bridge_route()), get(audio).head(audio))
+            .route(
+                &format!("/{}/{{token}}", self.protocol.bridge_route()),
+                get(audio).head(audio),
+            )
             .with_state(self.clone())
     }
 
@@ -234,8 +312,12 @@ impl Service {
     }
 
     fn account_config(&self) -> Result<Configuration, String> {
-        self.configuration()?
-            .ok_or_else(|| format!("Connect a {} server in Settings first", self.protocol.label()))
+        self.configuration()?.ok_or_else(|| {
+            format!(
+                "Connect a {} server in Settings first",
+                self.protocol.label()
+            )
+        })
     }
 
     fn keyring_id(&self, account: &str) -> String {
@@ -256,11 +338,23 @@ impl Service {
         let password = tokio::task::spawn_blocking(move || {
             keyring::Entry::new(protocol.keyring_service(), &key)
                 .and_then(|entry| entry.get_password())
-                .map_err(|_| format!("{} password unavailable in the system keyring", protocol.label()))
+                .map_err(|_| {
+                    format!(
+                        "{} password unavailable in the system keyring",
+                        protocol.label()
+                    )
+                })
         })
         .await
         .map_err(|_| format!("Could not read the {} password", protocol.label()))??;
-        let client = ServerClient::connect(protocol, &expected.endpoint, &expected.username, password, &self.profile).await?;
+        let client = ServerClient::connect(
+            protocol,
+            &expected.endpoint,
+            &expected.username,
+            password,
+            &self.profile,
+        )
+        .await?;
         if let ServerClient::Jellyfin(jellyfin) = &client {
             if expected.authenticated_account.as_deref() != Some(jellyfin.account_identity()) {
                 return Err("The Jellyfin account changed. Reconnect it in Settings.".into());
@@ -284,7 +378,11 @@ impl Service {
 
     pub(crate) async fn status_with_existing_login(self: &Arc<Self>) -> Result<Status, String> {
         // A saved connection or explicit disconnect (JSON null) always wins.
-        if self.protocol == Protocol::Jellyfin || self.store.get_json_preference(self.protocol.preference())?.is_some()
+        if self.protocol == Protocol::Jellyfin
+            || self
+                .store
+                .get_json_preference(self.protocol.preference())?
+                .is_some()
             || self.automatic_login_attempted.swap(true, Ordering::AcqRel)
         {
             if let Ok(_update) = self.updates.try_lock() {
@@ -296,7 +394,11 @@ impl Service {
             return self.status();
         };
         let _update = self.updates.lock().await;
-        if self.store.get_json_preference(self.protocol.preference())?.is_some() {
+        if self
+            .store
+            .get_json_preference(self.protocol.preference())?
+            .is_some()
+        {
             return self.status();
         }
         match self
@@ -344,7 +446,14 @@ impl Service {
             allow_fallback: false,
         };
         let protocol = self.protocol;
-        let client = ServerClient::connect(protocol, &config.endpoint, &config.username, password.clone(), &self.profile).await?;
+        let client = ServerClient::connect(
+            protocol,
+            &config.endpoint,
+            &config.username,
+            password.clone(),
+            &self.profile,
+        )
+        .await?;
         if let ServerClient::Jellyfin(jellyfin) = &client {
             config.authenticated_account = Some(jellyfin.account_identity().to_owned());
         }
@@ -362,11 +471,22 @@ impl Service {
         tokio::task::spawn_blocking(move || {
             keyring::Entry::new(protocol.keyring_service(), &key)
                 .and_then(|entry| entry.set_password(&password))
-                .map_err(|_| format!("Could not save the {} password in the system keyring", protocol.label()))
+                .map_err(|_| {
+                    format!(
+                        "Could not save the {} password in the system keyring",
+                        protocol.label()
+                    )
+                })
         })
         .await
         .map_err(|_| format!("Could not open the {} keyring", protocol.label()))??;
-        if let Err(error) = self.store.save_server_library_connection(protocol.provider(), protocol.preference(), Some(&account), config.visible, &json!(&config)) {
+        if let Err(error) = self.store.save_server_library_connection(
+            protocol.provider(),
+            protocol.preference(),
+            Some(&account),
+            config.visible,
+            &json!(&config),
+        ) {
             if previous
                 .as_ref()
                 .is_none_or(|previous| previous.account() != account)
@@ -389,7 +509,13 @@ impl Service {
     pub(crate) async fn disconnect(&self) -> Result<Status, String> {
         let _update = self.updates.lock().await;
         if let Some(config) = self.configuration()? {
-            self.store.save_server_library_connection(self.protocol.provider(), self.protocol.preference(), None, false, &serde_json::Value::Null)?;
+            self.store.save_server_library_connection(
+                self.protocol.provider(),
+                self.protocol.preference(),
+                None,
+                false,
+                &serde_json::Value::Null,
+            )?;
             *self.configured_client.lock().await = None;
             self.clear_leases();
             let key = self.keyring_id(&config.account());
@@ -416,12 +542,21 @@ impl Service {
         let mut config = self.account_config()?;
         config.visible = visible;
         config.allow_fallback = allow_fallback;
-        self.store.save_server_library_connection(self.protocol.provider(), self.protocol.preference(), Some(&config.account()), config.visible, &json!(config))?;
+        self.store.save_server_library_connection(
+            self.protocol.provider(),
+            self.protocol.preference(),
+            Some(&config.account()),
+            config.visible,
+            &json!(config),
+        )?;
         self.sync_library_catalog(Some(config)).await?;
         self.status()
     }
 
-    async fn sync_library_catalog(self: &Arc<Self>, configuration: Option<Configuration>) -> Result<(), String> {
+    async fn sync_library_catalog(
+        self: &Arc<Self>,
+        configuration: Option<Configuration>,
+    ) -> Result<(), String> {
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
             let provider = service.protocol.provider();
@@ -429,23 +564,44 @@ impl Service {
                 return service.store.show_server_library_catalog(provider, None);
             };
             let account = config.account();
-            let stored_revision = service.store.server_library_catalog_revision(provider, &account)?;
+            let stored_revision = service
+                .store
+                .server_library_catalog_revision(provider, &account)?;
             let snapshot = service.with_cache(|conn| {
-                let Some(revision) = subsonic_cache::revision(conn, &account)? else { return Ok(None) };
+                let Some(revision) = subsonic_cache::revision(conn, &account)? else {
+                    return Ok(None);
+                };
                 if stored_revision.as_deref() == Some(revision.as_str()) {
                     return Ok(Some((revision, None)));
                 }
-                Ok(Some((revision, Some(subsonic_cache::catalog_entries(conn, &account)?))))
+                Ok(Some((
+                    revision,
+                    Some(subsonic_cache::catalog_entries(conn, &account)?),
+                )))
             })?;
             match snapshot {
                 Some((revision, Some(songs))) => {
-                    let tracks = songs.iter().map(|song| server_track(provider, &account, song)).collect::<Vec<_>>();
-                    service.store.replace_server_library_catalog(provider, &account, &revision, &tracks)
+                    let tracks = songs
+                        .iter()
+                        .map(|song| server_track(provider, &account, song))
+                        .collect::<Vec<_>>();
+                    service
+                        .store
+                        .replace_server_library_catalog(provider, &account, &revision, &tracks)
                 }
-                Some((_, None)) => service.store.show_server_library_catalog(provider, Some(&account)),
+                Some((_, None)) => service
+                    .store
+                    .show_server_library_catalog(provider, Some(&account)),
                 None => service.store.show_server_library_catalog(provider, None),
             }
-        }).await.map_err(|_| format!("Could not synchronize the {} Library catalog", self.protocol.label()))?
+        })
+        .await
+        .map_err(|_| {
+            format!(
+                "Could not synchronize the {} Library catalog",
+                self.protocol.label()
+            )
+        })?
     }
 
     pub(crate) fn status(&self) -> Result<Status, String> {
@@ -466,7 +622,8 @@ impl Service {
             allow_fallback: config.allow_fallback,
             track_count,
             can_seed,
-            strawberry_found: self.protocol == Protocol::Subsonic && strawberry_default_path().is_some(),
+            strawberry_found: self.protocol == Protocol::Subsonic
+                && strawberry_default_path().is_some(),
             refresh_after_login: false,
             warning: None,
         })
@@ -494,11 +651,20 @@ impl Service {
                         .strip_prefix(&format!("{}:", self.protocol.provider()))
                         .and_then(reference_id)
                         .filter(|(owner, _)| *owner == account)
-                        .ok_or_else(|| format!("This track belongs to a different {} account", self.protocol.label()))?
+                        .ok_or_else(|| {
+                            format!(
+                                "This track belongs to a different {} account",
+                                self.protocol.label()
+                            )
+                        })?
                         .1;
                     Some(
-                        subsonic_cache::catalog_song(conn, &account, &id)?
-                            .ok_or_else(|| format!("This track is no longer in the {} catalog", self.protocol.label()))?,
+                        subsonic_cache::catalog_song(conn, &account, &id)?.ok_or_else(|| {
+                            format!(
+                                "This track is no longer in the {} catalog",
+                                self.protocol.label()
+                            )
+                        })?,
                     )
                 }
                 None => None,
@@ -509,27 +675,38 @@ impl Service {
                         .as_deref()
                         .ok_or("This server did not provide an album ID")?,
                 )),
-                (Some(BrowseScope::Artist(_)), Some(song)) => Some(match song.artist_id.as_deref() {
-                    Some(id) => subsonic_cache::Scope::ArtistId(id),
-                    None => subsonic_cache::Scope::ArtistName(
-                        song.artist.as_deref().ok_or("This server did not provide an artist")?,
-                    ),
-                }),
+                (Some(BrowseScope::Artist(_)), Some(song)) => {
+                    Some(match song.artist_id.as_deref() {
+                        Some(id) => subsonic_cache::Scope::ArtistId(id),
+                        None => subsonic_cache::Scope::ArtistName(
+                            song.artist
+                                .as_deref()
+                                .ok_or("This server did not provide an artist")?,
+                        ),
+                    })
+                }
                 _ => None,
             };
-            let (songs, total) = subsonic_cache::page(conn, &account, query, offset, limit, filter)?;
+            let (songs, total) =
+                subsonic_cache::page(conn, &account, query, offset, limit, filter)?;
             Ok((songs, total, subsonic_cache::revision(conn, &account)?))
         })?;
         self.check_current_account(&account)?;
         Ok(Page {
-            tracks: songs.iter().map(|song| server_track(self.protocol.provider(), &account, song)).collect(),
+            tracks: songs
+                .iter()
+                .map(|song| server_track(self.protocol.provider(), &account, song))
+                .collect(),
             total,
             snapshot_id,
         })
     }
 
     pub(crate) async fn track_artwork(&self, track_id: &str) -> Result<Option<String>, String> {
-        let Some((account, id)) = track_id.strip_prefix(&format!("{}:", self.protocol.provider())).and_then(reference_id) else {
+        let Some((account, id)) = track_id
+            .strip_prefix(&format!("{}:", self.protocol.provider()))
+            .and_then(reference_id)
+        else {
             return Ok(None);
         };
         let Some(config) = self
@@ -558,7 +735,10 @@ impl Service {
             if let Some(cover) = cover.take().filter(|cover| attempted.insert(cover.clone())) {
                 if let Ok((mime, bytes)) = client.cover_art(&cover).await {
                     self.check_current_account(account)?;
-                    return Ok(Some(format!("data:{mime};base64,{}", STANDARD.encode(bytes))));
+                    return Ok(Some(format!(
+                        "data:{mime};base64,{}",
+                        STANDARD.encode(bytes)
+                    )));
                 }
             }
         }
@@ -594,7 +774,9 @@ impl Service {
         let account = config.account();
         let client = self.client(&config).await?;
         let songs = match &client {
-            ServerClient::Subsonic(client) if !client.supports_song_catalog() => Self::catalog_from_albums(client).await?,
+            ServerClient::Subsonic(client) if !client.supports_song_catalog() => {
+                Self::catalog_from_albums(client).await?
+            }
             _ => Self::catalog_from_songs(&client).await?,
         };
         let service = self.clone();
@@ -795,13 +977,19 @@ impl Service {
         self.check_current_account(account)?;
         let song = client.song(&id).await?;
         if song.id != id {
-            return Err(format!("The server did not return the requested {} song", self.protocol.label()));
+            return Err(format!(
+                "The server did not return the requested {} song",
+                self.protocol.label()
+            ));
         }
         let mut probe = client
             .stream(&id, Some(HeaderValue::from_static("bytes=0-1")))
             .await?;
         if !matches!(probe.status(), StatusCode::OK | StatusCode::PARTIAL_CONTENT) {
-            return Err(format!("{} did not return playable audio for the requested song", self.protocol.label()));
+            return Err(format!(
+                "{} did not return playable audio for the requested song",
+                self.protocol.label()
+            ));
         }
         self.check_current_account(account)?;
         let mime = probe
@@ -829,7 +1017,10 @@ impl Service {
             .flatten()
             .is_some_and(|chunk| !chunk.is_empty())
         {
-            return Err(format!("The {} server returned no audio for the requested song", self.protocol.label()));
+            return Err(format!(
+                "The {} server returned no audio for the requested song",
+                self.protocol.label()
+            ));
         }
         self.check_current_account(account)?;
         let base = self
@@ -907,11 +1098,14 @@ fn profile_scope(profile_dir: &Path) -> String {
 }
 
 fn delete_password(protocol: Protocol, key: &str) -> Option<String> {
-    match keyring::Entry::new(protocol.keyring_service(), key).and_then(|entry| entry.delete_credential()) {
+    match keyring::Entry::new(protocol.keyring_service(), key)
+        .and_then(|entry| entry.delete_credential())
+    {
         Ok(()) | Err(keyring::Error::NoEntry) => None,
-        Err(_) => {
-            Some(format!("The system keyring could not remove the previous {} password.", protocol.label()))
-        }
+        Err(_) => Some(format!(
+            "The system keyring could not remove the previous {} password.",
+            protocol.label()
+        )),
     }
 }
 
@@ -922,10 +1116,17 @@ async fn remove_password(protocol: Protocol, key: String) -> Option<String> {
 }
 
 pub(crate) fn reset_profile_credentials(profile_dir: &Path, quarantine: &Path) -> Vec<String> {
-    [Protocol::Subsonic, Protocol::Jellyfin].into_iter().filter_map(|protocol| reset_connection_credentials(profile_dir, quarantine, protocol)).collect()
+    [Protocol::Subsonic, Protocol::Jellyfin]
+        .into_iter()
+        .filter_map(|protocol| reset_connection_credentials(profile_dir, quarantine, protocol))
+        .collect()
 }
 
-fn reset_connection_credentials(profile_dir: &Path, quarantine: &Path, protocol: Protocol) -> Option<String> {
+fn reset_connection_credentials(
+    profile_dir: &Path,
+    quarantine: &Path,
+    protocol: Protocol,
+) -> Option<String> {
     let database = quarantine.join("burrata.sqlite");
     if !database.is_file() {
         return None;
@@ -934,27 +1135,36 @@ fn reset_connection_credentials(profile_dir: &Path, quarantine: &Path, protocol:
         let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
         conn.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF;")
             .ok()?;
-        conn.query_row("SELECT value FROM settings WHERE key=?1", [protocol.preference()], |row| {
-            row.get::<_, String>(0)
-        })
+        conn.query_row(
+            "SELECT value FROM settings WHERE key=?1",
+            [protocol.preference()],
+            |row| row.get::<_, String>(0),
+        )
         .optional()
         .ok()
     })();
     let config = match saved {
-        None => return Some(format!("Could not check for a saved {} password during reset.", protocol.label())),
+        None => {
+            return Some(format!(
+                "Could not check for a saved {} password during reset.",
+                protocol.label()
+            ))
+        }
         Some(None) => return None,
         Some(Some(raw)) => match serde_json::from_str::<Option<Configuration>>(&raw) {
             Ok(config) => config?,
             Err(_) => {
-                return Some(format!("Could not read {} connection metadata during reset.", protocol.label()))
+                return Some(format!(
+                    "Could not read {} connection metadata during reset.",
+                    protocol.label()
+                ))
             }
         },
     };
-    delete_password(protocol, &format!(
-        "{}-{}",
-        profile_scope(profile_dir),
-        config.account()
-    ))
+    delete_password(
+        protocol,
+        &format!("{}-{}", profile_scope(profile_dir), config.account()),
+    )
 }
 
 fn server_track_reference<'a>(provider: &str, track: &'a Track) -> Option<(&'a str, String)> {
@@ -1209,7 +1419,9 @@ mod tests {
             .await
             .unwrap();
         assert!(client.supports_song_catalog());
-        let songs = Service::catalog_from_songs(&ServerClient::Subsonic(client)).await.unwrap();
+        let songs = Service::catalog_from_songs(&ServerClient::Subsonic(client))
+            .await
+            .unwrap();
         assert_eq!(
             songs
                 .iter()
@@ -1280,7 +1492,8 @@ mod tests {
         let client = Client::connect(&endpoint, "listener", "test".into())
             .await
             .unwrap();
-        *service.configured_client.lock().await = Some((account.clone(), ServerClient::Subsonic(client)));
+        *service.configured_client.lock().await =
+            Some((account.clone(), ServerClient::Subsonic(client)));
         let song = Song {
             id: "track".into(),
             title: "Title".into(),
@@ -1426,7 +1639,10 @@ mod tests {
         let mut track = server_track("subsonic", &account, &song);
         assert_eq!(track.title, "Concerto: II. Andante");
         track.title = "Manual title".into();
-        assert_eq!(server_track_reference("subsonic", &track), Some((account.as_str(), song.id)));
+        assert_eq!(
+            server_track_reference("subsonic", &track),
+            Some((account.as_str(), song.id))
+        );
         assert!(track.source_url.is_empty() && track.preview_url.is_none());
         track.id.push('x');
         assert!(server_track_reference("subsonic", &track).is_none());

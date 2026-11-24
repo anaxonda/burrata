@@ -51,6 +51,7 @@ mod import_drop;
 mod import_metadata;
 pub mod imports;
 pub mod install_integration;
+mod jellyfin_client;
 mod legacy_discogs_credit;
 #[cfg(target_os = "linux")]
 pub mod linux_webview_output;
@@ -79,9 +80,9 @@ pub mod models;
 pub mod monochrome;
 pub(crate) mod monochrome_playback;
 pub mod monochrome_resolver;
-mod musicbrainz_apple_disc;
 #[cfg(target_os = "linux")]
 pub mod mpris;
+mod musicbrainz_apple_disc;
 pub mod native_output;
 mod native_session_migration;
 pub mod observed_analysis;
@@ -132,13 +133,12 @@ mod source_preparation;
 mod spotify_catalog_identity;
 mod spotify_mb_crosswalk;
 mod staged_recognition;
+pub mod storage;
+pub mod stream_analysis;
 mod subsonic;
 mod subsonic_cache;
 mod subsonic_client;
-mod jellyfin_client;
 mod subsonic_login;
-pub mod storage;
-pub mod stream_analysis;
 pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
@@ -365,12 +365,19 @@ async fn refresh_subsonic(state: State<'_, AppState>) -> Result<subsonic::Status
 
 #[tauri::command]
 async fn get_jellyfin_status(state: State<'_, AppState>) -> Result<subsonic::Status> {
-    let Ok(_library_write) = state.store.try_library_write() else { return state.jellyfin.status(); };
+    let Ok(_library_write) = state.store.try_library_write() else {
+        return state.jellyfin.status();
+    };
     state.jellyfin.status_with_existing_login().await
 }
 
 #[tauri::command]
-async fn connect_jellyfin(state: State<'_, AppState>, endpoint: String, username: String, password: String) -> Result<subsonic::Status> {
+async fn connect_jellyfin(
+    state: State<'_, AppState>,
+    endpoint: String,
+    username: String,
+    password: String,
+) -> Result<subsonic::Status> {
     let _library_write = state.store.try_library_write()?;
     state.jellyfin.connect(&endpoint, &username, password).await
 }
@@ -388,18 +395,31 @@ async fn refresh_jellyfin(state: State<'_, AppState>) -> Result<subsonic::Status
 }
 
 #[tauri::command]
-async fn set_jellyfin_preferences(state: State<'_, AppState>, visible: bool, allow_fallback: bool) -> Result<subsonic::Status> {
+async fn set_jellyfin_preferences(
+    state: State<'_, AppState>,
+    visible: bool,
+    allow_fallback: bool,
+) -> Result<subsonic::Status> {
     let _library_write = state.store.try_library_write()?;
     state.jellyfin.preferences(visible, allow_fallback).await
 }
 
 #[tauri::command]
-fn browse_jellyfin(state: State<'_, AppState>, query: String, offset: usize, limit: usize, scope: Option<subsonic::BrowseScope>) -> Result<subsonic::Page> {
+fn browse_jellyfin(
+    state: State<'_, AppState>,
+    query: String,
+    offset: usize,
+    limit: usize,
+    scope: Option<subsonic::BrowseScope>,
+) -> Result<subsonic::Page> {
     state.jellyfin.page(&query, offset, limit, scope)
 }
 
 #[tauri::command]
-async fn get_jellyfin_track_artwork(state: State<'_, AppState>, track_id: String) -> Result<Option<String>> {
+async fn get_jellyfin_track_artwork(
+    state: State<'_, AppState>,
+    track_id: String,
+) -> Result<Option<String>> {
     state.jellyfin.track_artwork(&track_id).await
 }
 
@@ -414,12 +434,21 @@ async fn seed_subsonic(
         None
     } else {
         let selected = tauri::async_runtime::spawn_blocking(move || {
-            app.dialog().file()
+            app.dialog()
+                .file()
                 .add_filter("Strawberry database", &["db", "sqlite", "sqlite3"])
                 .blocking_pick_file()
-        }).await.map_err(|_| "Could not open the file picker")?;
-        let Some(selected) = selected else { return Ok(None); };
-        Some(selected.into_path().map_err(|_| "Choose a local Strawberry database")?)
+        })
+        .await
+        .map_err(|_| "Could not open the file picker")?;
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        Some(
+            selected
+                .into_path()
+                .map_err(|_| "Choose a local Strawberry database")?,
+        )
     };
     let _library_write = state.store.try_library_write()?;
     state.subsonic.import_strawberry(path).await.map(Some)
@@ -2305,11 +2334,15 @@ async fn get_library_entity(
     include_derived: Option<bool>,
 ) -> Result<Option<storage::library::LibraryEntity>> {
     let store = state.store.clone();
-    tokio::task::spawn_blocking(move || if include_derived == Some(true) {
-        store.library_entity_status(&id)
-    } else { store.library_saved_entity_status(&id) })
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        if include_derived == Some(true) {
+            store.library_entity_status(&id)
+        } else {
+            store.library_saved_entity_status(&id)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2558,7 +2591,10 @@ async fn get_musicbrainz_recording_credits(
     state: State<'_, AppState>,
     recording_id: String,
 ) -> Result<serde_json::Value> {
-    state.artists.musicbrainz_recording_credits(&recording_id).await
+    state
+        .artists
+        .musicbrainz_recording_credits(&recording_id)
+        .await
 }
 #[tauri::command]
 async fn resolve_recording_metadata(
@@ -6664,7 +6700,9 @@ fn update_track(
     library_artist_credits: Option<Vec<storage::library::LibraryArtistCredit>>,
 ) -> Result<Track> {
     if let Some(credits) = library_artist_credits {
-        return state.store.update_library_artist_credits(&track.id, credits);
+        return state
+            .store
+            .update_library_artist_credits(&track.id, credits);
     }
     let updated = state.store.update_track(&track)?;
     let recording = state.store.recording_id(&updated.id)?;
@@ -7942,9 +7980,16 @@ async fn get_current_youtube_transcript(
         let candidate = &snapshot["candidate"];
         track["provider"].as_str() == Some("youtube")
             && track["providerId"].as_str() == Some(video_id.as_str())
-            && crate::acquisition::youtube_video_id(track["sourceUrl"].as_str().unwrap_or_default()).as_deref() == Some(video_id.as_str())
-            && (candidate.is_null() || (candidate["provider"].as_str() == Some("youtube")
-                && crate::acquisition::youtube_video_id(candidate["url"].as_str().unwrap_or_default()).as_deref() == Some(video_id.as_str())))
+            && crate::acquisition::youtube_video_id(track["sourceUrl"].as_str().unwrap_or_default())
+                .as_deref()
+                == Some(video_id.as_str())
+            && (candidate.is_null()
+                || (candidate["provider"].as_str() == Some("youtube")
+                    && crate::acquisition::youtube_video_id(
+                        candidate["url"].as_str().unwrap_or_default(),
+                    )
+                    .as_deref()
+                        == Some(video_id.as_str())))
     };
     if !current_upload() {
         return Err("The current YouTube video changed".into());

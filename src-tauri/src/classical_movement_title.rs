@@ -176,9 +176,18 @@ mod bwv_movement_title_tests {
         assert!(bwv_movement_titles_equivalent(OBSERVED, REQUEST));
         let without_composer = OBSERVED.strip_prefix("J.S. Bach: ").unwrap();
         assert!(!bwv_movement_titles_equivalent(REQUEST, without_composer));
-        assert!(bwv_catalog_movement_titles_equivalent(REQUEST, without_composer));
-        assert!(bwv_composer_credit_matches(OBSERVED, "Johann Sebastian Bach"));
-        assert!(!bwv_composer_credit_matches(OBSERVED, "Carl Philipp Emanuel Bach"));
+        assert!(bwv_catalog_movement_titles_equivalent(
+            REQUEST,
+            without_composer
+        ));
+        assert!(bwv_composer_credit_matches(
+            OBSERVED,
+            "Johann Sebastian Bach"
+        ));
+        assert!(!bwv_composer_credit_matches(
+            OBSERVED,
+            "Carl Philipp Emanuel Bach"
+        ));
         assert!(bwv_movement_titles_equivalent(
             "Violin Concerto No. 1 in A Minor, BWV 1041 – 2. (Andante)",
             "Violin Concerto No.1 in A minor, BWV 1041: II. Andante",

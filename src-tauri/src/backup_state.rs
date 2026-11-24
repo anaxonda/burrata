@@ -1369,7 +1369,9 @@ fn prune_server_catalog_snapshot(conn: &Connection) -> Result<usize> {
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='library_server_members')",
         [], |row| row.get(0),
     ).map_err(err)?;
-    if !has_catalog { return Ok(0); }
+    if !has_catalog {
+        return Ok(0);
+    }
     // The playback archive already contains the full sanitized queue. Preserve
     // saved tracks, user metadata and real references in the library archive.
     conn.execute_batch("CREATE TEMP TABLE server_archive_omissions(id TEXT PRIMARY KEY);
@@ -1384,13 +1386,21 @@ fn prune_server_catalog_snapshot(conn: &Connection) -> Result<usize> {
             AND NOT EXISTS(SELECT 1 FROM collection_members c WHERE c.recording_id=l.id)
             AND NOT EXISTS(SELECT 1 FROM playlist_ordered_entries p WHERE p.listing_id=l.id)
             AND NOT EXISTS(SELECT 1 FROM local_assets a WHERE a.recording_id=l.id);").map_err(err)?;
-    let omitted = conn.execute("DELETE FROM catalog_listings WHERE id IN (SELECT id FROM server_archive_omissions)", []).map_err(err)?;
-    conn.execute_batch("DELETE FROM recordings WHERE id IN (SELECT id FROM server_archive_omissions);
+    let omitted = conn
+        .execute(
+            "DELETE FROM catalog_listings WHERE id IN (SELECT id FROM server_archive_omissions)",
+            [],
+        )
+        .map_err(err)?;
+    conn.execute_batch(
+        "DELETE FROM recordings WHERE id IN (SELECT id FROM server_archive_omissions);
         DELETE FROM works WHERE id IN (SELECT 'work:' || id FROM server_archive_omissions)
             AND NOT EXISTS(SELECT 1 FROM recordings r WHERE r.work_id=works.id);
         DROP TABLE server_archive_omissions;
         DELETE FROM library_server_members;
-        DELETE FROM library_server_catalogs;").map_err(err)?;
+        DELETE FROM library_server_catalogs;",
+    )
+    .map_err(err)?;
     Ok(omitted)
 }
 
@@ -5523,7 +5533,9 @@ fn sanitize_manual_metadata(value: &Value) -> Value {
         } else if key == crate::storage::library::LIBRARY_ARTIST_CREDITS {
             serde_json::from_value(value.clone())
                 .ok()
-                .and_then(|credits| crate::storage::library::normalize_library_artist_credits(credits).ok())
+                .and_then(|credits| {
+                    crate::storage::library::normalize_library_artist_credits(credits).ok()
+                })
                 .filter(|credits| !credits.is_empty())
                 .and_then(|credits| serde_json::to_value(credits).ok())
         } else if key == "provenance" {
@@ -6252,20 +6264,39 @@ mod tests {
         let path = directory.path().join("library.sqlite");
         let store = Store::open(&path).unwrap();
         let make_track = |item: &str| crate::models::Track {
-            id: format!("subsonic:account.{item}"), provider_id: format!("account.{item}"),
-            provider: "subsonic".into(), title: item.into(), ..Default::default()
+            id: format!("subsonic:account.{item}"),
+            provider_id: format!("account.{item}"),
+            provider: "subsonic".into(),
+            title: item.into(),
+            ..Default::default()
         };
         let browse_only = make_track("browse");
         let playlist_item = make_track("playlist");
-        store.replace_server_library_catalog("subsonic", "account", "r1", &[browse_only.clone(), playlist_item.clone()]).unwrap();
+        store
+            .replace_server_library_catalog(
+                "subsonic",
+                "account",
+                "r1",
+                &[browse_only.clone(), playlist_item.clone()],
+            )
+            .unwrap();
         let playlist = store.create_collection("Keep playlist").unwrap();
-        store.append_playlist_entries(&playlist.id, &[playlist_item.clone()]).unwrap();
+        store
+            .append_playlist_entries(&playlist.id, &[playlist_item.clone()])
+            .unwrap();
         drop(store);
 
         let conn = Connection::open(path).unwrap();
         conn.execute_batch("PRAGMA foreign_keys=ON").unwrap();
         assert_eq!(prune_server_catalog_snapshot(&conn).unwrap(), 1);
-        let by_id = |id: &str| conn.query_row("SELECT COUNT(*) FROM catalog_listings WHERE id=?1", [id], |row| row.get::<_, usize>(0)).unwrap();
+        let by_id = |id: &str| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM catalog_listings WHERE id=?1",
+                [id],
+                |row| row.get::<_, usize>(0),
+            )
+            .unwrap()
+        };
         assert_eq!(by_id(&browse_only.id), 0);
         assert_eq!(by_id(&playlist_item.id), 1);
         verify_database(&conn).unwrap();
@@ -8026,7 +8057,10 @@ mod tests {
         assert!(restored.soft_track_selection_enabled);
         assert!(!safe_setting_value("crossfadeSeconds", &Value::from(13)));
         assert!(!safe_setting_value("softNextEnabled", &Value::from("true")));
-        assert!(!safe_setting_value("searchSuggestionsEnabled", &Value::from("false")));
+        assert!(!safe_setting_value(
+            "searchSuggestionsEnabled",
+            &Value::from("false")
+        ));
     }
 
     #[test]

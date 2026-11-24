@@ -149,33 +149,49 @@ pub(crate) fn numbered_movement_caption_matches(
     {
         return false;
     }
-    let Some((prefix, caption)) = caption.split_once(": ") else { return false; };
+    let Some((prefix, caption)) = caption.split_once(": ") else {
+        return false;
+    };
     (caption.eq_ignore_ascii_case(&fingerprint.title)
         || explicit_live_base(caption)
             .zip(explicit_live_base(&fingerprint.title))
             .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b)))
-        && fingerprint.artists.iter()
-            .filter(|artist| name_matches_caption_prefix(prefix, &artist.name)).count() == 1
+        && fingerprint
+            .artists
+            .iter()
+            .filter(|artist| name_matches_caption_prefix(prefix, &artist.name))
+            .count()
+            == 1
 }
 
 pub(crate) fn name_matches_caption_prefix(prefix: &str, name: &str) -> bool {
     prefix.eq_ignore_ascii_case(name)
-        || name.split_whitespace().next_back()
+        || name
+            .split_whitespace()
+            .next_back()
             .is_some_and(|surname| prefix.eq_ignore_ascii_case(surname))
         || has_initialed_surname(prefix, name)
 }
 
 // Preserve the explicit performance designation on both sides.
 fn explicit_live_base(title: &str) -> Option<&str> {
-    title.strip_suffix(" (Live)").or_else(|| title.strip_suffix(" - Live"))
+    title
+        .strip_suffix(" (Live)")
+        .or_else(|| title.strip_suffix(" - Live"))
 }
 
 fn is_numbered_movement(title: &str) -> bool {
-    let Some((work, movement)) = title.split_once(": ") else { return false; };
-    let Some((ordinal, movement_name)) = movement.split_once(". ") else { return false; };
+    let Some((work, movement)) = title.split_once(": ") else {
+        return false;
+    };
+    let Some((ordinal, movement_name)) = movement.split_once(". ") else {
+        return false;
+    };
     let work = crate::matching::normalize(work);
     let tokens = work.split_whitespace().collect::<Vec<_>>();
-    ["symphony", "concerto", "sonata", "quartet", "suite"].iter().any(|kind| tokens.contains(kind))
+    ["symphony", "concerto", "sonata", "quartet", "suite"]
+        .iter()
+        .any(|kind| tokens.contains(kind))
         && tokens.windows(2).any(|pair| {
             matches!(pair[0], "op" | "bwv" | "hwv" | "rv" | "k" | "kv")
                 && pair[1].parse::<u16>().is_ok()
@@ -195,17 +211,21 @@ pub(crate) fn numbered_movement_album_request(
     }
     let fingerprint = spotify_artist_credit_fingerprint(track)?;
     let album = track.album.as_deref().filter(|album| {
-        !album.trim().is_empty() && track.provenance["remoteCatalog"]["album"].as_str() == Some(*album)
+        !album.trim().is_empty()
+            && track.provenance["remoteCatalog"]["album"].as_str() == Some(*album)
     })?;
     is_numbered_movement(&fingerprint.title).then_some((album, fingerprint))
 }
 
 fn has_initialed_surname(prefix: &str, full_name: &str) -> bool {
-    let Some((given_names, surname)) = full_name.rsplit_once(' ') else { return false; };
+    let Some((given_names, surname)) = full_name.rsplit_once(' ') else {
+        return false;
+    };
     if !prefix.contains('.') {
         return false;
     }
-    let initials = given_names.split_whitespace()
+    let initials = given_names
+        .split_whitespace()
         .filter_map(|name| name.chars().next().filter(|letter| letter.is_alphabetic()))
         .map(|letter| letter.to_string())
         .collect::<Vec<_>>();
@@ -249,12 +269,25 @@ mod tests {
     #[test]
     fn numbered_movement_live_caption_preserves_performance_and_ordinal() {
         let title = "Piano Concerto No. 1 in B-Flat Minor, Op. 23: I. Allegro non troppo";
-        let mut fingerprint = spotify_artist_credit_fingerprint(&test_fixtures::two_performer_track()).unwrap();
+        let mut fingerprint =
+            spotify_artist_credit_fingerprint(&test_fixtures::two_performer_track()).unwrap();
         fingerprint.title = format!("{title} - Live");
-        assert!(numbered_movement_caption_matches(&fingerprint, &format!("Alpha: {title} (Live)"), 190.0));
-        assert!(!numbered_movement_caption_matches(&fingerprint, &format!("Alpha: {title}"), 190.0));
+        assert!(numbered_movement_caption_matches(
+            &fingerprint,
+            &format!("Alpha: {title} (Live)"),
+            190.0
+        ));
+        assert!(!numbered_movement_caption_matches(
+            &fingerprint,
+            &format!("Alpha: {title}"),
+            190.0
+        ));
         let other = title.replace(": I.", ": II.");
-        assert!(!numbered_movement_caption_matches(&fingerprint, &format!("Alpha: {other} (Live)"), 190.0));
+        assert!(!numbered_movement_caption_matches(
+            &fingerprint,
+            &format!("Alpha: {other} (Live)"),
+            190.0
+        ));
     }
 
     #[test]

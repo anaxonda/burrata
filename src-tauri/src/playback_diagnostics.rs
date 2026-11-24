@@ -947,7 +947,14 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
 fn enum_values(key: &str) -> Option<&'static [&'static str]> {
     match key {
         "classicalProofGate" => Some(&[
-            "catalog_context", "source_context", "topic_channel", "release_day", "duration", "movement", "credits", "performers",
+            "catalog_context",
+            "source_context",
+            "topic_channel",
+            "release_day",
+            "duration",
+            "movement",
+            "credits",
+            "performers",
         ]),
         "urlClient" => Some(&["MWEB", "VISIONOS", "ANDROID", "WEB", "TVHTML5", "other"]),
         "youtubeClient" => Some(&["mweb", "visionos", "extractor_default", "not_youtube"]),

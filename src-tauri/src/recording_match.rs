@@ -1603,7 +1603,10 @@ fn captured_chart_composite_remixers(
     let composite_credits = |label: &str| {
         let label = label.trim().to_lowercase();
         let names = split_corroborated_credits(named_remix_credit(&label, '.')?, primary_credits)?;
-        let keys = names.iter().map(|name| norm_artist(name)).collect::<Vec<_>>();
+        let keys = names
+            .iter()
+            .map(|name| norm_artist(name))
+            .collect::<Vec<_>>();
         Some(keys)
     };
     let request_remixers = composite_credits(version)?;
@@ -3565,15 +3568,16 @@ fn build_comparison(
     };
     let comparison_artist = &track.artist;
     let classical_caption_match = track.provider == "musicbrainz"
-        && [Some(caption_title), meta["track"].as_str(), canonical_catalog]
-            .into_iter()
-            .flatten()
-            .all(|observed| {
-                crate::classical_movement_title::bwv_movement_titles_equivalent(
-                    &track.title,
-                    observed,
-                )
-            });
+        && [
+            Some(caption_title),
+            meta["track"].as_str(),
+            canonical_catalog,
+        ]
+        .into_iter()
+        .flatten()
+        .all(|observed| {
+            crate::classical_movement_title::bwv_movement_titles_equivalent(&track.title, observed)
+        });
     let unresolved_annotation = !recording_scoped_title_alias
         && !classical_caption_match
         && prepared_unknown_annotation(
@@ -3998,7 +4002,9 @@ fn build_comparison(
     // Flat artist arrays and generic captions stay open-world. The narrowly
     // validated full-caption case above is an explicit structure witness.
     let credits_complete = structured_credits_complete
-        || release_caption.as_ref().is_some_and(|release| release.fresh)
+        || release_caption
+            .as_ref()
+            .is_some_and(|release| release.fresh)
         || fresh_caption_credits_complete
         || bound_caption_credits_complete;
     let request_credits_complete = (request_identity.credits_complete

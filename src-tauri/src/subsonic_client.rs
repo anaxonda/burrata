@@ -662,7 +662,9 @@ impl RawSong {
         };
         // The legacy artistId identifies one artist. A display credit with
         // several structured performers needs its own navigation identities.
-        let artist_id = self.artist_id.filter(|id| self.artists.len() <= 1 && validate_id(id).is_ok());
+        let artist_id = self
+            .artist_id
+            .filter(|id| self.artists.len() <= 1 && validate_id(id).is_ok());
         let performers = if self.artists.len() <= 32 {
             self.artists
                 .into_iter()
@@ -919,8 +921,12 @@ mod tests {
     fn song_retains_a_single_server_artist_id() {
         let raw: RawSong = serde_json::from_value(serde_json::json!({
             "id":"song", "title":"Track", "artist":"Artist", "artistId":"artist-id"
-        })).unwrap();
-        assert_eq!(raw.into_song().unwrap().artist_id.as_deref(), Some("artist-id"));
+        }))
+        .unwrap();
+        assert_eq!(
+            raw.into_song().unwrap().artist_id.as_deref(),
+            Some("artist-id")
+        );
     }
 
     #[test]

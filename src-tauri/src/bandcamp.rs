@@ -50,7 +50,10 @@ pub(crate) fn is_original_browser_track_link(track: &Track) -> bool {
     if track.provider != "bandcamp"
         || provenance["browserImport"] != true
         || provenance["captureProvider"] != "bandcamp"
-        || !matches!(provenance["sourceKind"].as_str(), Some("album" | "playlist" | "collection"))
+        || !matches!(
+            provenance["sourceKind"].as_str(),
+            Some("album" | "playlist" | "collection")
+        )
         || provenance["playbackMode"] != "lookup"
         || ["playbackMode", "sourceUrl", "durationSeconds", "album"]
             .iter()

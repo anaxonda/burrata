@@ -2755,9 +2755,12 @@ impl Store {
         } else {
             false
         };
-        let source_search = format!("SELECT l.metadata FROM catalog_listings l WHERE NOT EXISTS(
+        let source_search = format!(
+            "SELECT l.metadata FROM catalog_listings l WHERE NOT EXISTS(
             SELECT 1 FROM library_server_members m WHERE m.listing_id=l.id AND m.cache_created=1)
-            OR l.in_library=1 OR {} ORDER BY l.rowid DESC", server_library::VISIBLE_TRACK);
+            OR l.in_library=1 OR {} ORDER BY l.rowid DESC",
+            server_library::VISIBLE_TRACK
+        );
         let sql = match view {
             "favorites" => {
                 "SELECT l.metadata FROM catalog_listings l JOIN recordings r ON l.recording_id=r.id WHERE r.favorite=1 AND l.id=l.recording_id ORDER BY l.rowid DESC"
@@ -4244,7 +4247,9 @@ impl Store {
         let conn = self.lock_connection()?;
         let membership = if server_library::has_visible_catalog(&conn)? {
             format!("(l.in_library=1 OR {})", server_library::VISIBLE_TRACK)
-        } else { "l.in_library=1".into() };
+        } else {
+            "l.in_library=1".into()
+        };
         let mut filters = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
         let haystack = "lower(COALESCE(json_extract(l.metadata,'$.artist'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.title'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.album'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.version'),'' ) || ' ' || COALESCE(json_extract(l.metadata,'$.remixers'),'' ) || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.remixers')),'null') || ' ' || COALESCE(json_quote(json_extract(l.metadata,'$.provenance.artistCredits')),'null'))";
@@ -7437,7 +7442,8 @@ fn ensure_downloads_collection_row(conn: &Connection) -> Result<()> {
          ON CONFLICT(id) DO UPDATE SET name='Downloads',deleted_at=NULL
          WHERE collections.name<>'Downloads' OR collections.deleted_at IS NOT NULL",
         [DOWNLOADS_COLLECTION_ID],
-    ).map_err(err)?;
+    )
+    .map_err(err)?;
     Ok(())
 }
 
@@ -7822,7 +7828,11 @@ fn hydrate_track_batches(
         if chunk.is_empty() {
             break;
         }
-        result.extend(hydrate_track_chunk(conn, chunk, include_cross_recording_matches)?);
+        result.extend(hydrate_track_chunk(
+            conn,
+            chunk,
+            include_cross_recording_matches,
+        )?);
     }
     Ok(result)
 }
@@ -11445,8 +11455,7 @@ mod tests {
         local.provider = "local".into();
         local.provider_id = "work-tagged".into();
         local.source_url = "local:work-tagged".into();
-        local.provenance =
-            serde_json::json!({"embeddedClassical":{"version":1,"work":"Symphony"}});
+        local.provenance = serde_json::json!({"embeddedClassical":{"version":1,"work":"Symphony"}});
         let mut cached = catalog.clone();
         cached.id = "musicbrainz:00000000-0000-4000-8000-000000000002".into();
         cached.provider_id = "00000000-0000-4000-8000-000000000002".into();
@@ -11463,7 +11472,9 @@ mod tests {
             )
             .unwrap();
         let page = store
-            .list_tracks_page_with_sort_state("works", None, 200, 0, None, None, None, None, None, None, None)
+            .list_tracks_page_with_sort_state(
+                "works", None, 200, 0, None, None, None, None, None, None, None,
+            )
             .unwrap();
         assert_eq!(page.1, 2);
         assert_eq!(

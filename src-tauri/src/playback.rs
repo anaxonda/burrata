@@ -3879,7 +3879,8 @@ impl PlaybackService {
             let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             let message =
                 deadline_failure_for_active_operation(&state, generation, expected_seek_epoch);
-            let diagnostic = message.is_some()
+            let diagnostic = message
+                .is_some()
                 .then(|| state.native_decoder_diagnostic.take())
                 .flatten();
             (message, diagnostic)
@@ -8978,13 +8979,15 @@ fn note_startup_source_ready(state: &mut State, ready_at: Instant) {
     // startup timeline. A new operation still has its own independent clock.
     if state.first_audio_ms.is_none() {
         state.source_ready_ms = Some(
-            ready_at.saturating_duration_since(state.request_started).as_millis() as u64,
+            ready_at
+                .saturating_duration_since(state.request_started)
+                .as_millis() as u64,
         );
     }
     if state.operation_first_audio_ms.is_none() {
-        state.operation_source_ready_ms = state.operation_received_at.map(|received_at| {
-            ready_at.saturating_duration_since(received_at).as_millis() as u64
-        });
+        state.operation_source_ready_ms = state
+            .operation_received_at
+            .map(|received_at| ready_at.saturating_duration_since(received_at).as_millis() as u64);
     }
 }
 
@@ -13581,19 +13584,31 @@ mod tests {
             deadline_failure_for_active_operation(&state, 7, None),
             Some(crate::playback_failure::STARTUP_BUFFERING_TIMEOUT)
         );
-        assert_eq!(deadline_failure_for_active_operation(&state, 6, Some(3)), None);
-        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(2)), None);
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 6, Some(3)),
+            None
+        );
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, Some(2)),
+            None
+        );
         state.status = "resolving".into();
         assert_eq!(
             deadline_failure_for_active_operation(&state, 7, None),
             Some("Playback startup timed out")
         );
         state.status = "paused".into();
-        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(3)), None);
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, Some(3)),
+            None
+        );
         state.status = "buffering".into();
         let (cancel, _) = watch::channel(true);
         state.cancel = Some(cancel);
-        assert_eq!(deadline_failure_for_active_operation(&state, 7, Some(3)), None);
+        assert_eq!(
+            deadline_failure_for_active_operation(&state, 7, Some(3)),
+            None
+        );
     }
 
     #[test]

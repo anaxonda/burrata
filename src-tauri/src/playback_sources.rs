@@ -1941,7 +1941,9 @@ async fn resolve_media_server(
         return Err("Online fallback for this media server is no longer available".into());
     }
     if !crate::subsonic::verified_alternate(&alternate) {
-        return Err("The media server is unavailable and no verified alternate recording was found".into());
+        return Err(
+            "The media server is unavailable and no verified alternate recording was found".into(),
+        );
     }
     Ok(alternate)
 }
@@ -1953,7 +1955,10 @@ fn recently_observed_youtube_premiere(track: &Track, now: i64) -> bool {
         && track.provenance["youtubeUpcoming"] == true
         && track.provenance["youtubeUpcomingObservedAt"]
             .as_i64()
-            .is_some_and(|observed| now.checked_sub(observed).is_some_and(|age| (0..60).contains(&age)))
+            .is_some_and(|observed| {
+                now.checked_sub(observed)
+                    .is_some_and(|age| (0..60).contains(&age))
+            })
 }
 
 async fn resolve_inner(
@@ -1980,13 +1985,42 @@ async fn resolve_inner(
         if selected.is_some() {
             return Err("Play the saved server recording without an override".into());
         }
-        return Box::pin(resolve_after_local_preflight(store, track, bypass_local, |prepared| async move {
-            if !bypass_local && prepared.local_path.is_some() {
-                resolve_inner_prepared(store, acquisition, &prepared, None, cancel, settings, trace, failed, deadline, attempt_limit).await
-            } else {
-                resolve_media_server(store, acquisition, &prepared, cancel, settings, trace, failed, deadline, attempt_limit).await
-            }
-        })).await;
+        return Box::pin(resolve_after_local_preflight(
+            store,
+            track,
+            bypass_local,
+            |prepared| async move {
+                if !bypass_local && prepared.local_path.is_some() {
+                    resolve_inner_prepared(
+                        store,
+                        acquisition,
+                        &prepared,
+                        None,
+                        cancel,
+                        settings,
+                        trace,
+                        failed,
+                        deadline,
+                        attempt_limit,
+                    )
+                    .await
+                } else {
+                    resolve_media_server(
+                        store,
+                        acquisition,
+                        &prepared,
+                        cancel,
+                        settings,
+                        trace,
+                        failed,
+                        deadline,
+                        attempt_limit,
+                    )
+                    .await
+                }
+            },
+        ))
+        .await;
     }
     let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false)
         || track.provenance.get("portablePlaybackSource").is_some();
@@ -3627,7 +3661,9 @@ async fn resolve_ordinary_streaming_sources(
     preferred.streaming_fallback_enabled = false;
     // Preserve the original provider order before deriving branch settings.
     // The fallback branch otherwise presents its first provider as preferred.
-    let fallback_trace = trace.clone().with_automatic_fallback_search(track, &fallbacks);
+    let fallback_trace = trace
+        .clone()
+        .with_automatic_fallback_search(track, &fallbacks);
     if attempt_limit == 1 {
         return Box::pin(resolve_serial(
             store,
@@ -4123,7 +4159,8 @@ fn explicit_youtube_metadata_matches(
         // caption can change without changing the selected source.
         Some(expected) => {
             (fresh_duration - expected).abs() <= 2.0
-                && (exact_selection || explicit_youtube_title_matches(track, candidate, fresh_title))
+                && (exact_selection
+                    || explicit_youtube_title_matches(track, candidate, fresh_title))
         }
         // Public playlist entries can omit duration. Require the same video
         // and caption, and use the finite VOD duration supplied by the player.
@@ -4149,7 +4186,11 @@ async fn try_direct_youtube_explicit(
         return Err("Cancelled".into());
     }
     if let Some(reason) = acquisition.direct_youtube_skip_reason(candidate, settings) {
-        trace.event("direct_youtube_skipped", "youtube", json!({"reason":reason}));
+        trace.event(
+            "direct_youtube_skipped",
+            "youtube",
+            json!({"reason":reason}),
+        );
         return Ok(None);
     }
     try_direct_youtube_explicit_with_opportunity(
@@ -4377,21 +4418,33 @@ async fn try_direct_youtube_mapped(
             crate::youtube_direct_experiment::resolve_explicit_aac(&id, budget, cancel).await
         },
         |audio, cancel, trace, deadline| async move {
-            let observed_before = candidate.source_metadata.as_ref()
+            let observed_before = candidate
+                .source_metadata
+                .as_ref()
                 .and_then(|metadata| metadata["duration"].as_f64())
                 .or(candidate.duration_seconds);
-            if let Some(runtime) = audio.duration_seconds.filter(|runtime| Some(*runtime) != observed_before) {
+            if let Some(runtime) = audio
+                .duration_seconds
+                .filter(|runtime| Some(*runtime) != observed_before)
+            {
                 let mut fresh = candidate.clone();
                 fresh.duration_seconds = Some(runtime);
                 if let Some(metadata) = fresh.source_metadata.as_mut() {
                     metadata["duration"] = json!(runtime);
                 }
-                if !policy_matching::cached_direct_allowed(store, track, &fresh, settings.matching_level, settings.flexible_matching) {
+                if !policy_matching::cached_direct_allowed(
+                    store,
+                    track,
+                    &fresh,
+                    settings.matching_level,
+                    settings.flexible_matching,
+                ) {
                     return Err("Remembered direct source runtime no longer matches".into());
                 }
             }
             acquisition
-                .validate_playback_audio_uncached_traced(candidate, audio, cancel, trace, deadline).await
+                .validate_playback_audio_uncached_traced(candidate, audio, cancel, trace, deadline)
+                .await
         },
     )
     .await
@@ -4764,7 +4817,9 @@ async fn resolve_serial(
     // its existing opportunity independently of discovery eligibility.
     if !pinned
         && !bandcamp_eligible
-        && candidates.iter().all(|candidate| candidate.provider != "bandcamp")
+        && candidates
+            .iter()
+            .all(|candidate| candidate.provider != "bandcamp")
     {
         let prior_count = providers.len();
         providers.retain(|provider| provider != "bandcamp");
@@ -8683,7 +8738,10 @@ fn overrides_import_url(track: &Track, settings: &Settings) -> bool {
         && (settings.preferred_streaming_source == "bandcamp"
             || (settings.streaming_fallback_enabled
                 && settings.bandcamp_fallback_enabled
-                && settings.streaming_fallback_sources.iter().any(|source| source == "bandcamp")))
+                && settings
+                    .streaming_fallback_sources
+                    .iter()
+                    .any(|source| source == "bandcamp")))
         && crate::bandcamp::playback_enabled()
         && crate::bandcamp::is_original_browser_track_link(track)
     {
@@ -10203,8 +10261,12 @@ mod tests {
             direct_youtube_explicit_id(&track, &candidate, 2),
             Some("kiy05zewUpg")
         );
-        assert!(explicit_youtube_metadata_matches(&track, &candidate, &audio, true));
-        assert!(!explicit_youtube_metadata_matches(&track, &candidate, &audio, false));
+        assert!(explicit_youtube_metadata_matches(
+            &track, &candidate, &audio, true
+        ));
+        assert!(!explicit_youtube_metadata_matches(
+            &track, &candidate, &audio, false
+        ));
 
         for altered in [
             acquisition::PreviewAudio {
@@ -10224,7 +10286,9 @@ mod tests {
                 ..audio.clone()
             },
         ] {
-            assert!(!explicit_youtube_metadata_matches(&track, &candidate, &altered, true));
+            assert!(!explicit_youtube_metadata_matches(
+                &track, &candidate, &altered, true
+            ));
         }
         for provenance in [
             json!({"remotePlaylist":true,"available":false,"remoteEntryId":"fixture"}),
@@ -10241,7 +10305,12 @@ mod tests {
             duration_seconds: Some(19_800.0),
             ..track
         };
-        assert!(!explicit_youtube_metadata_matches(&with_duration, &candidate, &audio, true));
+        assert!(!explicit_youtube_metadata_matches(
+            &with_duration,
+            &candidate,
+            &audio,
+            true
+        ));
     }
 
     #[test]
@@ -14531,13 +14600,20 @@ mod tests {
         manually_changed.provenance["manualFields"] = json!({"playbackMode":true});
         assert!(implicit_first_candidate(&manually_changed, false, &settings, &[]).is_none());
         let mut changed_url = track.clone();
-        changed_url.source_url = "https://maddiemorrismusic.bandcamp.com/track/different-song".into();
+        changed_url.source_url =
+            "https://maddiemorrismusic.bandcamp.com/track/different-song".into();
         assert!(implicit_first_candidate(&changed_url, false, &settings, &[]).is_none());
         assert!(implicit_first_candidate(track, true, &settings, &[]).is_none());
 
-        let lookup = Settings { override_playlist_track_urls: true, ..settings.clone() };
+        let lookup = Settings {
+            override_playlist_track_urls: true,
+            ..settings.clone()
+        };
         assert!(implicit_first_candidate(track, false, &lookup, &[]).is_none());
-        let no_bandcamp = Settings { streaming_fallback_sources: vec!["soundcloud".into()], ..settings };
+        let no_bandcamp = Settings {
+            streaming_fallback_sources: vec!["soundcloud".into()],
+            ..settings
+        };
         assert!(implicit_first_candidate(track, false, &no_bandcamp, &[]).is_none());
     }
 
@@ -16550,7 +16626,11 @@ mod tests {
             "UC-cnCe5zradDZlcI8YZboBg"
         );
         assert!(policy_matching::cached_direct_allowed(
-            &store, &track, &restored, level, Default::default()
+            &store,
+            &track,
+            &restored,
+            level,
+            Default::default()
         ));
         assert!(direct_youtube_mapped_anchors(&track, &restored, Some(proof_json), 2).is_some());
 
@@ -16583,7 +16663,11 @@ mod tests {
             ..Default::default()
         };
         assert!(!policy_matching::cached_direct_allowed(
-            &store, &track, &other_level, crate::recording_match::MatchLevel::Flexible, strict_runtime,
+            &store,
+            &track,
+            &other_level,
+            crate::recording_match::MatchLevel::Flexible,
+            strict_runtime,
         ));
     }
 
@@ -18121,7 +18205,7 @@ mod native_only_recovery_tests {
 
     #[test]
     fn verified_chart_remix_accepts_reordered_credits_after_exact_catalog_refresh() {
-        use crate::recording_match::{MatchAction, MatchLevel, MatchStage, assess};
+        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
 
         let id = "29216617";
         let url = "https://www.beatport.com/track/mundian-to-bach-ke/29216617";

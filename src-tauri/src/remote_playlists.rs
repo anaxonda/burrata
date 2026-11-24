@@ -5970,17 +5970,14 @@ fn verify_youtube_channel_playlist_scope(value: &Value, owner: &str, rows: &[Val
         .filter(|id| id.len() == 24 && id.starts_with("UC") && valid_remote_id(id))
         .ok_or(invalid)?;
     let owner_url = url::Url::parse(owner).ok();
-    let requested_id = owner
-        .strip_prefix("UC")
-        .map(|_| owner)
-        .or_else(|| {
-            let mut segments = owner_url.as_ref()?.path_segments()?;
-            if segments.next()? == "channel" {
-                segments.next()
-            } else {
-                None
-            }
-        });
+    let requested_id = owner.strip_prefix("UC").map(|_| owner).or_else(|| {
+        let mut segments = owner_url.as_ref()?.path_segments()?;
+        if segments.next()? == "channel" {
+            segments.next()
+        } else {
+            None
+        }
+    });
     if scope["ownerId"].as_str() != Some(owner)
         || requested_id.is_some_and(|expected| expected != channel_id)
         || rows.iter().any(|row| {
@@ -7551,17 +7548,20 @@ mod tests {
             &scope,
             &owner,
             &[json!({"ownerId":channel,"canEdit":true})]
-        ).is_err());
+        )
+        .is_err());
         assert!(verify_youtube_channel_playlist_scope(
             &scope,
             &owner,
             &[json!({"ownerId":channel,"canEdit":false,"visibility":"private"})]
-        ).is_err());
+        )
+        .is_err());
         assert!(verify_youtube_channel_playlist_scope(
             &scope,
             &owner,
             &[json!({"ownerId":"UCaaaaaaaaaaaaaaaaaaaaaa","canEdit":false})]
-        ).is_err());
+        )
+        .is_err());
         let wrong_channel = json!({
             "channelScope":{"ownerId":owner,"channelId":"UCaaaaaaaaaaaaaaaaaaaaaa"}
         });

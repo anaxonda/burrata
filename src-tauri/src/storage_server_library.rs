@@ -58,12 +58,17 @@ pub(super) fn has_visible_catalog(conn: &Connection) -> Result<bool> {
 
 impl Store {
     pub(crate) fn has_saved_server_track(&self, id: &str) -> Result<bool> {
-        self.lock_connection()?.query_row("SELECT EXISTS(
+        self.lock_connection()?
+            .query_row(
+                "SELECT EXISTS(
             SELECT 1 FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
             WHERE l.id=?1 AND (l.in_library=1 OR r.favorite=1
             OR EXISTS(SELECT 1 FROM playlist_ordered_entries p WHERE p.listing_id=l.id)
             OR EXISTS(SELECT 1 FROM collection_members c WHERE c.recording_id=r.id)))",
-            [id], |row| row.get(0)).map_err(err)
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(err)
     }
 
     /// Persist account selection and fence the old projection atomically. A
@@ -243,11 +248,15 @@ mod tests {
         assert_eq!(entities("artist", Some("__saved__")).len(), 1);
 
         let jellyfin = track("jellyfin", "account.jelly", "Jellyfin Song");
-        store.replace_server_library_catalog("jellyfin", "account", "r1", &[jellyfin.clone()]).unwrap();
+        store
+            .replace_server_library_catalog("jellyfin", "account", "r1", &[jellyfin.clone()])
+            .unwrap();
         let saved_and_jellyfin = page(Some("saved,jellyfin"));
         assert_eq!(saved_and_jellyfin.len(), 2);
         assert!(saved_and_jellyfin.iter().any(|track| track.id == saved.id));
-        assert!(saved_and_jellyfin.iter().any(|track| track.id == jellyfin.id));
+        assert!(saved_and_jellyfin
+            .iter()
+            .any(|track| track.id == jellyfin.id));
         assert_eq!(page(Some("jellyfin,subsonic")).len(), 3);
         assert!(page(Some("none")).is_empty());
         assert_eq!(entities("artist", Some("saved,jellyfin")).len(), 2);

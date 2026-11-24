@@ -1000,7 +1000,10 @@ pub(crate) fn uses_managed_ytdlp(configured: &str) -> bool {
     configured.is_empty() || configured == "yt-dlp" || configured.starts_with("bundled:")
 }
 
-pub(crate) async fn youtube_caption_metadata(video_id: &str, settings: &Settings) -> Result<Value, String> {
+pub(crate) async fn youtube_caption_metadata(
+    video_id: &str,
+    settings: &Settings,
+) -> Result<Value, String> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     if youtube_video_id(&url).as_deref() != Some(video_id) {
         return Err("Invalid YouTube video ID".into());
@@ -1009,17 +1012,25 @@ pub(crate) async fn youtube_caption_metadata(video_id: &str, settings: &Settings
     let deadline = tokio::time::Instant::now() + Duration::from_secs(14);
     let mut args = vec!["--ignore-config".into(), "--no-warnings".into()];
     let (_, mut invocation) = add_youtube_support_args(
-        &mut args, "youtube", settings, Some((deadline, cancel.clone(), None)),
-    ).await?;
+        &mut args,
+        "youtube",
+        settings,
+        Some((deadline, cancel.clone(), None)),
+    )
+    .await?;
     args.extend([
-        "--dump-single-json".into(), "--no-playlist".into(), "--skip-download".into(),
-        "--".into(), url,
+        "--dump-single-json".into(),
+        "--no-playlist".into(),
+        "--skip-download".into(),
+        "--".into(),
+        url,
     ]);
     let output = run_tool_until(settings, args, cancel, deadline, |_| {}).await?;
     if let Some(invocation) = &mut invocation {
         invocation.complete();
     }
-    let info: Value = serde_json::from_str(&output).map_err(|_| "Invalid YouTube caption metadata")?;
+    let info: Value =
+        serde_json::from_str(&output).map_err(|_| "Invalid YouTube caption metadata")?;
     if info["id"].as_str() != Some(video_id) {
         return Err("YouTube returned a different video".into());
     }
@@ -2539,7 +2550,9 @@ async fn search_provider_candidates(
     let per_provider_timeout = trace
         .as_ref()
         .and_then(|trace| trace.provider_search_timeout(provider))
-        .map_or(per_provider_timeout, |limit| limit.min(per_provider_timeout));
+        .map_or(per_provider_timeout, |limit| {
+            limit.min(per_provider_timeout)
+        });
     let alternate_titles = trace
         .as_ref()
         .map_or(&[][..], |trace| trace.verified_search_titles());
@@ -2961,7 +2974,8 @@ fn raw_search_track(candidate: Candidate, info: &Value) -> Track {
     if candidate.provider == "youtube" {
         if info["live_status"].as_str() == Some("is_upcoming") {
             track.provenance["youtubeUpcoming"] = Value::Bool(true);
-            track.provenance["youtubeUpcomingObservedAt"] = Value::from(chrono::Utc::now().timestamp());
+            track.provenance["youtubeUpcomingObservedAt"] =
+                Value::from(chrono::Utc::now().timestamp());
             track.duration_seconds = None;
         }
         crate::metadata_normalization::normalize_selected_track(
@@ -4752,7 +4766,9 @@ fn spotify_catalog_lookup_can_overlap(
     let provenance = &track.provenance;
     providers.len() == 1
         && providers[0] == "youtube"
-        && crate::playback_sources::spotify_role_context::request_is_unmodified_exact_spotify_track(track)
+        && crate::playback_sources::spotify_role_context::request_is_unmodified_exact_spotify_track(
+            track,
+        )
         && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
         && track.asset_id.is_none()
         && provenance["portablePlaybackSource"].is_null()
@@ -6721,7 +6737,8 @@ pub(super) fn preview_audio_from_metadata(
     } else {
         None
     };
-    let resolved_title = source_metadata.as_ref()
+    let resolved_title = source_metadata
+        .as_ref()
         .filter(|metadata| metadata["youtubeGeneratedComposer"].is_string())
         .and_then(|metadata| metadata["track"].as_str())
         .or_else(|| info["title"].as_str())
@@ -6920,13 +6937,16 @@ fn playback_music_catalog_candidate_for_search(
         .zip(candidate.duration_seconds)
         .is_some_and(|(fingerprint, duration)| {
             crate::spotify_catalog_identity::numbered_movement_caption_matches(
-                &fingerprint, &candidate.title, duration,
+                &fingerprint,
+                &candidate.title,
+                duration,
             )
         });
-    (movement || std::iter::once(&track.title)
-        .chain(alternate_titles)
-        .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title)))
-        .then_some(candidate)
+    (movement
+        || std::iter::once(&track.title)
+            .chain(alternate_titles)
+            .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title)))
+    .then_some(candidate)
 }
 
 /// Retain the narrowly useful, fresh YouTube channel identity exposed by the
@@ -7391,8 +7411,14 @@ fn resolved_extractor_identity_metadata(
         crate::youtube_recording_metadata::corroborated_topic_credits(candidate, info, &metadata)
     {
         metadata.insert("youtubeGeneratedAlbum".into(), serde_json::json!(album));
-        metadata.insert("youtubeGeneratedComposer".into(), serde_json::json!(composer));
-        metadata.insert("youtubeGeneratedArtistCredits".into(), serde_json::json!(credits));
+        metadata.insert(
+            "youtubeGeneratedComposer".into(),
+            serde_json::json!(composer),
+        );
+        metadata.insert(
+            "youtubeGeneratedArtistCredits".into(),
+            serde_json::json!(credits),
+        );
     }
     Some(Value::Object(metadata))
 }
@@ -8232,8 +8258,15 @@ impl AcquisitionManager {
     pub(crate) fn set_jellyfin_service(&self, service: Arc<crate::subsonic::Service>) {
         let _ = self.inner.jellyfin.set(service);
     }
-    pub(crate) fn media_server_service(&self, provider: &str) -> Option<&Arc<crate::subsonic::Service>> {
-        match provider { "subsonic" => self.inner.subsonic.get(), "jellyfin" => self.inner.jellyfin.get(), _ => None }
+    pub(crate) fn media_server_service(
+        &self,
+        provider: &str,
+    ) -> Option<&Arc<crate::subsonic::Service>> {
+        match provider {
+            "subsonic" => self.inner.subsonic.get(),
+            "jellyfin" => self.inner.jellyfin.get(),
+            _ => None,
+        }
     }
     pub fn set_autotag_manager(&self, manager: Arc<crate::autotag::AutoTagger>) {
         if let Ok(mut slot) = self.inner.autotag.lock() {
@@ -9522,7 +9555,8 @@ impl AcquisitionManager {
             .lock()
             .is_ok_and(|entries| {
                 entries.get(&key).is_some_and(|cached| {
-                    cached.cached_at.elapsed() < cached.ttl && cached.audio.provider_session_current()
+                    cached.cached_at.elapsed() < cached.ttl
+                        && cached.audio.provider_session_current()
                 })
             })
         {
@@ -14794,7 +14828,9 @@ mod tests {
         let track = crate::spotify_catalog_identity::test_fixtures::two_performer_track();
         let providers = ["youtube".to_owned()];
         let settings = Settings::default();
-        assert!(spotify_catalog_lookup_can_overlap(&track, &providers, &settings));
+        assert!(spotify_catalog_lookup_can_overlap(
+            &track, &providers, &settings
+        ));
         for overlay in [
             serde_json::json!({"manualFields":{"title":true}}),
             serde_json::json!({"explicitSourceLock":true}),
@@ -14806,9 +14842,15 @@ mod tests {
                 .as_object_mut()
                 .unwrap()
                 .extend(overlay.as_object().unwrap().clone());
-            assert!(!spotify_catalog_lookup_can_overlap(&excluded, &providers, &settings));
+            assert!(!spotify_catalog_lookup_can_overlap(
+                &excluded, &providers, &settings
+            ));
         }
-        assert!(!spotify_catalog_lookup_can_overlap(&track, &["soundcloud".into()], &settings));
+        assert!(!spotify_catalog_lookup_can_overlap(
+            &track,
+            &["soundcloud".into()],
+            &settings
+        ));
     }
 
     #[tokio::test]
@@ -16374,7 +16416,7 @@ mod tests {
 
     #[test]
     fn official_generated_remix_roles_from_full_extractor_respect_flat_credit_evidence() {
-        use crate::recording_match::{MatchAction, MatchLevel, MatchStage, assess};
+        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
 
         let id = "RJaQjFrqvXQ";
         let title = "Plástico (Bugz In The Attic Remix)";
@@ -21874,7 +21916,13 @@ echo "$result"
 
     #[tokio::test]
     async fn preview_access_rejects_a_denied_tail_even_when_the_head_works() {
-        use axum::{extract::Path, http::{HeaderMap, StatusCode}, response::IntoResponse, routing::get, Router};
+        use axum::{
+            extract::Path,
+            http::{HeaderMap, StatusCode},
+            response::IntoResponse,
+            routing::get,
+            Router,
+        };
         use std::sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
@@ -21883,35 +21931,59 @@ echo "$result"
         const STREAM_BYTES: u64 = 2 * 1024 * 1024;
         let denied_tails = Arc::new(AtomicUsize::new(0));
         let observed_denials = denied_tails.clone();
-        let router = Router::new().route("/{url_state}", get(
-            move |Path(url_state): Path<String>, headers: HeaderMap| async move {
-                let start = match headers.get("range").and_then(|value| value.to_str().ok()) {
-                    Some("bytes=0-1023") => 0,
-                    Some("bytes=2096128-2097151") => STREAM_BYTES - 1024,
-                    other => panic!("Unexpected playback probe range {other:?}"),
-                };
-                if url_state == "stale" && start != 0 {
-                    observed_denials.fetch_add(1, Ordering::Relaxed);
-                    return (StatusCode::FORBIDDEN, "expired stream access").into_response();
-                }
-                (StatusCode::PARTIAL_CONTENT, [
-                    ("content-type", "audio/mp4".to_owned()),
-                    ("content-range", format!("bytes {start}-{}/{STREAM_BYTES}", start + 1023)),
-                ], vec![b'a'; 1024]).into_response()
-            },
-        ));
+        let router = Router::new().route(
+            "/{url_state}",
+            get(
+                move |Path(url_state): Path<String>, headers: HeaderMap| async move {
+                    let start = match headers.get("range").and_then(|value| value.to_str().ok()) {
+                        Some("bytes=0-1023") => 0,
+                        Some("bytes=2096128-2097151") => STREAM_BYTES - 1024,
+                        other => panic!("Unexpected playback probe range {other:?}"),
+                    };
+                    if url_state == "stale" && start != 0 {
+                        observed_denials.fetch_add(1, Ordering::Relaxed);
+                        return (StatusCode::FORBIDDEN, "expired stream access").into_response();
+                    }
+                    (
+                        StatusCode::PARTIAL_CONTENT,
+                        [
+                            ("content-type", "audio/mp4".to_owned()),
+                            (
+                                "content-range",
+                                format!("bytes {start}-{}/{STREAM_BYTES}", start + 1023),
+                            ),
+                        ],
+                        vec![b'a'; 1024],
+                    )
+                        .into_response()
+                },
+            ),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(4)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap();
         let (_cancel, mut cancellation) = watch::channel(false);
         let stale = url::Url::parse(&format!("http://{address}/stale")).unwrap();
-        let result = verify_preview_audio_access(&client, &stale, &[], Some(STREAM_BYTES), &mut cancellation).await;
+        let result = verify_preview_audio_access(
+            &client,
+            &stale,
+            &[],
+            Some(STREAM_BYTES),
+            &mut cancellation,
+        )
+        .await;
         assert!(result.unwrap_err().contains("HTTP 403"));
         assert_eq!(denied_tails.load(Ordering::Relaxed), 2);
 
         let fresh = url::Url::parse(&format!("http://{address}/fresh")).unwrap();
-        verify_preview_audio_access(&client, &fresh, &[], Some(STREAM_BYTES), &mut cancellation).await.unwrap();
+        verify_preview_audio_access(&client, &fresh, &[], Some(STREAM_BYTES), &mut cancellation)
+            .await
+            .unwrap();
         server.abort();
     }
 
@@ -22907,7 +22979,10 @@ echo "$result"
 
         let short_startup = PlaybackDeadline::after(Duration::from_secs(5));
         let retry_probe = monochrome_playback_probe_deadline(short_startup);
-        assert_eq!(short_startup.instant() - retry_probe, Duration::from_secs(4));
+        assert_eq!(
+            short_startup.instant() - retry_probe,
+            Duration::from_secs(4)
+        );
         let (_cancel_tx, cancel) = watch::channel(false);
         let failure = traced_monochrome_probe(
             None,

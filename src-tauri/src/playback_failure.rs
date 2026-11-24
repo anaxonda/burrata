@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) const SOULSEEK_DOWNLOAD_REQUIRED: &str =
     "Download this Soulseek file before playing it.";
 pub(crate) const YOUTUBE_PREMIERE_PENDING: &str = "This YouTube premiere has not started yet.";
-pub(crate) const STARTUP_BUFFERING_TIMEOUT: &str =
-    "Audio startup timed out while buffering.";
+pub(crate) const STARTUP_BUFFERING_TIMEOUT: &str = "Audio startup timed out while buffering.";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -444,7 +443,13 @@ pub fn should_skip_recording(value: &PlaybackFailure) -> bool {
 /// Raw extractor failures describe one source attempt, never resolver exhaustion.
 pub fn classify_extractor_failure(reason: &str) -> PlaybackFailure {
     if youtube_premiere_pending(&reason.to_ascii_lowercase()) {
-        return failure(FailureCategory::SourceUnavailable, FailureStage::Extraction, FailureScope::Source, false, None);
+        return failure(
+            FailureCategory::SourceUnavailable,
+            FailureStage::Extraction,
+            FailureScope::Source,
+            false,
+            None,
+        );
     }
     let mut value = classify(reason);
     if matches!(
@@ -470,7 +475,9 @@ fn youtube_premiere_pending(message: &str) -> bool {
             .and_then(|(_, description)| description.split_once(": "))
             .is_some_and(|(video_id, reason)| {
                 video_id.len() == 11
-                    && video_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                    && video_id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
                     && (reason.starts_with("premieres in ") || reason.starts_with("premieres on "))
             })
     })
@@ -593,7 +600,10 @@ pub fn safe_extractor_error(raw: &str) -> String {
         SourceAccess => "Audio source access was denied; refresh or choose another source",
         SourcePrivate => "Audio source is private; choose another source",
         SourceDeleted => "Audio source was removed; choose another source",
-        SourceUnavailable if raw.trim() == YOUTUBE_PREMIERE_PENDING || extractor_diagnostic_reason(raw) == "premiere_pending" => {
+        SourceUnavailable
+            if raw.trim() == YOUTUBE_PREMIERE_PENDING
+                || extractor_diagnostic_reason(raw) == "premiere_pending" =>
+        {
             YOUTUBE_PREMIERE_PENDING
         }
         SourceUnavailable => "Audio source is unavailable; choose another source",
@@ -647,7 +657,10 @@ mod tests {
         let safe = safe_extractor_error(raw);
         assert_eq!(safe, YOUTUBE_PREMIERE_PENDING);
         assert_eq!(classify(&safe), failure);
-        assert_ne!(extractor_diagnostic_reason("Track title: Premieres in 3 days"), "premiere_pending");
+        assert_ne!(
+            extractor_diagnostic_reason("Track title: Premieres in 3 days"),
+            "premiere_pending"
+        );
     }
 
     #[test]

@@ -253,7 +253,10 @@ async fn jellyfin_refresh_publishes_scoped_library_and_plays_through_native_rela
         .unwrap();
     assert!(service.fallback_track(track).is_some());
     assert!(!service.preferences(false, true).await.unwrap().visible);
-    assert_eq!(library_ids(&store, None), [track.id.clone(), other_track.id]);
+    assert_eq!(
+        library_ids(&store, None),
+        [track.id.clone(), other_track.id]
+    );
     assert_eq!(library_ids(&store, Some("jellyfin")), [track.id.clone()]);
     let saved = store.list_tracks("collection", Some(&playlist.id)).unwrap();
     assert_eq!(saved.len(), 1);

@@ -49,7 +49,14 @@ impl Client {
         )
         .await?;
         let user_id = jellyfin_id(&login.user.id).ok_or(BAD_RESPONSE)?;
-        let account_identity = format!("{}:{user_id}", login.server_id.as_deref().and_then(jellyfin_id).unwrap_or_default());
+        let account_identity = format!(
+            "{}:{user_id}",
+            login
+                .server_id
+                .as_deref()
+                .and_then(jellyfin_id)
+                .unwrap_or_default()
+        );
         let authorization = authorization(device_id, Some(&login.access_token))?;
         Ok(Self {
             http,
@@ -60,7 +67,9 @@ impl Client {
         })
     }
 
-    pub(crate) fn account_identity(&self) -> &str { &self.account_identity }
+    pub(crate) fn account_identity(&self) -> &str {
+        &self.account_identity
+    }
 
     fn get(&self, path: &str) -> RequestBuilder {
         self.http

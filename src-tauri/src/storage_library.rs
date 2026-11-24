@@ -1220,27 +1220,63 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
     let p = &track.provenance;
     if matches!(track.provider.as_str(), "subsonic" | "jellyfin") {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        let Some((account, _)) = track.provider_id.split_once('.') else { return Vec::new() };
+        let Some((account, _)) = track.provider_id.split_once('.') else {
+            return Vec::new();
+        };
         let scoped = |id: &str| format!("{account}.{}", URL_SAFE_NO_PAD.encode(id.as_bytes()));
         let artist = string_at(p, &["/serverArtistId", "/subsonicArtistId"])
             .filter(|_| p["manualFields"]["artist"] != true)
             .map(scoped)
-            .unwrap_or_else(|| format!("{account}.metadata.{}", URL_SAFE_NO_PAD.encode(normalized(&track.artist).as_bytes())));
+            .unwrap_or_else(|| {
+                format!(
+                    "{account}.metadata.{}",
+                    URL_SAFE_NO_PAD.encode(normalized(&track.artist).as_bytes())
+                )
+            });
         let mut result = Vec::new();
         if let Some(credits) = p[LIBRARY_ARTIST_CREDITS].as_array() {
             result.extend(credits.iter().filter_map(|credit| {
                 let name = string_at(credit, &["/name"])?;
-                let scoped_name = format!("{account}.metadata.{}", URL_SAFE_NO_PAD.encode(normalized(name).as_bytes()));
-                Some(entity("artist", name, track, Some(&track.provider), Some(&scoped_name)))
+                let scoped_name = format!(
+                    "{account}.metadata.{}",
+                    URL_SAFE_NO_PAD.encode(normalized(name).as_bytes())
+                );
+                Some(entity(
+                    "artist",
+                    name,
+                    track,
+                    Some(&track.provider),
+                    Some(&scoped_name),
+                ))
             }));
         } else if !track.artist.trim().is_empty() {
-            result.push(entity("artist", &track.artist, track, Some(&track.provider), Some(&artist)));
+            result.push(entity(
+                "artist",
+                &track.artist,
+                track,
+                Some(&track.provider),
+                Some(&artist),
+            ));
         }
-        if let (Some(name), Some(id)) = (track.album.as_deref().filter(|name| !name.trim().is_empty()),
-            string_at(p, &["/serverAlbumId", "/subsonicAlbumId"])) {
-            result.push(entity("album", name, track, Some(&track.provider), Some(&scoped(id))));
+        if let (Some(name), Some(id)) = (
+            track
+                .album
+                .as_deref()
+                .filter(|name| !name.trim().is_empty()),
+            string_at(p, &["/serverAlbumId", "/subsonicAlbumId"]),
+        ) {
+            result.push(entity(
+                "album",
+                name,
+                track,
+                Some(&track.provider),
+                Some(&scoped(id)),
+            ));
         }
-        return result.into_iter().filter_map(|entry| entry.validate().ok()).collect();
+        return result
+            .into_iter()
+            .filter_map(|entry| entry.validate().ok())
+            .collect();
     }
     let mut result = Vec::new();
     let manual_artist = p.pointer("/manualFields/artist") == Some(&json!(true));
@@ -1388,8 +1424,13 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
         // ID-index scan would read large metadata pages in random order, even
         // for the unsaved catalog rows it ultimately discards.
         let membership = if super::server_library::has_visible_catalog(conn)? {
-            format!("(l.in_library=1 OR {})", super::server_library::VISIBLE_TRACK)
-        } else { "l.in_library=1".into() };
+            format!(
+                "(l.in_library=1 OR {})",
+                super::server_library::VISIBLE_TRACK
+            )
+        } else {
+            "l.in_library=1".into()
+        };
         let raw_tracks = conn
             .prepare(&format!("SELECT l.metadata FROM catalog_listings l NOT INDEXED WHERE l.id=l.recording_id AND {membership} ORDER BY l.id"))
             .map_err(err)?
@@ -1536,7 +1577,10 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                     .entry(entry.id.clone())
                     .or_insert_with(|| entry.clone());
                 if !matches!(entry.provider.as_deref(), Some("subsonic" | "jellyfin")) {
-                    named_refs.entry(normalized(&entry.name)).or_default().insert(entry.id.clone());
+                    named_refs
+                        .entry(normalized(&entry.name))
+                        .or_default()
+                        .insert(entry.id.clone());
                 }
             }
         }
@@ -2010,8 +2054,13 @@ impl Store {
                     "json_extract(e.payload,'$.explicitlySaved')=1 OR EXISTS(SELECT 1 {saved_members})"
                 ));
             }
-            for (provider, selected) in [("jellyfin", selection.jellyfin), ("subsonic", selection.subsonic)] {
-                if !selected { continue; }
+            for (provider, selected) in [
+                ("jellyfin", selection.jellyfin),
+                ("subsonic", selection.subsonic),
+            ] {
+                if !selected {
+                    continue;
+                }
                 if kind == "artist" && matches!(artist_grouping, ArtistGrouping::Credited) {
                     conditions.push(format!("EXISTS(SELECT 1 FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=e.id AND l.provider='{provider}')"));
                 } else {
@@ -2029,12 +2078,16 @@ impl Store {
             .filter(|value| value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()));
         let track_count = if source == Some("__saved__") {
             format!("(SELECT COUNT(*) {saved_members})")
-        } else { "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)".into() };
+        } else {
+            "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)".into()
+        };
         let album_count = if source == Some("__saved__") {
             "(SELECT COUNT(*) FROM library_artist_albums m JOIN library_entities a ON a.id=m.album_id
                 WHERE m.artist_id=e.id AND (json_extract(a.payload,'$.explicitlySaved')=1 OR EXISTS(
                 SELECT 1 FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=a.id AND l.in_library=1)))"
-        } else { "(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id)" };
+        } else {
+            "(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id)"
+        };
         let order = match sort {
             "artist" => "unicode_lower(json_extract(e.payload,'$.artist'))",
             "year" => "COALESCE(json_extract(e.payload,'$.releaseDate'),'')",
@@ -2097,12 +2150,32 @@ impl Store {
         limit: usize,
         offset: usize,
     ) -> Result<LibraryTrackPage> {
-        self.list_library_entity_tracks_with_scope(id, query, sort, descending, availability, min_duration, max_duration, limit, offset, false)
+        self.list_library_entity_tracks_with_scope(
+            id,
+            query,
+            sort,
+            descending,
+            availability,
+            min_duration,
+            max_duration,
+            limit,
+            offset,
+            false,
+        )
     }
 
     pub(crate) fn list_library_entity_tracks_with_scope(
-        &self, id: &str, query: &str, sort: &str, descending: bool, availability: &str, min_duration: Option<f64>,
-        max_duration: Option<f64>, limit: usize, offset: usize, saved_only: bool,
+        &self,
+        id: &str,
+        query: &str,
+        sort: &str,
+        descending: bool,
+        availability: &str,
+        min_duration: Option<f64>,
+        max_duration: Option<f64>,
+        limit: usize,
+        offset: usize,
+        saved_only: bool,
     ) -> Result<LibraryTrackPage> {
         let conn = self.lock_connection()?;
         refresh(&conn)?;
@@ -2131,7 +2204,11 @@ impl Store {
         }
         let local = "EXISTS(SELECT 1 FROM library_present_recordings a WHERE a.recording_id=l.recording_id)";
         let duration = format!("json_extract({metadata},'$.durationSeconds')");
-        let saved_filter = if saved_only { " AND l.in_library=1" } else { "" };
+        let saved_filter = if saved_only {
+            " AND l.in_library=1"
+        } else {
+            ""
+        };
         let filter = format!("t.entity_id=?1 AND instr(unicode_lower(json_extract({metadata},'$.title') || ' ' || json_extract({metadata},'$.artist') || ' ' || COALESCE(json_extract({metadata},'$.album'),'')),?2)>0 AND (?3='all' OR (?3='local')={local}) AND (?4 IS NULL OR {duration}>=?4) AND (?5 IS NULL OR {duration}<=?5){saved_filter}");
         let from = "FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id JOIN recordings r ON r.id=l.recording_id";
         let q = normalized(query);
@@ -2199,7 +2276,11 @@ impl Store {
             .filter(|provider| matches!(*provider, "subsonic" | "jellyfin"))
             .map(|provider| conn.query_row("SELECT account || ':' || revision || ':' || visible FROM library_server_catalogs WHERE provider=?1", [provider], |row| row.get(0)).optional())
             .transpose().map_err(err)?.flatten();
-        Ok(LibraryTrackPage { tracks, total, snapshot_id })
+        Ok(LibraryTrackPage {
+            tracks,
+            total,
+            snapshot_id,
+        })
     }
 
     pub fn save_library_artist(&self, entry: LibraryEntity) -> Result<LibraryEntity> {
@@ -2356,7 +2437,9 @@ mod tests {
         refresh(&conn).unwrap();
 
         let entity_count: usize = conn
-            .query_row("SELECT COUNT(*) FROM library_entities", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM library_entities", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(entity_count, 2);
         let performed_playback_lookup: bool = conn
